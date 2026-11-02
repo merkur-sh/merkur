@@ -27,6 +27,8 @@ import {
   browserPerfIngestFrequency,
   browserPerfRowCounter,
   browserSessionQualityFrequency,
+  browserStorageFailureCounter,
+  browserStorageFailureFrequency,
   browserTraceIngestFrequency,
   browserUpgradeAdmissionFrequency,
   browserUpgradeCandidateDispositionFrequency,
@@ -272,6 +274,35 @@ export function telemetryRoutesPlugin({
         return yield* program;
       }),
       { logger, eventName, request, signal: request.signal },
+    );
+  /**
+   * A coalesced count report (`/error`, `/storage`): rate limited per user, the
+   * report's labels on its span, then what the report records.
+   */
+  const runCountReport = (
+    userId: string,
+    request: Request,
+    eventName: string,
+    rateLimitKey: string,
+    attributes: ReturnType<typeof spanAttributes>,
+    record: Effect.Effect<void>,
+  ) =>
+    runTelemetryEffect(
+      userId,
+      request,
+      eventName,
+      Effect.gen(function* () {
+        const rateLimitService = yield* RateLimitServiceTag;
+        const allowed = yield* enforceRateLimit(rateLimitService, [
+          { key: rateLimitKey, ...REPORT_RATE_LIMIT },
+        ]).pipe(
+          Effect.as(true),
+          Effect.catchTag('RateLimitedError', () => Effect.succeed(false)),
+        );
+        if (!allowed) return;
+        yield* Effect.annotateCurrentSpan(attributes);
+        yield* record;
+      }),
     );
 
   return (
@@ -885,33 +916,63 @@ export function telemetryRoutesPlugin({
               },
             },
             async ({ body, request, userId }) => {
-              await runTelemetryEffect(
+              await runCountReport(
                 userId,
                 request,
                 'browser_error_report_failed',
+                `telemetry-error:user:${userId}`,
+                spanAttributes({
+                  'merkur.error_source': body.source,
+                  'merkur.error_kind': body.kind,
+                  'merkur.sample_count': body.count,
+                }),
+                // Labelled once per report, and counted by occurrence separately: a
+                // coalescing window means one report can stand for many failures, and
+                // conflating the two would understate a storm.
                 Effect.gen(function* () {
-                  const rateLimitService = yield* RateLimitServiceTag;
-                  const allowed = yield* enforceRateLimit(rateLimitService, [
-                    { key: `telemetry-error:user:${userId}`, ...REPORT_RATE_LIMIT },
-                  ]).pipe(
-                    Effect.as(true),
-                    Effect.catchTag('RateLimitedError', () => Effect.succeed(false)),
-                  );
-                  if (!allowed) return;
-
-                  yield* Effect.annotateCurrentSpan(
-                    spanAttributes({
-                      'merkur.error_source': body.source,
-                      'merkur.error_kind': body.kind,
-                      'merkur.sample_count': body.count,
-                    }),
-                  );
-
-                  // Labelled once per report, and counted by occurrence separately: a
-                  // coalescing window means one report can stand for many failures, and
-                  // conflating the two would understate a storm.
                   yield* Metric.update(browserErrorFrequency, `${body.source}:${body.kind}`);
                   yield* Metric.update(browserErrorCounter, body.count);
+                }),
+              );
+
+              return status(STATUS_NO_CONTENT, undefined);
+            },
+          )
+          /**
+           * Browser storage failure report.
+           *
+           * A refused write, a stored value that no longer parses, an aborted IndexedDB
+           * transaction: each answers its caller with `null` or `false` and the app carries
+           * on, so this count is the only place one is seen. The body is two closed unions
+           * and a count, on the terms of the failure report above.
+           */
+          .post(
+            '/storage',
+            {
+              body: ApiModels.BrowserStorageReportBody,
+              response: {
+                204: ApiModels.EmptyResponse,
+                401: ApiModels.ErrorResponse,
+              },
+            },
+            async ({ body, request, userId }) => {
+              await runCountReport(
+                userId,
+                request,
+                'browser_storage_report_failed',
+                `telemetry-storage:user:${userId}`,
+                spanAttributes({
+                  'merkur.storage_target': body.target,
+                  'merkur.storage_failure': body.failure,
+                  'merkur.sample_count': body.count,
+                }),
+                // The label once per report and the occurrences apart, as for failure reports.
+                Effect.gen(function* () {
+                  yield* Metric.update(
+                    browserStorageFailureFrequency,
+                    `${body.target}:${body.failure}`,
+                  );
+                  yield* Metric.update(browserStorageFailureCounter, body.count);
                 }),
               );
 

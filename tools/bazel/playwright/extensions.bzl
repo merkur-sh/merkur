@@ -1,8 +1,12 @@
-"""The Chromium builds Playwright launches, by archive digest.
+"""The browser builds Playwright launches, by archive digest.
 
-They are the revision the installed `playwright-core` names in its `browsers.json`
+They are the revisions the installed `playwright-core` names in its `browsers.json`
 (`scripts/toolchain-pins.test.ts`), laid out as `playwright install` lays them out: each archive
 unpacked into the revision's directory, with the markers that say the install completed.
+
+WebKit is built per operating-system release, so its archives are those of the releases this
+repository runs on: macOS 26 and Ubuntu 26.04, the owner's machines and CI's runners. Playwright
+serves Ubuntu 26.04 the Ubuntu 24.04 Firefox build.
 """
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
@@ -29,6 +33,26 @@ _HEADLESS_SHELL = {
     "linux_x64": (_CFT + "linux64/chrome-headless-shell-linux64.zip", "3cfc2bd00d1bafcf8a68dc74c9c92bb7150ddc8d26ade948a776316e1cec4f14"),
 }
 
+WEBKIT_REVISION = "2336"
+
+FIREFOX_REVISION = "1538"
+
+_BUILDS = "https://cdn.playwright.dev/dbazure/download/playwright/builds/"
+
+_WEBKIT = {
+    "darwin_aarch64": (_BUILDS + "webkit/%s/webkit-mac-26-arm64.zip" % WEBKIT_REVISION, "0bad39cd64706974156fd5fc1241cb45e05ae630b0cba26fddba098a6ff792ab"),
+    "darwin_x64": (_BUILDS + "webkit/%s/webkit-mac-26.zip" % WEBKIT_REVISION, "021b8306878b8b4430ab3202fd0bbe1697507a733b17add41e4ca7b61f1f1496"),
+    "linux_aarch64": (_BUILDS + "webkit/%s/webkit-ubuntu-26.04-arm64.zip" % WEBKIT_REVISION, "de9f89435407c13ea6e59544ba7d5f443b4a0da0c9b5051ee4d1c7c853fd551d"),
+    "linux_x64": (_BUILDS + "webkit/%s/webkit-ubuntu-26.04.zip" % WEBKIT_REVISION, "c1d296d35c831a31db9d330f0a7ce44bded9bfeb82ca298dc35d11c8e3698b8e"),
+}
+
+_FIREFOX = {
+    "darwin_aarch64": (_BUILDS + "firefox/%s/firefox-mac-arm64.zip" % FIREFOX_REVISION, "b7b8e068fb1776dee8abfeb649ad6313f9ec8f6bbaa333d8dc00d013cc389256"),
+    "darwin_x64": (_BUILDS + "firefox/%s/firefox-mac.zip" % FIREFOX_REVISION, "984f0350062d2fcc7ac9e7736ad3ef2d8c15db33ee8fe3d19c57f26e24f9a766"),
+    "linux_aarch64": (_BUILDS + "firefox/%s/firefox-ubuntu-24.04-arm64.zip" % FIREFOX_REVISION, "ec0600a40bd8f8ba221bd8e952aeaefb23aa06b5a239891c0e71c602109da30e"),
+    "linux_x64": (_BUILDS + "firefox/%s/firefox-ubuntu-24.04.zip" % FIREFOX_REVISION, "49208d3ed74e525575eca41d053082902b88933e31943a091d25080bdfcfcb25"),
+}
+
 # The whole unpacked build; the install marker names the directory Playwright reads.
 _BUILD = """filegroup(
     name = "browser",
@@ -38,7 +62,12 @@ _BUILD = """filegroup(
 """
 
 def _playwright_browsers_impl(module_ctx):
-    for prefix, archives in [("chromium_", _CHROMIUM), ("chromium_headless_shell_", _HEADLESS_SHELL)]:
+    for prefix, archives in [
+        ("chromium_", _CHROMIUM),
+        ("chromium_headless_shell_", _HEADLESS_SHELL),
+        ("webkit_", _WEBKIT),
+        ("firefox_", _FIREFOX),
+    ]:
         for name, (url, digest) in archives.items():
             http_archive(
                 name = prefix + name,

@@ -12,6 +12,7 @@ import {
   type TerminalKeyboardLayerId,
   type TerminalKeyboardLayerKeyOrder,
 } from '@merkur/shared';
+import { STORAGE_NAMES } from '../lib/storage-names';
 
 export type VirtualKeyId =
   | 'escape'
@@ -142,7 +143,7 @@ export interface VirtualKeyboardPreferences {
  * account's arrangement, not a second authority: a signed-in device adopts what
  * the account holds and overwrites this.
  */
-const STORAGE_KEY = 'merkur.terminal.virtualKeyboard';
+const STORAGE_KEY = STORAGE_NAMES.virtual_keyboard;
 const storedPreferences = localValue(STORAGE_KEY, normalizeVirtualKeyboardPreferences);
 const PREFERENCES_CHANGED_EVENT = 'merkur:virtual-keyboard-preferences-changed';
 

@@ -76,7 +76,7 @@ Every toolchain is prebuilt and pinned by digest, with one source of truth each,
 | pnpm | `packageManager` in `package.json` |
 | C and C++ | `toolchains_llvm`, with a Linux sysroot; the release LLVM cut to what the toolchain uses, about 900 MB of its 8 GB, which `bun run build:llvm-distribution` (`scripts/llvm-distribution.ts`) writes reproducibly from the checksummed release and publishes as the repository's `toolchain-llvm-<version>` release, 190-235 MB of zstd (`tools/bazel/llvm/distribution.bzl`) |
 | wasm-bindgen, binaryen | the `wasm-bindgen` crate `Cargo.lock` pins (`tools/bazel/wasm/extensions.bzl`) |
-| Chromium | the revision `playwright-core` names (`tools/bazel/playwright/extensions.bzl`) |
+| Chromium, Firefox, WebKit | the revisions `playwright-core` names (`tools/bazel/playwright/extensions.bzl`); WebKit's macOS 26 and Ubuntu 26.04 builds |
 | Redis, OpenSSL | the Bazel Central Registry, Redis with TLS (`tools/bazel/redis/redis-tls.patch`) |
 
 macOS builds use the selected Xcode's SDK, and the Secure Enclave bridge its Swift.
@@ -117,9 +117,10 @@ extending the root's, resolve as in a working tree.
 
 What a test reads by any other name it declares in `bun_test_files`'s `files`: `data` (another
 file's module target, such as a script it runs or a fixture it reads by a computed path),
-`tools` (a native helper it spawns, put on its `PATH`), `browsers` (Playwright's Chromium), or
-`checkout` (the whole repository, for a gate's test or a scan). An undeclared read fails, because
-the checkout does not hold the file. Bun, Node, Redis, OpenSSL and Chromium are hermetic.
+`tools` (a native helper it spawns, put on its `PATH`), `browsers` (the Playwright engines it
+launches, of `chromium`, `firefox` and `webkit`), or `checkout` (the whole repository, for a gate's
+test or a scan). An undeclared read fails, because the checkout does not hold the file. Bun, Node,
+Redis, OpenSSL and the three browser engines are hermetic.
 
 A static gate is a `repo_check`: the gate's `package.json` script over a checkout of the whole
 repository, made a Git repository so the gate sees what Git ignores. That checkout is built once,

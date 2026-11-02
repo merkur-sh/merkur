@@ -317,7 +317,7 @@ exports_files(glob(["build.rs", "src/lib.rs"], allow_empty = True))
     "wtransport-patch",
 ]]
 
-# The Chromium builds Playwright launches, at the revision `playwright-core` names.
+# The browser builds Playwright launches, at the revisions `playwright-core` names.
 playwright_browsers = use_extension("//tools/bazel/playwright:extensions.bzl", "playwright_browsers")
 use_repo(
     playwright_browsers,
@@ -329,4 +329,12 @@ use_repo(
     "chromium_headless_shell_linux_x64",
     "chromium_linux_aarch64",
     "chromium_linux_x64",
+    "firefox_darwin_aarch64",
+    "firefox_darwin_x64",
+    "firefox_linux_aarch64",
+    "firefox_linux_x64",
+    "webkit_darwin_aarch64",
+    "webkit_darwin_x64",
+    "webkit_linux_aarch64",
+    "webkit_linux_x64",
 )

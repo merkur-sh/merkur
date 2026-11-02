@@ -4,7 +4,12 @@ import {
   deriveSessionAuthorizationKeyPair,
   signDaemonProof,
 } from '@merkur/auth';
-import { BROWSER_ERROR_KINDS, BROWSER_ERROR_SOURCES } from '@merkur/shared';
+import {
+  BROWSER_ERROR_KINDS,
+  BROWSER_ERROR_SOURCES,
+  BROWSER_STORAGE_FAILURES,
+  BROWSER_STORAGE_TARGETS,
+} from '@merkur/shared';
 import { Effect, Layer, ManagedRuntime, Metric, Redacted, Tracer } from 'effect';
 
 import { type ServerConfig, ServerConfigService } from '../../config';
@@ -305,6 +310,25 @@ describe('browser error report body', () => {
     const kind = properties.kind as { anyOf?: Array<{ const?: string }> };
     expect(source.anyOf?.map((member) => member.const)).toEqual([...BROWSER_ERROR_SOURCES]);
     expect(kind.anyOf?.map((member) => member.const)).toEqual([...BROWSER_ERROR_KINDS]);
+  });
+});
+
+/** The storage failure report, held to the failure report's rules: no field can carry a value. */
+describe('browser storage report body', () => {
+  const body = ApiModels.BrowserStorageReportBody;
+
+  test('carries exactly target, failure and count, and nothing else', () => {
+    expect(Object.keys(body.properties).sort()).toEqual(['count', 'failure', 'target']);
+    expect(body).toHaveProperty('additionalProperties', false);
+  });
+
+  test('the unions match the contract the browser reports against', () => {
+    expect(body.properties.target.anyOf.map((member) => member.const)).toEqual([
+      ...BROWSER_STORAGE_TARGETS,
+    ]);
+    expect(body.properties.failure.anyOf.map((member) => member.const)).toEqual([
+      ...BROWSER_STORAGE_FAILURES,
+    ]);
   });
 });
 
@@ -670,6 +694,11 @@ const CONSENT_REPORTS = [
   {
     path: '/api/telemetry/error',
     body: '{"source":"window","kind":"no_response","count":1}',
+    relay: false,
+  },
+  {
+    path: '/api/telemetry/storage',
+    body: '{"target":"delegation_vault","failure":"aborted","count":1}',
     relay: false,
   },
   {

@@ -253,6 +253,11 @@ export interface KeyboardDiagnostics {
   isEmpty(): boolean;
   snapshot(): KeyboardDiagnosticsSnapshot;
   restore(snapshot: KeyboardDiagnosticsSnapshot): void;
+  /**
+   * Replaces the accumulated statistics with `snapshot` and keeps the line in
+   * progress, so a merge with another tab's statistics mid-line loses nothing.
+   */
+  adopt(snapshot: KeyboardDiagnosticsSnapshot): void;
 }
 
 /** Serialisable accumulator state. Sums and counts only, never a sequence. */
@@ -292,6 +297,131 @@ export interface KeyboardDiagnosticsSnapshot {
     readonly layerId: string;
     readonly keyId: string;
   })[];
+}
+
+/** The snapshot's fields by kind, which is all a merge or a guard needs to know of them. */
+export const DIAGNOSTICS_COUNTS = [
+  'taps',
+  'uncommitted',
+  'interTapCount',
+  'fastDriftCount',
+  'slowDriftCount',
+  'lines',
+  'missesByPrior',
+  'priorOverrides',
+  'priorOverridesKept',
+  'priorOverridesErased',
+  'priorOverridesMisread',
+  'priorOverridesDeleted',
+  'priorOverridesReplaced',
+  'extraUntraced',
+] as const;
+export const DIAGNOSTICS_SUMS = [
+  'driftSum',
+  'durationSum',
+  'sampleSum',
+  'interTapSum',
+  'fastDriftSum',
+  'slowDriftSum',
+  'extraRepeatGapSum',
+  'keptDoubleGapSum',
+] as const;
+export const DIAGNOSTICS_HISTOGRAMS = [
+  'drift',
+  'duration',
+  'samples',
+  'interTap',
+  'extraRepeatGap',
+  'keptDoubleGap',
+  'typedDrift',
+  'missDrift',
+  'noticed',
+] as const;
+export const DIAGNOSTICS_KEY_COUNTS = [
+  'count',
+  'residualCount',
+  'aimed',
+  'missed',
+  'took',
+  'erasedCorrect',
+  'replaced',
+  'extra',
+  'skipped',
+] as const;
+export const DIAGNOSTICS_KEY_SUMS = [
+  'sumX',
+  'sumY',
+  'sumXX',
+  'sumYY',
+  'sumXY',
+  'sumResidualX',
+  'sumResidualY',
+] as const;
+
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+/**
+ * `stored` plus what `current` holds beyond `base`, field by field: every field
+ * is a count or a sum, so two tabs' statistics merge by addition. `base` is
+ * the aggregate `current` was last merged from, so nothing is counted twice.
+ */
+export function mergeDiagnosticsSnapshots(
+  stored: KeyboardDiagnosticsSnapshot,
+  current: KeyboardDiagnosticsSnapshot,
+  base: KeyboardDiagnosticsSnapshot,
+): KeyboardDiagnosticsSnapshot {
+  const result: Mutable<KeyboardDiagnosticsSnapshot> = { ...current };
+  for (const field of DIAGNOSTICS_COUNTS) {
+    result[field] = stored[field] + current[field] - base[field];
+  }
+  for (const field of DIAGNOSTICS_SUMS) {
+    result[field] = stored[field] + current[field] - base[field];
+  }
+  for (const field of DIAGNOSTICS_HISTOGRAMS) {
+    result[field] = combineHistograms(stored[field], current[field], base[field]);
+  }
+  result.keys = combineKeys(stored.keys, current.keys, base.keys);
+  return result;
+}
+
+function combineHistograms(
+  stored: readonly number[],
+  current: readonly number[],
+  base: readonly number[],
+): number[] {
+  const length = Math.max(stored.length, current.length, base.length);
+  const combined: number[] = [];
+  for (let bucket = 0; bucket < length; bucket += 1) {
+    combined.push((stored[bucket] ?? 0) + (current[bucket] ?? 0) - (base[bucket] ?? 0));
+  }
+  return combined;
+}
+
+type KeyEntry = KeyboardDiagnosticsSnapshot['keys'][number];
+
+function combineKeys(
+  stored: readonly KeyEntry[],
+  current: readonly KeyEntry[],
+  base: readonly KeyEntry[],
+): KeyEntry[] {
+  const identity = (entry: KeyEntry): string => `${entry.layerId}\u0000${entry.keyId}`;
+  const storedByKey = new Map(stored.map((entry) => [identity(entry), entry]));
+  const baseByKey = new Map(base.map((entry) => [identity(entry), entry]));
+  const combined = new Map<string, KeyEntry>(storedByKey);
+  for (const entry of current) {
+    const key = identity(entry);
+    const before = baseByKey.get(key);
+    const other = storedByKey.get(key);
+    const result: Mutable<KeyEntry> = { ...entry };
+    for (const field of DIAGNOSTICS_KEY_COUNTS) {
+      result[field] = (other?.[field] ?? 0) + entry[field] - (before?.[field] ?? 0);
+    }
+    for (const field of DIAGNOSTICS_KEY_SUMS) {
+      result[field] = (other?.[field] ?? 0) + entry[field] - (before?.[field] ?? 0);
+    }
+    combined.set(key, result);
+  }
+  return [...combined.values()];
 }
 
 const DRIFT_BUCKETS = 64;
@@ -741,7 +871,8 @@ export function createKeyboardDiagnostics(
     };
   }
 
-  function reset(): void {
+  /** The accumulated statistics only; the line in progress stays. */
+  function clearAccumulators(): void {
     byLayer.clear();
     drift.fill(0);
     duration.fill(0);
@@ -755,14 +886,12 @@ export function createKeyboardDiagnostics(
     extraRepeatGapSum = 0;
     keptDoubleGapSum = 0;
     extraUntraced = 0;
-    wipeLine();
     fastDriftSum = 0;
     fastDriftCount = 0;
     slowDriftSum = 0;
     slowDriftCount = 0;
     interTapSum = 0;
     interTapCount = 0;
-    previousContactAtMs = Number.NaN;
     taps = 0;
     uncommitted = 0;
     driftSum = 0;
@@ -778,6 +907,12 @@ export function createKeyboardDiagnostics(
     priorOverridesMisread = 0;
     priorOverridesDeleted = 0;
     priorOverridesReplaced = 0;
+  }
+
+  function reset(): void {
+    clearAccumulators();
+    wipeLine();
+    previousContactAtMs = Number.NaN;
   }
 
   function snapshot(): KeyboardDiagnosticsSnapshot {
@@ -825,6 +960,15 @@ export function createKeyboardDiagnostics(
 
   function restore(state: KeyboardDiagnosticsSnapshot): void {
     reset();
+    assign(state);
+  }
+
+  function adopt(state: KeyboardDiagnosticsSnapshot): void {
+    clearAccumulators();
+    assign(state);
+  }
+
+  function assign(state: KeyboardDiagnosticsSnapshot): void {
     taps = state.taps;
     uncommitted = state.uncommitted;
     driftSum = state.driftSum;
@@ -887,6 +1031,7 @@ export function createKeyboardDiagnostics(
     isEmpty: () => taps === 0 && uncommitted === 0,
     snapshot,
     restore,
+    adopt,
   };
 }
 

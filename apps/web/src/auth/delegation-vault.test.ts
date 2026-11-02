@@ -53,6 +53,8 @@ describe('browser delegation vault ownership', () => {
     );
     expect(fake.records.size).toBe(0);
     expect(fake.deletedKeys).toEqual([ACTIVE_VAULT]);
+    // A sign-out that returned must not have the credential come back after a crash.
+    expect(fake.writeDurabilities).toEqual(['strict']);
   });
 
   test('a malformed vault is no one credential, so a conditional clear removes it', async () => {
@@ -226,7 +228,8 @@ describe('browser delegation vault durability hint', () => {
    * must complete regardless of whether it is ever answered.
    */
   test('a persistence hint that never answers cannot block the vault write', async () => {
-    const records = installFakeIndexedDb(new Map()).records;
+    const fake = installFakeIndexedDb(new Map());
+    const records = fake.records;
     Object.defineProperty(globalThis, 'location', {
       configurable: true,
       value: { origin: 'https://merkur.test' },
@@ -274,6 +277,8 @@ describe('browser delegation vault durability hint', () => {
 
     expect(requested).toBe(1);
     expect(records.has(ACTIVE_VAULT)).toBe(true);
+    // A sign-in that returned must not lose its credential to a crash.
+    expect(fake.writeDurabilities).toEqual(['strict']);
   });
 });
 
@@ -311,11 +316,15 @@ function persistedDelegation(userId: string, delegationId: string): object {
 function installFakeIndexedDb(records: Map<string, unknown>): {
   readonly records: Map<string, unknown>;
   readonly deletedKeys: string[];
+  /** The durability each read-write transaction asked for, in order. */
+  readonly writeDurabilities: (IDBTransactionDurability | undefined)[];
 } {
   const deletedKeys: string[] = [];
+  const writeDurabilities: (IDBTransactionDurability | undefined)[] = [];
   const database = {
     objectStoreNames: { contains: () => true },
-    transaction(_storeName: string, _mode: IDBTransactionMode) {
+    transaction(_storeName: string, mode: IDBTransactionMode, options?: IDBTransactionOptions) {
+      if (mode === 'readwrite') writeDurabilities.push(options?.durability);
       // A transaction completes once every request issued on it has run, so a
       // write that issues two puts is not reported complete after the first.
       let pending = 0;
@@ -401,7 +410,7 @@ function installFakeIndexedDb(records: Map<string, unknown>): {
       },
     },
   });
-  return { records, deletedKeys };
+  return { records, deletedKeys, writeDurabilities };
 }
 
 function requestRecord(): {

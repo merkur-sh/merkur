@@ -4,6 +4,7 @@ export * from './binary';
 export * from './browser-client';
 export * from './browser-diagnostics';
 export * from './browser-presence';
+export * from './browser-storage-diagnostics';
 export * from './crypto';
 export * from './device-events';
 export * from './display-stream';

@@ -6,7 +6,11 @@ import {
   solveKeyboardGeometry,
 } from '@merkur/keyboard';
 import { TERMINAL_US_LAYOUT } from '@merkur/keyboard/layouts/terminal-us';
-import { createKeyboardDiagnostics, formatKeyboardDiagnostics } from './keyboard-diagnostics';
+import {
+  createKeyboardDiagnostics,
+  formatKeyboardDiagnostics,
+  mergeDiagnosticsSnapshots,
+} from './keyboard-diagnostics';
 
 const geometry = solveKeyboardGeometry(
   TERMINAL_US_LAYOUT,
@@ -603,5 +607,44 @@ describe('corrections', () => {
     expect(table.indexOf('key-i')).toBeLessThan(table.indexOf('key-w'));
     // A key that neither missed nor took a tap has no row.
     expect(table).not.toContain('key-a');
+  });
+});
+
+describe("merging two tabs' statistics", () => {
+  test('stored plus what this tab counted since its last save, counted once', () => {
+    const empty = createKeyboardDiagnostics().snapshot();
+    // This tab saves one tap on key-a.
+    const mine = createKeyboardDiagnostics();
+    mine.record(trace('key-a', 0, 0, 2), geometry);
+    const base = mine.snapshot();
+    // The other tab, with four taps on key-e since it began, merges onto that.
+    const other = createKeyboardDiagnostics();
+    for (const offset of [-8, -4, -7, -5]) other.record(trace('key-e', offset, 2), geometry);
+    const stored = mergeDiagnosticsSnapshots(base, other.snapshot(), empty);
+    // This tab takes in two more taps and merges again.
+    mine.record(trace('key-a', 0, 0, 5), geometry);
+    mine.record(trace('key-e', -6, 2), geometry);
+
+    const merged = mergeDiagnosticsSnapshots(stored, mine.snapshot(), base);
+
+    // Seven taps in all: the first key-a tap is in `stored` and in `base`, so once.
+    expect(merged.taps).toBe(7);
+    expect(merged.keys.find((entry) => entry.keyId === 'key-a')?.count).toBe(2);
+    expect(merged.keys.find((entry) => entry.keyId === 'key-e')?.count).toBe(5);
+    expect(merged.drift.reduce((sum, bucket) => sum + bucket, 0)).toBe(7);
+  });
+
+  test('adopting a merge keeps the line in progress', () => {
+    const diagnostics = createKeyboardDiagnostics();
+    diagnostics.record(trace('key-a', 0, 0), geometry);
+    const key = keyFor('key-a').definition;
+    expect(diagnostics.recordCommit(key, 1, false)).toBe(false);
+
+    const empty = createKeyboardDiagnostics().snapshot();
+    diagnostics.adopt(mergeDiagnosticsSnapshots(empty, diagnostics.snapshot(), empty));
+
+    // The open line still closes, and is counted, after the merge.
+    expect(diagnostics.recordBreak()).toBe(true);
+    expect(diagnostics.snapshot().lines).toBe(1);
   });
 });

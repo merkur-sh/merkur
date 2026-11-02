@@ -1,5 +1,6 @@
 import { guarded, localValue } from '@merkur/browser-storage';
 import { type Device, isDevice, isDeviceEventsEpoch, isRecord } from '@merkur/shared';
+import { STORAGE_NAMES } from './storage-names';
 
 // Last-known device list, persisted so a cold/resumed mobile launch can paint
 // the list instantly instead of staring at an empty screen until the first
@@ -19,7 +20,7 @@ export interface CachedDeviceList {
 
 // Anything that is not exactly the current shape is purged on read, so a cache
 // written by a build with a different vocabulary cleans itself up.
-const deviceListCache = localValue('merkur:device-list:v1', guarded(isCachedDeviceList));
+const deviceListCache = localValue(STORAGE_NAMES.device_list, guarded(isCachedDeviceList));
 
 export function loadCachedDeviceList(): CachedDeviceList | null {
   return deviceListCache.read();

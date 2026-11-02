@@ -84,7 +84,7 @@ bun_test_files(
         "bench-keyboard-hotpaths.test.ts": {"data": [":bench-keyboard-hotpaths.ts.module"]},
         # Bundles the web app's retained payload pool for the browser it launches.
         "bench-retained-wire-payload-pool.test.ts": {
-            "browsers": True,
+            "browsers": ["chromium"],
             "data": ["//apps/web:src/terminal/retained-wire-payload-pool.ts.module"],
         },
         "bench-shadow-terminal.test.ts": _FONTS,
@@ -103,7 +103,7 @@ bun_test_files(
         "bench-web-startup-assets.test.ts": _FONTS,
         # Bundles the web app's WebGPU renderer for the browser it launches.
         "bench-webgpu-renderer.test.ts": {
-            "browsers": True,
+            "browsers": ["chromium"],
             "data": ["//apps/web:src/renderer-webgpu.ts.module"],
         },
         "dev-redis.test.ts": {"tools": {

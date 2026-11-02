@@ -978,6 +978,7 @@ daemon and a browser are authenticated, not trusted to be unmodified.
 | `POST /api/daemon/traces`, `POST /api/daemon/perf` | Command ids, session ids, command types, phase durations; sent, and accepted by the server, only while the account has opted in to performance reporting | Daemon management proofs |
 | `POST /api/telemetry/traces` | Browser bootstrap phase durations, attempt id, device id; sent, and accepted by the server, only while the account has opted in to performance reporting | Browser access token |
 | `POST /api/telemetry/error` | A failure class derived from the error's type and name only, never a message or stack | Browser access token |
+| `POST /api/telemetry/storage` | Which browser store failed and how, from two closed unions, never a stored value | Browser access token |
 
 No vendor credential reaches a user's machine: the server holds the exporter token, and the
 daemon's network surface stays exactly the server and the edge. A `traceparent` on a control

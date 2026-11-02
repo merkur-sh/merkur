@@ -1,5 +1,5 @@
 import { localValue } from '@merkur/browser-storage';
-
+import { STORAGE_NAMES } from '../lib/storage-names';
 import { DEFAULT_TERMINAL_FONT_ID, TERMINAL_FONTS, type TerminalFontFamilyId } from './fonts';
 import { DEFAULT_TERMINAL_THEME_ID, TERMINAL_THEMES, type TerminalThemeId } from './themes';
 
@@ -31,7 +31,7 @@ const DEFAULT_TERMINAL_APPEARANCE: TerminalAppearance = {
   fontSize: 14,
 };
 
-const storedAppearance = localValue('merkur.terminal.appearance.v1', normalizeTerminalAppearance);
+const storedAppearance = localValue(STORAGE_NAMES.appearance, normalizeTerminalAppearance);
 
 export function loadTerminalAppearance(): TerminalAppearance {
   return storedAppearance.read() ?? DEFAULT_TERMINAL_APPEARANCE;

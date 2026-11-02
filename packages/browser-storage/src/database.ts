@@ -1,3 +1,4 @@
+import { reportStorageFailure } from './failures';
 import type { Cloned, Parse } from './parse';
 
 /*
@@ -71,7 +72,8 @@ export interface WriteTransaction<S extends StoreDefinitions, N extends StoreNam
  * no request in flight at the end of a task, so a body awaits only this
  * transaction's own requests: awaiting anything else (`crypto.subtle`, a
  * fetch, a timer) lets it commit underneath, and the next request throws
- * `TransactionInactiveError`. Do that work before the transaction or after it.
+ * `TransactionInactiveError`, or `InvalidStateError` once the commit has
+ * finished. Do that work before the transaction or after it.
  */
 type TransactionBody<T, R> = (transaction: T) => R | Promise<R>;
 
@@ -83,14 +85,26 @@ export interface Database<S extends StoreDefinitions> {
   ): Promise<R>;
   /**
    * Runs `body` in one read-write transaction over `stores`, resolving with its
-   * result once every write is durable. A body that throws aborts the
+   * result once the transaction completes. A body that throws aborts the
    * transaction, so none of its writes land.
    */
   write<N extends StoreName<S>, R>(
     stores: readonly N[],
     body: TransactionBody<WriteTransaction<S, N>, R>,
+    options?: WriteOptions,
   ): Promise<R>;
   close(): void;
+}
+
+export interface WriteOptions {
+  /**
+   * `'strict'` resolves the write only once the engine has flushed it to disk,
+   * so it survives a crash or power loss that follows; an engine is free to
+   * complete a `'default'` or `'relaxed'` transaction from its cache. Worth one
+   * flush for a record that must not be lost, such as a credential; a cache
+   * leaves it unset.
+   */
+  readonly durability?: IDBTransactionDurability;
 }
 
 export interface OpenOptions {
@@ -129,19 +143,25 @@ export function openDatabase<S extends StoreDefinitions>(
   options: OpenOptions = {},
 ): Promise<Database<S>> {
   const { signal } = options;
+  const { name } = definition;
   return new Promise<Database<S>>((resolve, reject) => {
     if (signal?.aborted === true) {
+      reportStorageFailure(name, 'open_abandoned');
       reject(signal.reason);
       return;
     }
     if (typeof indexedDB === 'undefined') {
-      reject(new Error('IndexedDB is unavailable'));
+      reportStorageFailure(name, 'open_failed');
+      // A `DOMException` like every refusal an engine makes, so a caller tells a
+      // storage failure from a bug by type alone.
+      reject(new DOMException('IndexedDB is unavailable', 'NotSupportedError'));
       return;
     }
-    const request = indexedDB.open(definition.name, definition.version);
+    const request = indexedDB.open(name, definition.version);
     let abandoned = false;
     const onAbort = (): void => {
       abandoned = true;
+      reportStorageFailure(name, 'open_abandoned');
       reject(signal?.reason);
     };
     signal?.addEventListener('abort', onAbort, { once: true });
@@ -156,12 +176,13 @@ export function openDatabase<S extends StoreDefinitions>(
         return;
       }
       connection.onversionchange = () => connection.close();
-      resolve(createDatabase(connection, definition.stores));
+      resolve(createDatabase(name, connection, definition.stores));
     };
     request.onerror = () => {
       signal?.removeEventListener('abort', onAbort);
       if (abandoned) return;
-      reject(request.error ?? new Error(`Unable to open IndexedDB ${definition.name}`));
+      reportStorageFailure(name, 'open_failed');
+      reject(request.error ?? new Error(`Unable to open IndexedDB ${name}`));
     };
     // `blocked` needs no handler: the open waits until the older connections
     // close, which this module's own connections do on `versionchange`, and a
@@ -193,28 +214,29 @@ function replaceStores(connection: IDBDatabase, stores: StoreDefinitions): void 
 }
 
 function createDatabase<S extends StoreDefinitions>(
+  name: string,
   connection: IDBDatabase,
   stores: S,
 ): Database<S> {
   return {
     read(names, body) {
       return runTransaction(
-        connection,
-        names,
-        'readonly',
+        name,
+        () => connection.transaction(names, 'readonly'),
         (transaction) => ({
-          store: (name) => readStore(transaction.objectStore(name), parserOf(stores, name)),
+          store: (store) =>
+            readStore(name, transaction.objectStore(store), parserOf(stores, store)),
         }),
         body,
       );
     },
-    write(names, body) {
+    write(names, body, options = {}) {
       return runTransaction(
-        connection,
-        names,
-        'readwrite',
+        name,
+        () => connection.transaction(names, 'readwrite', options),
         (transaction) => ({
-          store: (name) => writeStore(transaction.objectStore(name), parserOf(stores, name)),
+          store: (store) =>
+            writeStore(name, transaction.objectStore(store), parserOf(stores, store)),
         }),
         body,
       );
@@ -240,17 +262,19 @@ function parserOf<S extends StoreDefinitions, N extends StoreName<S>>(
 /**
  * Settles once both the transaction and the body have: with the body's result
  * when the transaction completes, with the first failure otherwise. A body
- * that fails aborts the transaction.
+ * that fails aborts the transaction; an abort the engine chose is counted
+ * against `database`, one the body caused is the body's failure alone.
  */
 function runTransaction<T, R>(
-  connection: IDBDatabase,
-  names: readonly string[],
-  mode: IDBTransactionMode,
+  database: string,
+  begin: () => IDBTransaction,
   view: (transaction: IDBTransaction) => T,
   body: TransactionBody<T, R>,
 ): Promise<R> {
+  // Created inside the executor, so a closed connection or an undeclared store
+  // rejects the returned promise instead of throwing at the call.
   return new Promise<R>((resolve, reject) => {
-    const transaction = connection.transaction(names, mode);
+    const transaction = begin();
     let settled = false;
     let completed = false;
     let result: { readonly value: R } | null = null;
@@ -264,15 +288,24 @@ function runTransaction<T, R>(
       settled = true;
       resolve(result.value);
     };
+    const engineFailed = (cause: DOMException): void => {
+      if (settled) return;
+      reportStorageFailure(database, 'aborted');
+      fail(cause);
+    };
     transaction.oncomplete = () => {
       completed = true;
       finish();
     };
     transaction.onabort = () => {
-      fail(transaction.error ?? new DOMException('IndexedDB transaction aborted', 'AbortError'));
+      engineFailed(
+        transaction.error ?? new DOMException('IndexedDB transaction aborted', 'AbortError'),
+      );
     };
     transaction.onerror = () => {
-      fail(transaction.error ?? new DOMException('IndexedDB transaction failed', 'UnknownError'));
+      engineFailed(
+        transaction.error ?? new DOMException('IndexedDB transaction failed', 'UnknownError'),
+      );
     };
     // The body starts synchronously, inside the task that created the
     // transaction, so its first request is issued while the transaction is
@@ -289,8 +322,8 @@ function runTransaction<T, R>(
         finish();
       },
       (cause: unknown) => {
-        abortUnlessFinished(transaction);
         fail(cause);
+        abortUnlessFinished(transaction);
       },
     );
   });
@@ -310,18 +343,20 @@ function abortUnlessFinished(transaction: IDBTransaction): void {
 }
 
 function readStore<K extends IDBValidKey, V>(
+  database: string,
   objectStore: IDBObjectStore,
   parse: Parse<Cloned, V>,
 ): ReadStore<K, V> {
-  return { get: (key) => getParsed(objectStore, key, parse, false) };
+  return { get: (key) => getParsed(database, objectStore, key, parse, false) };
 }
 
 function writeStore<K extends IDBValidKey, V>(
+  database: string,
   objectStore: IDBObjectStore,
   parse: Parse<Cloned, V>,
 ): WriteStore<K, V> {
   return {
-    get: (key) => getParsed(objectStore, key, parse, true),
+    get: (key) => getParsed(database, objectStore, key, parse, true),
     put(key, value) {
       objectStore.put(value, key);
     },
@@ -332,6 +367,7 @@ function writeStore<K extends IDBValidKey, V>(
 }
 
 function getParsed<V>(
+  database: string,
   objectStore: IDBObjectStore,
   key: IDBValidKey,
   parse: Parse<Cloned, V>,
@@ -346,7 +382,10 @@ function getParsed<V>(
         return;
       }
       const value = parse(stored);
-      if (value === null && deleteInvalid) objectStore.delete(key);
+      if (value === null) {
+        reportStorageFailure(database, 'unparseable');
+        if (deleteInvalid) objectStore.delete(key);
+      }
       resolve(value);
     };
     request.onerror = () => {

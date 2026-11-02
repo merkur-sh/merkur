@@ -1,3 +1,4 @@
+import { reportStorageFailure } from '@merkur/browser-storage';
 import { createLogger } from '@merkur/logger';
 import {
   encodeMouseRecord,
@@ -1401,6 +1402,7 @@ export function createTerminalWorkerClient(
   worker.onmessageerror = (): void => {
     failWorker('Terminal worker failed to deserialize a message');
   };
+  worker.addEventListener('message', forwardStorageFailure);
   worker.onmessage = (e: MessageEvent<WorkerEvent>) => {
     const evt = e.data;
     if (evt.kind === 'shutdown_complete') {
@@ -2015,4 +2017,14 @@ export function createTerminalWorkerClient(
     notifySessionEpoch,
     close,
   };
+}
+
+/**
+ * Counts a storage failure the worker reports in this realm, where the reporter
+ * hears it, as it would one of this page's own (`@merkur/browser-storage`).
+ */
+function forwardStorageFailure(event: MessageEvent<WorkerEvent>): void {
+  if (event.data.kind === 'storage_failure') {
+    reportStorageFailure(event.data.target, event.data.failure);
+  }
 }

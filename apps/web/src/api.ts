@@ -4,6 +4,7 @@ import type { App } from '@merkur/server';
 import {
   type AccountKeyboardSettings,
   type BrowserErrorReportBody,
+  type BrowserStorageReportBody,
   type BrowserUpgradeReport,
   type DeviceLinkTokenResponse,
   isAccountKeyboardSettings,
@@ -27,6 +28,7 @@ import {
   withAccountCookieLock,
 } from './auth/account-api';
 import { ApiError } from './lib/api-error';
+import { STORAGE_NAMES } from './lib/storage-names';
 import type { BrowserLinkReportBody } from './perf/telemetry-reporter';
 import {
   parseSessionRenewResponse,
@@ -131,8 +133,8 @@ function parseGeneration(value: Json): number | null {
   return Number.isSafeInteger(value) && Number(value) >= FIRST_GENERATION ? Number(value) : null;
 }
 
-const retiredRefreshGeneration = localValue('merkur:refresh-credential-retired', parseGeneration);
-const refreshGeneration = localValue('merkur:refresh-credential-generation', parseGeneration);
+const retiredRefreshGeneration = localValue(STORAGE_NAMES.refresh_retired, parseGeneration);
+const refreshGeneration = localValue(STORAGE_NAMES.refresh_generation, parseGeneration);
 
 /**
  * The generation this tab retired, or null while it holds a live credential.
@@ -519,6 +521,21 @@ export async function reportBrowserError(
     edenEffect((signal) =>
       api.api.telemetry.error.post(
         { source: report.source, kind: report.kind, count: report.count },
+        authenticatedRequestOptions(accessToken, signal),
+      ),
+    ).pipe(Effect.asVoid),
+  );
+}
+
+/** Post one browser storage failure report, on the failure report's fire-and-forget terms. */
+export async function reportBrowserStorage(
+  accessToken: string,
+  report: BrowserStorageReportBody,
+): Promise<void> {
+  return Effect.runPromise(
+    edenEffect((signal) =>
+      api.api.telemetry.storage.post(
+        { target: report.target, failure: report.failure, count: report.count },
         authenticatedRequestOptions(accessToken, signal),
       ),
     ).pipe(Effect.asVoid),

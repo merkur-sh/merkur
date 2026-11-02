@@ -1,3 +1,4 @@
+import { refusalOf, reportStorageFailure } from './failures';
 import type { Json, Parse } from './parse';
 
 /**
@@ -35,6 +36,15 @@ export interface StoredValue<T> {
   remove(): void;
 }
 
+/*
+ * A key has one writer. Firefox gives each tab its own snapshot of
+ * `localStorage` and delivers another tab's writes asynchronously, so a read
+ * under a Web Lock can still miss the write the previous holder made:
+ * `engines.test.ts` measured a lost update between two tabs that took turns
+ * under one lock. A value several tabs change belongs in IndexedDB, whose
+ * read-write transactions over one store run one at a time across tabs.
+ */
+
 type StorageArea = 'localStorage' | 'sessionStorage';
 
 /*
@@ -64,70 +74,70 @@ export function sessionValue<T>(
 function storedValue<T>(area: StorageArea, key: string, parse: Parse<Json, T>): StoredValue<T> {
   return {
     read() {
-      const storage = storageArea(area);
+      const storage = storageArea(area, key);
       if (storage === null) return null;
-      const raw = refusedAsNull(() => storage.getItem(key));
-      if (raw === null) return null;
+      const raw = attempt(key, () => storage.getItem(key));
+      if (raw === REFUSAL || raw === null) return null;
       let decoded: Json;
       try {
         decoded = JSON.parse(raw);
       } catch (cause) {
         if (!(cause instanceof SyntaxError)) throw cause;
+        reportStorageFailure(key, 'unparseable');
         removeKey(storage, key);
         return null;
       }
       const value = parse(decoded);
-      if (value === null) removeKey(storage, key);
+      if (value === null) {
+        reportStorageFailure(key, 'unparseable');
+        removeKey(storage, key);
+      }
       return value;
     },
     write(value) {
-      const storage = storageArea(area);
+      const storage = storageArea(area, key);
       if (storage === null) return false;
       const serialized = JSON.stringify(value);
-      return (
-        refusedAsNull(() => {
-          storage.setItem(key, serialized);
-          return true;
-        }) === true
-      );
+      return attempt(key, () => storage.setItem(key, serialized)) !== REFUSAL;
     },
     remove() {
-      const storage = storageArea(area);
+      const storage = storageArea(area, key);
       if (storage !== null) removeKey(storage, key);
     },
   };
 }
 
+/** The marker `attempt` answers with when the browser refused the call. */
+const REFUSAL: unique symbol = Symbol('refused');
+
+/**
+ * Runs one web-storage call. A browser refusal is counted against `key` and
+ * answered with `REFUSAL`; anything else is a bug and propagates.
+ */
+function attempt<R>(key: string, call: () => R): R | typeof REFUSAL {
+  try {
+    return call();
+  } catch (cause) {
+    const failure = refusalOf(cause);
+    if (failure === null) throw cause;
+    reportStorageFailure(key, failure);
+    return REFUSAL;
+  }
+}
+
 /**
  * The area, looked up on every call rather than once: a worker has none, a
  * sandboxed or storage-blocked document refuses the property read itself, and
- * a test installs its own.
+ * a test installs its own. A worker having no area is not a failure.
  */
-function storageArea(area: StorageArea): Storage | null {
-  const storage = refusedAsNull(() =>
+function storageArea(area: StorageArea, key: string): Storage | null {
+  const storage = attempt(key, () =>
     area === 'localStorage' ? globalThis.localStorage : globalThis.sessionStorage,
   );
-  return storage === undefined ? null : storage;
+  return storage === REFUSAL || storage === undefined || storage === null ? null : storage;
 }
 
+/** A refused removal leaves a value that is refused again on its next read. */
 function removeKey(storage: Storage, key: string): void {
-  // A refused removal leaves a value that is refused again on its next read.
-  refusedAsNull(() => {
-    storage.removeItem(key);
-    return true;
-  });
-}
-
-/**
- * `null` where the browser refuses web storage, which it does with a
- * `DOMException`: `SecurityError` where storage is blocked, `QuotaExceededError`
- * on a full or private-mode write. Anything else is a bug and propagates.
- */
-function refusedAsNull<R>(access: () => R): R | null {
-  try {
-    return access();
-  } catch (cause) {
-    if (cause instanceof DOMException) return null;
-    throw cause;
-  }
+  attempt(key, () => storage.removeItem(key));
 }

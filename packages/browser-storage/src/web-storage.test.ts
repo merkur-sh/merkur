@@ -1,7 +1,17 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
+import { observeStorageFailures, type StorageFailureEvent } from './failures';
 import { guarded } from './parse';
+import {
+  installStorage,
+  installStorageGetter,
+  removeGlobal,
+  restoreGlobals,
+} from './test-environment';
 import { localValue, sessionValue } from './web-storage';
+
+// The behaviour every engine must share is in `conformance.ts`, run here and in
+// real browsers. This file holds the refusals only a fake can produce, and the types.
 
 interface Preferences {
   readonly theme: string;
@@ -24,122 +34,87 @@ function isPreferences(value: unknown): value is Preferences {
 
 const parsePreferences = guarded(isPreferences);
 
-class MemoryStorage implements Storage {
-  readonly entries = new Map<string, string>();
-  failWrites = false;
-  get length(): number {
-    return this.entries.size;
-  }
-  clear(): void {
-    this.entries.clear();
-  }
-  getItem(key: string): string | null {
-    return this.entries.get(key) ?? null;
-  }
-  key(index: number): string | null {
-    return Array.from(this.entries.keys())[index] ?? null;
-  }
-  removeItem(key: string): void {
-    this.entries.delete(key);
-  }
-  setItem(key: string, value: string): void {
-    if (this.failWrites) throw new DOMException('quota', 'QuotaExceededError');
-    this.entries.set(key, value);
-  }
-}
-
-const originals = {
-  localStorage: Object.getOwnPropertyDescriptor(globalThis, 'localStorage'),
-  sessionStorage: Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage'),
+/**
+ * What Gecko throws for an internal failure such as a corrupted profile: a
+ * legacy `Exception`, not a `DOMException`, whose `result` is the nsresult.
+ */
+const GECKO_FILE_CORRUPTED = {
+  name: 'NS_ERROR_FILE_CORRUPTED',
+  message: '',
+  result: 0x8052_000b,
 };
 
-function install(name: 'localStorage' | 'sessionStorage', descriptor: PropertyDescriptor): void {
-  Object.defineProperty(globalThis, name, { configurable: true, ...descriptor });
-}
-
-function installMemory(name: 'localStorage' | 'sessionStorage'): MemoryStorage {
-  const storage = new MemoryStorage();
-  install(name, { value: storage });
-  return storage;
-}
-
-afterEach(() => {
-  for (const name of ['localStorage', 'sessionStorage'] as const) {
-    const original = originals[name];
-    if (original === undefined) Reflect.deleteProperty(globalThis, name);
-    else Object.defineProperty(globalThis, name, original);
+function failuresDuring(body: () => void): StorageFailureEvent[] {
+  const seen: StorageFailureEvent[] = [];
+  const stop = observeStorageFailures((event) => seen.push(event));
+  try {
+    body();
+  } finally {
+    stop();
   }
-});
+  return seen;
+}
 
-describe('stored values', () => {
-  test('a written value reads back as JSON through its parser', () => {
-    const storage = installMemory('localStorage');
-    const preferences = localValue('prefs', parsePreferences);
+afterEach(restoreGlobals);
 
-    expect(preferences.read()).toBeNull();
-    expect(preferences.write({ theme: 'dark', tags: ['a'] })).toBe(true);
-    expect(storage.entries.get('prefs')).toBe('{"theme":"dark","tags":["a"]}');
-    expect(preferences.read()).toEqual({ theme: 'dark', tags: ['a'] });
-    preferences.remove();
-    expect(storage.entries.has('prefs')).toBe(false);
-  });
-
-  test('local and session values live in their own areas', () => {
-    const local = installMemory('localStorage');
-    const session = installMemory('sessionStorage');
-
-    sessionValue('id', guarded(isString)).write('tab-1');
-    expect(session.entries.get('id')).toBe('"tab-1"');
-    expect(local.entries.has('id')).toBe(false);
-  });
-
-  test('a value its parser refuses is removed on read', () => {
-    const storage = installMemory('localStorage');
-    storage.entries.set('prefs', '{"colour":"dark"}');
-
-    expect(localValue('prefs', parsePreferences).read()).toBeNull();
-    expect(storage.entries.has('prefs')).toBe(false);
-  });
-
-  test('text that is not JSON is removed on read', () => {
-    const storage = installMemory('localStorage');
-    storage.entries.set('id', 'raw-unquoted');
-
-    expect(localValue('id', guarded(isString)).read()).toBeNull();
-    expect(storage.entries.has('id')).toBe(false);
-  });
-
-  test('a write the area refuses answers false instead of throwing', () => {
-    const storage = installMemory('localStorage');
-    storage.failWrites = true;
-
-    expect(localValue('id', guarded(isString)).write('x')).toBe(false);
-  });
-
-  test('without an area every call is inert', () => {
-    Reflect.deleteProperty(globalThis, 'localStorage');
+describe('refusals', () => {
+  test('a quota refusal answers false and is counted as quota', () => {
+    const storage = installStorage('localStorage');
+    storage.refuseWrites = new DOMException('quota', 'QuotaExceededError');
     const value = localValue('id', guarded(isString));
 
-    expect(value.read()).toBeNull();
-    expect(value.write('x')).toBe(false);
-    expect(() => value.remove()).not.toThrow();
+    const seen = failuresDuring(() => expect(value.write('x')).toBe(false));
+    expect(seen).toEqual([{ target: 'id', failure: 'quota' }]);
   });
 
-  test('an area whose property read throws is treated as absent', () => {
-    install('localStorage', {
-      get() {
-        throw new DOMException('denied', 'SecurityError');
-      },
+  test('Gecko’s own failure exception is a refusal, not a bug', () => {
+    const storage = installStorage('localStorage');
+    storage.refuseWrites = GECKO_FILE_CORRUPTED;
+    const value = localValue('id', guarded(isString));
+
+    const seen = failuresDuring(() => expect(value.write('x')).toBe(false));
+    expect(seen).toEqual([{ target: 'id', failure: 'refused' }]);
+  });
+
+  test('anything else a storage call throws is a bug and propagates', () => {
+    const storage = installStorage('localStorage');
+    const bug = new TypeError('not a refusal');
+    storage.refuseWrites = bug;
+
+    expect(() => localValue('id', guarded(isString)).write('x')).toThrow(bug);
+  });
+
+  test('an area whose property read is refused is treated as absent and counted', () => {
+    installStorageGetter('localStorage', () => {
+      throw new DOMException('denied', 'SecurityError');
     });
     const value = localValue('id', guarded(isString));
 
-    expect(value.read()).toBeNull();
-    expect(value.write('x')).toBe(false);
+    const seen = failuresDuring(() => {
+      expect(value.read()).toBeNull();
+      expect(value.write('x')).toBe(false);
+    });
+    expect(seen).toEqual([
+      { target: 'id', failure: 'refused' },
+      { target: 'id', failure: 'refused' },
+    ]);
+  });
+
+  test('a worker having no area is not a failure', () => {
+    removeGlobal('localStorage');
+    const value = localValue('id', guarded(isString));
+
+    const seen = failuresDuring(() => {
+      expect(value.read()).toBeNull();
+      expect(value.write('x')).toBe(false);
+      value.remove();
+    });
+    expect(seen).toEqual([]);
   });
 
   test('the area is looked up on every call, not when the key is declared', () => {
     const value = localValue('id', guarded(isString));
-    const storage = installMemory('localStorage');
+    const storage = installStorage('localStorage');
 
     expect(value.write('later')).toBe(true);
     expect(storage.entries.get('id')).toBe('"later"');
@@ -148,7 +123,8 @@ describe('stored values', () => {
 
 describe('static typing', () => {
   test('only JSON-shaped values can be declared', () => {
-    installMemory('localStorage');
+    installStorage('localStorage');
+    installStorage('sessionStorage');
     // Interfaces, optional properties, readonly arrays and literals are JSON.
     localValue('prefs', parsePreferences);
     localValue('flag', (value): true | null => (value === true ? true : null));

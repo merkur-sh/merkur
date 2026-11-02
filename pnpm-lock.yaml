@@ -254,6 +254,9 @@ importers:
       '@unocss/preset-uno':
         specifier: ^66.8.1
         version: 66.8.1
+      fake-indexeddb:
+        specifier: 6.2.6
+        version: 6.2.6
       unocss:
         specifier: ^66.8.1
         version: 66.8.1(vite@8.3.4(@types/node@25.6.0)(jiti@2.6.1)(yaml@2.9.1))
@@ -275,6 +278,9 @@ importers:
 
   packages/browser-storage:
     devDependencies:
+      '@playwright/test':
+        specifier: 1.62.1
+        version: 1.62.1
       fake-indexeddb:
         specifier: 6.2.6
         version: 6.2.6

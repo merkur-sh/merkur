@@ -4,12 +4,12 @@ import {
   parseDelegationRevocationStatement,
   parseUserDelegationCertificate,
 } from '@merkur/shared/user-authorization';
-
+import { STORAGE_NAMES } from '../lib/storage-names';
 import { logoutAccountSession, type RevocationAuthorization } from './account-api';
 
 export type LogoutRetryResult = 'none' | 'delivered' | 'pending';
 
-const logoutTombstone = localValue('merkur:pending-browser-logout', (value) => {
+const logoutTombstone = localValue(STORAGE_NAMES.pending_logout, (value) => {
   try {
     return parseAuthorization(value);
   } catch {

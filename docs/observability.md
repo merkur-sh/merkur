@@ -112,7 +112,7 @@ connection's `registered` carries `true` for on and `false` otherwise, and a `te
 message restates it. Each receiver's reads are serialized and each begins after the signal
 that caused it, so the last value a receiver states is the one stored last.
 
-In the browser, consent being on gates four surfaces:
+In the browser, consent being on gates five surfaces:
 
 | Surface | Route | Installed |
 | --- | --- | --- |
@@ -120,6 +120,7 @@ In the browser, consent being on gates four surfaces:
 | Direct-upgrade report | `POST /api/telemetry/upgrade` | With the session |
 | Profiling rows and derived bootstrap spans | `POST /api/telemetry/perf`, `POST /api/telemetry/traces` | With the next terminal session, because workers latch the flag at init |
 | Failure report | `POST /api/telemetry/error` | When the account's value arrives, so a session that never starts is still reported |
+| Storage failure report | `POST /api/telemetry/storage` | With the failure report |
 
 A page reports nothing until its stream has stated the account's value, and signing out turns
 every surface off. A session that started before the value arrived gets the link and upgrade
@@ -323,6 +324,21 @@ and a count:
 
 There is no message, stack, or free-text field. An error message can carry terminal bytes, so
 classification is a function of the error's type and name only (`apps/web/src/perf/error-reporter.ts`).
+
+### The storage failure report
+
+A refused web-storage write, a stored value that no longer parses, an aborted IndexedDB
+transaction or an IndexedDB open that failed answers its caller with `null` or `false`, and the
+app carries on. `@merkur/browser-storage` counts each, the workers forward theirs to the page, and
+`POST /api/telemetry/storage` reports them coalesced, on the failure report's terms:
+
+| Field | Values |
+| --- | --- |
+| `target` | The store: one per web-storage key and IndexedDB database the web app declares (`apps/web/src/lib/storage-names.ts`), or `unlisted` |
+| `failure` | `quota`, `refused`, `unparseable`, `aborted`, `open_failed`, `open_abandoned` |
+| `count` | Occurrences within one coalescing window |
+
+A target names a store, never a key's value or a record.
 Failures accumulate per `source:kind` and flush on a timer, so a render loop throwing every
 frame becomes one report with a count.
 
@@ -487,7 +503,7 @@ carries one and declares `{ root: true }`. `bun run check:span-lifetimes` enforc
 | --- | --- | --- | --- |
 | One route span per request | `Info` | Per request | `http.request.method`, `url.path`, `http.response.status_code`, `merkur.outcome`, `error.type` |
 | `session_request` | `Info` | Per request | adds `merkur.session.id`, `merkur.daemon.id` |
-| `daemon_perf_report`, `browser_link_report`, `browser_perf_ingest`, `browser_upgrade_report`, `browser_error_report`, `browser_trace_relay`, `daemon_trace_relay` | `Info` | Per report | the per-report values behind the aggregate metrics |
+| `daemon_perf_report`, `browser_link_report`, `browser_perf_ingest`, `browser_upgrade_report`, `browser_error_report`, `browser_storage_report`, `browser_trace_relay`, `daemon_trace_relay` | `Info` | Per report | the per-report values behind the aggregate metrics |
 | `daemon-control.inbound` | `Info` | Per inbound control message | `merkur.daemon.id`, `merkur.connection.id`, `merkur.presence.id`, `merkur.claim.seq`, `merkur.message.type`, `merkur.command.id` |
 | `daemon-control.delivery` | `Info` | Per command delivery | `merkur.daemon.id`, `merkur.command.id`, `merkur.command.type`, `merkur.presence.id`, `merkur.claim.seq` |
 | `daemon-control.broker-delivery` | `Info` | Per brokered command | adds `merkur.requester.instance_id`, `merkur.owner.instance_id`; parented by an explicit `Tracer.externalSpan` carried across the Redis broker |
@@ -554,6 +570,8 @@ Metrics derived from browser reports:
 | `merkur_browser_perf_rows_total` | Counter | Profiling rows forwarded |
 | `merkur_browser_error_total` | Frequency | Failures labelled `<source>:<kind>`, a closed 78-label set |
 | `merkur_browser_errors_total` | Counter | Failures including repeats within a coalescing window |
+| `merkur_browser_storage_failure_total` | Frequency | Browser storage failures labelled `<target>:<failure>`, a closed 84-label set (`@merkur/shared` `browser-storage-diagnostics.ts`) |
+| `merkur_browser_storage_failures_total` | Counter | Storage failures including repeats within a coalescing window |
 | `merkur_browser_link_rtt_p50_ms`, `_p95_ms` | Histogram | Heartbeat RTT per report |
 | `merkur_browser_input_ack_rtt_p50_ms`, `_p95_ms` | Histogram | Input-acknowledgement RTT per report |
 | `merkur_browser_link_path_total` | Frequency | `direct`, `relay`, `unknown` |

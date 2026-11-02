@@ -6,9 +6,10 @@ import {
   type PushSubscriptionPayload,
   savePushSubscription,
 } from '../api';
+import { STORAGE_NAMES } from '../lib/storage-names';
 
 /** Whether this device asked for push. The subscription itself is the browser's and the server's. */
-const notificationsEnabled = localValue('merkur:terminal-notifications-enabled', (value) =>
+const notificationsEnabled = localValue(STORAGE_NAMES.notifications, (value) =>
   value === true ? true : null,
 );
 

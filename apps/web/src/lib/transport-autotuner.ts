@@ -1,4 +1,4 @@
-import { type Json, localValue } from '@merkur/browser-storage';
+import { type Cloned, defineDatabase, keyedStore, withDatabase } from '@merkur/browser-storage';
 import {
   BYTES_PER_KIB,
   BYTES_PER_MIB,
@@ -9,7 +9,19 @@ import {
   TRANSPORT_PROFILE,
 } from '@merkur/shared';
 
-const STORAGE_PREFIX = 'merkur.transport.autotuner';
+import { STORAGE_NAMES } from './storage-names';
+
+/**
+ * One tuner record per context. Every tab connecting in one context learns into
+ * the same record: a save is one IndexedDB read-write transaction, which runs
+ * one at a time across tabs, and replays the rewards this tab observed since its
+ * last save onto what the other tabs stored.
+ */
+const transportTuning = defineDatabase(STORAGE_NAMES.transport_autotuner, 1, {
+  tuners: keyedStore<string, TunerState>(parseState),
+});
+/** A reward per heartbeat is too often to open a database for; a few seconds' worth is not. */
+const PERSIST_DELAY_MS = 5_000;
 const TUNER_POLICY = {
   rewardLatencySpanMs: 240,
   directPathRewardBonus: 0.08,
@@ -64,15 +76,87 @@ export interface TransportAutotuner {
 }
 
 export function createTransportAutotuner(contextId: string): TransportAutotuner {
-  const stored = localValue(`${STORAGE_PREFIX}:${contextId}`, parseState);
-  const state = stored.read() ?? initialState();
+  let state = initialState();
+  /** Rewards observed since the last save, by the arm each was for, for replay. */
+  let pendingArms: number[] = [];
+  let pendingRewards: number[] = [];
+  /** Whether this tuner has read or written its record: an absent one then means a reset. */
+  let shared = false;
+  let saving = false;
+  let saveAgain = false;
+  let persistHandle: ReturnType<typeof setTimeout> | null = null;
+
+  function replay(onto: TunerState, arms: readonly number[], rewards: readonly number[]): void {
+    for (let index = 0; index < arms.length; index += 1) {
+      const arm = arms[index];
+      const reward = rewards[index];
+      if (arm !== undefined && reward !== undefined) updateArm(onto, arm, reward);
+    }
+    onto.activeArm = chooseArm(onto);
+  }
+
+  /**
+   * One save at a time; one asked for meanwhile runs once the current one ends.
+   * A storage failure is counted by the package and costs only the copy: the
+   * rewards it took go back to wait for the next save.
+   */
+  async function save(): Promise<void> {
+    if (saving) {
+      saveAgain = true;
+      return;
+    }
+    saving = true;
+    let takenArms: number[] = [];
+    let takenRewards: number[] = [];
+    try {
+      await withDatabase(transportTuning, (database) =>
+        database.write(['tuners'], async (transaction) => {
+          const store = transaction.store('tuners');
+          const stored = await store.get(contextId);
+          // Nothing awaits from here on, so no reward lands between the
+          // rewards taken and the record written.
+          takenArms = pendingArms;
+          takenRewards = pendingRewards;
+          pendingArms = [];
+          pendingRewards = [];
+          if (stored !== null || shared) {
+            const merged = stored ?? initialState();
+            replay(merged, takenArms, takenRewards);
+            state = merged;
+          }
+          shared = true;
+          store.put(contextId, state);
+        }),
+      );
+    } catch (cause) {
+      if (!(cause instanceof DOMException)) throw cause;
+      pendingArms = takenArms.concat(pendingArms);
+      pendingRewards = takenRewards.concat(pendingRewards);
+    } finally {
+      saving = false;
+      if (saveAgain) {
+        saveAgain = false;
+        void save();
+      }
+    }
+  }
+
+  // The first save loads what this context learned before, merging both ways.
+  void save();
 
   return {
     observeAndMaybeSample(rttMs: number, pathType: 'direct' | 'relay' | 'unknown'): TransportHint {
       const reward = scoreReward(rttMs, pathType);
+      pendingArms.push(state.activeArm);
+      pendingRewards.push(reward);
       updateArm(state, state.activeArm, reward);
       state.activeArm = chooseArm(state);
-      stored.write(state);
+      if (persistHandle === null) {
+        persistHandle = setTimeout(() => {
+          persistHandle = null;
+          void save();
+        }, PERSIST_DELAY_MS);
+      }
       return getActiveHint(state);
     },
   };
@@ -101,7 +185,7 @@ function initialState(): TunerState {
   };
 }
 
-function parseState(value: Json): TunerState | null {
+function parseState(value: Cloned): TunerState | null {
   if (!isRecord(value)) return null;
   const { counts, values, activeArm } = value;
   if (

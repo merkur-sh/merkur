@@ -580,6 +580,42 @@ export const ApiModels = {
     { additionalProperties: false },
   ),
 
+  /**
+   * One class of browser storage failure against one store, with how many times
+   * it happened. The same rule as the failure report above: two closed unions
+   * and a bounded count, so neither a stored value nor a key's contents can travel.
+   */
+  BrowserStorageReportBody: t.Object(
+    {
+      target: t.Union([
+        t.Literal('refresh_retired'),
+        t.Literal('refresh_generation'),
+        t.Literal('pending_logout'),
+        t.Literal('device_list'),
+        t.Literal('transport_autotuner'),
+        t.Literal('appearance'),
+        t.Literal('virtual_keyboard'),
+        t.Literal('typing_offsets'),
+        t.Literal('typing_diagnostics'),
+        t.Literal('notifications'),
+        t.Literal('last_device'),
+        t.Literal('delegation_vault'),
+        t.Literal('receiver_profiles'),
+        t.Literal('unlisted'),
+      ]),
+      failure: t.Union([
+        t.Literal('quota'),
+        t.Literal('refused'),
+        t.Literal('unparseable'),
+        t.Literal('aborted'),
+        t.Literal('open_failed'),
+        t.Literal('open_abandoned'),
+      ]),
+      count: BoundedCount(10_000),
+    },
+    { additionalProperties: false },
+  ),
+
   BrowserUpgradeReportBody: t.Object(
     {
       outcome: t.Union([t.Literal('selected'), t.Literal('failed'), t.Literal('lost')]),

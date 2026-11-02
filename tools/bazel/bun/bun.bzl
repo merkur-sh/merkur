@@ -3,7 +3,7 @@
 load("@aspect_rules_js//js:libs.bzl", "js_lib_helpers")
 load("//tools/bazel:modules.bzl", "MODULES", "TYPE_PROJECTS")
 load("//tools/bazel:sources.bzl", "PACKAGES", "SYMLINKS", "WORKSPACE_DEPENDENCIES", "WORKSPACE_LINKS")
-load("//tools/bazel/playwright:extensions.bzl", "CHROMIUM_REVISION")
+load("//tools/bazel/playwright:extensions.bzl", "CHROMIUM_REVISION", "FIREFOX_REVISION", "WEBKIT_REVISION")
 
 def _bun_binary_impl(ctx):
     bun = ctx.file._bun
@@ -343,9 +343,14 @@ _WORKSPACE = {
     for name in names
 }
 
+# Each engine a test can launch: the browser builds Playwright reads it from, by directory.
 _BROWSERS = {
-    "//tools/bazel/playwright:chromium": "chromium-" + CHROMIUM_REVISION,
-    "//tools/bazel/playwright:chromium_headless_shell": "chromium_headless_shell-" + CHROMIUM_REVISION,
+    "chromium": {
+        "//tools/bazel/playwright:chromium": "chromium-" + CHROMIUM_REVISION,
+        "//tools/bazel/playwright:chromium_headless_shell": "chromium_headless_shell-" + CHROMIUM_REVISION,
+    },
+    "firefox": {"//tools/bazel/playwright:firefox": "firefox-" + FIREFOX_REVISION},
+    "webkit": {"//tools/bazel/playwright:webkit": "webkit-" + WEBKIT_REVISION},
 }
 
 # The whole repository as every test that reads it as a whole clones it (`checkout_snapshot`).
@@ -389,8 +394,9 @@ def bun_test_files(name = "test", tests = [], files = {}):
       name: a suite of every file's test.
       tests: the test files.
       files: what a test file needs beyond what it loads, by file: `data`, labels it reads;
-        `tools`, executables it spawns, by the name it runs each under; `browsers`, whether it
-        launches Playwright's Chromium; `checkout`, whether it reads the repository as a whole;
+        `tools`, executables it spawns, by the name it runs each under; `browsers`, the
+        Playwright engines it launches (`chromium`, `firefox`, `webkit`); `checkout`, whether it
+        reads the repository as a whole;
         `size`.
     """
     package = native.package_name()
@@ -407,13 +413,18 @@ def bun_test_files(name = "test", tests = [], files = {}):
             fail("%s/%s is not in tools/bazel/modules.bzl: bun run scripts/bazel-sources.ts" % (package, test))
         needs = files.get(test, {})
         checkout = needs.get("checkout", False)
-        browsers = needs.get("browsers", False)
+        engines = needs.get("browsers", [])
+        browsers = {}
+        for engine in engines:
+            if engine not in _BROWSERS:
+                fail("%s/%s launches %s, which is none of %s" % (package, test, engine, _BROWSERS.keys()))
+            browsers.update(_BROWSERS[engine])
         target = test.removesuffix(".ts")
         tags = [_REPOSITORY_TAG] if checkout or "//:sources" in modules[test] else []
         bun_test(
             name = target,
             args_ = ["test"],
-            browsers = _BROWSERS if browsers else {},
+            browsers = browsers,
             data = [":%s.module" % test] + _TEST_BASE +
                    (["//:test_node_modules"] if checkout else []) + needs.get("data", []),
             links = SYMLINKS if checkout else {},

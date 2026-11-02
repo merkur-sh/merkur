@@ -1,5 +1,6 @@
 // Browser host of the shared Rust Session. Terminal frame ownership and display
 // policy belong to ClientViewer in the terminal worker.
+import { observeStorageFailures } from '@merkur/browser-storage';
 import { createLogger } from '@merkur/logger';
 import { type DisplayReceiverProfileMessage, encode } from '@merkur/protocol';
 import { createTaskWake } from './lib/task-wake';
@@ -59,6 +60,9 @@ let currentStart = 0;
 function post(message: TransportToMain): void {
   (self as unknown as DedicatedWorkerGlobalScope).postMessage(message);
 }
+
+// This worker's storage failures (the delegation vault) are counted on main, where the reporter is.
+observeStorageFailures(({ target, failure }) => post({ kind: 'storage_failure', target, failure }));
 
 function flushProfile(): void {
   pendingProfile = profileReader?.readIfChanged() ?? pendingProfile;

@@ -9,37 +9,59 @@
  * see `keyboard-diagnostics.ts` for why that distinction is the thing that makes
  * this safe to run during ordinary typing.
  *
+ * Every tab of the origin adds into one stored aggregate. Because every field is
+ * a sum, a save merges by addition: in one IndexedDB read-write transaction,
+ * which runs one at a time across tabs, it stores what the other tabs stored
+ * plus what this tab counted since its last save.
+ *
  * A finished line's corrected misses also go to the offset learner: the user
  * retyping a neighbour in a tap's place is the one label for that tap that is
  * not the decoder's own guess.
  */
-import { guarded, localValue } from '@merkur/browser-storage';
+import { defineDatabase, guarded, keyedStore, withDatabase } from '@merkur/browser-storage';
 import type {
   KeyboardKeyDefinition,
   KeyboardTouchTrace,
   ResolvedKeyboardGeometry,
 } from '@merkur/keyboard';
+
+import { STORAGE_NAMES } from '../lib/storage-names';
 import {
   createKeyboardDiagnostics,
+  DIAGNOSTICS_COUNTS,
+  DIAGNOSTICS_HISTOGRAMS,
+  DIAGNOSTICS_KEY_COUNTS,
+  DIAGNOSTICS_KEY_SUMS,
+  DIAGNOSTICS_SUMS,
   type KeyboardDiagnosticsSnapshot,
   type KeyboardDiagnosticsSummary,
+  mergeDiagnosticsSnapshots,
 } from './keyboard-diagnostics';
 import { recordKeyboardOffsetCorrection } from './keyboard-offset-store';
 
-/** A corrupt or unreadable snapshot is disposable: the statistics start from empty. */
-const storedDiagnostics = localValue('merkur.terminal.typingDiagnostics', guarded(isSnapshot));
-/** Writing on every keystroke would put JSON serialisation on the typing path. */
+/** A corrupt or unreadable aggregate is disposable: the statistics start from empty. */
+const typingDiagnostics = defineDatabase(STORAGE_NAMES.typing_diagnostics, 1, {
+  diagnostics: keyedStore<'current', KeyboardDiagnosticsSnapshot>(guarded(isSnapshot)),
+});
+/** Writing on every keystroke would put serialisation on the typing path. */
 const PERSIST_DELAY_MS = 4_000;
 
 const diagnostics = createKeyboardDiagnostics({ onCorrection: recordKeyboardOffsetCorrection });
+const EMPTY = createKeyboardDiagnostics().snapshot();
+/** The aggregate as of this tab's last save: what this tab counted since is the rest. */
+let base: KeyboardDiagnosticsSnapshot = EMPTY;
 let persistHandle: ReturnType<typeof setTimeout> | null = null;
-let loaded = false;
+let started = false;
+/** Set by a reset; the next save deletes the stored aggregate instead of writing one. */
+let clearRequested = false;
+let saving = false;
+let saveAgain = false;
 
 export function recordKeyboardTouch(
   trace: KeyboardTouchTrace,
   geometry: ResolvedKeyboardGeometry | null,
 ): void {
-  ensureLoaded();
+  ensureStarted();
   diagnostics.record(trace, geometry);
   schedulePersist();
 }
@@ -54,7 +76,7 @@ export function recordKeyboardCommit(
   pointerId: number,
   repeat: boolean,
 ): void {
-  ensureLoaded();
+  ensureStarted();
   if (diagnostics.recordCommit(key, pointerId, repeat)) schedulePersist();
 }
 
@@ -64,106 +86,97 @@ export function recordKeyboardCommit(
  * which is every hardware keystroke on a desktop.
  */
 export function recordKeyboardBreak(): void {
-  ensureLoaded();
+  ensureStarted();
   if (diagnostics.recordBreak()) schedulePersist();
 }
 
 export function keyboardDiagnosticsSummary(driftThresholdPx: number): KeyboardDiagnosticsSummary {
-  ensureLoaded();
+  ensureStarted();
   return diagnostics.summary(driftThresholdPx);
 }
 
 export function resetKeyboardDiagnostics(): void {
   diagnostics.reset();
-  loaded = true;
+  base = EMPTY;
+  started = true;
+  clearRequested = true;
   if (persistHandle !== null) {
     clearTimeout(persistHandle);
     persistHandle = null;
   }
-  storedDiagnostics.remove();
+  void save();
 }
 
-function ensureLoaded(): void {
-  if (loaded) return;
-  loaded = true;
-  const stored = storedDiagnostics.read();
-  if (stored !== null) diagnostics.restore(stored);
+/** The first use loads what the other tabs stored, by saving: the save merges both ways. */
+function ensureStarted(): void {
+  if (started) return;
+  started = true;
+  void save();
 }
 
 function schedulePersist(): void {
   if (persistHandle !== null) return;
   persistHandle = setTimeout(() => {
     persistHandle = null;
-    // Quota or private mode loses only the copy; the in-memory statistics are still valid.
-    storedDiagnostics.write(diagnostics.snapshot());
+    void save();
   }, PERSIST_DELAY_MS);
 }
 
-const SNAPSHOT_COUNTS = [
-  'taps',
-  'uncommitted',
-  'interTapCount',
-  'fastDriftCount',
-  'slowDriftCount',
-  'lines',
-  'missesByPrior',
-  'priorOverrides',
-  'priorOverridesKept',
-  'priorOverridesErased',
-  'priorOverridesMisread',
-  'priorOverridesDeleted',
-  'priorOverridesReplaced',
-  'extraUntraced',
-] as const;
-const SNAPSHOT_SUMS = [
-  'driftSum',
-  'durationSum',
-  'sampleSum',
-  'interTapSum',
-  'fastDriftSum',
-  'slowDriftSum',
-  'extraRepeatGapSum',
-  'keptDoubleGapSum',
-] as const;
-const SNAPSHOT_HISTOGRAMS = [
-  'drift',
-  'duration',
-  'samples',
-  'interTap',
-  'extraRepeatGap',
-  'keptDoubleGap',
-  'typedDrift',
-  'missDrift',
-  'noticed',
-] as const;
-const KEY_COUNTS = [
-  'count',
-  'residualCount',
-  'aimed',
-  'missed',
-  'took',
-  'erasedCorrect',
-  'replaced',
-  'extra',
-  'skipped',
-] as const;
-const KEY_SUMS = [
-  'sumX',
-  'sumY',
-  'sumXX',
-  'sumYY',
-  'sumXY',
-  'sumResidualX',
-  'sumResidualY',
-] as const;
+/**
+ * Saves the aggregate, merged with what the other tabs stored, in one
+ * read-write transaction. One save runs at a time; a save asked for meanwhile
+ * runs once the current one ends. A storage failure is counted by the package
+ * and costs only the copy: what this tab counted stays owed to the next save.
+ */
+async function save(): Promise<void> {
+  if (saving) {
+    saveAgain = true;
+    return;
+  }
+  saving = true;
+  let owed: KeyboardDiagnosticsSnapshot | null = null;
+  try {
+    await withDatabase(typingDiagnostics, (database) =>
+      database.write(['diagnostics'], async (transaction) => {
+        const store = transaction.store('diagnostics');
+        const stored = await store.get('current');
+        // From here to the end of the body nothing awaits, so no tap can land
+        // between the aggregate read and the aggregate written.
+        if (clearRequested) {
+          clearRequested = false;
+          store.delete('current');
+          return;
+        }
+        // An absent aggregate is a first save, or another tab's reset: either way
+        // this tab's own counts since its last save are all there is to add.
+        const merged = mergeDiagnosticsSnapshots(stored ?? EMPTY, diagnostics.snapshot(), base);
+        diagnostics.adopt(merged);
+        owed = stored ?? EMPTY;
+        base = merged;
+        store.put('current', merged);
+      }),
+    );
+  } catch (cause) {
+    if (!(cause instanceof DOMException)) throw cause;
+    // What this tab now holds is the stored aggregate plus its own counts, so
+    // with the stored aggregate as the base the next save adds them again.
+    if (owed !== null) base = owed;
+  } finally {
+    saving = false;
+    if (saveAgain) {
+      saveAgain = false;
+      void save();
+    }
+  }
+}
 
 function isSnapshot(value: unknown): value is KeyboardDiagnosticsSnapshot {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return (
-    SNAPSHOT_COUNTS.every((field) => isCount(candidate[field])) &&
-    SNAPSHOT_SUMS.every((field) => isFiniteNumber(candidate[field])) &&
-    SNAPSHOT_HISTOGRAMS.every((field) => isNumberArray(candidate[field])) &&
+    DIAGNOSTICS_COUNTS.every((field) => isCount(candidate[field])) &&
+    DIAGNOSTICS_SUMS.every((field) => isFiniteNumber(candidate[field])) &&
+    DIAGNOSTICS_HISTOGRAMS.every((field) => isNumberArray(candidate[field])) &&
     Array.isArray(candidate.keys) &&
     candidate.keys.every(isKeyEntry)
   );
@@ -176,8 +189,8 @@ function isKeyEntry(value: unknown): boolean {
     typeof entry.layerId === 'string' &&
     typeof entry.keyId === 'string' &&
     (entry.wide === true || entry.wide === false) &&
-    KEY_COUNTS.every((field) => isCount(entry[field])) &&
-    KEY_SUMS.every((field) => isFiniteNumber(entry[field]))
+    DIAGNOSTICS_KEY_COUNTS.every((field) => isCount(entry[field])) &&
+    DIAGNOSTICS_KEY_SUMS.every((field) => isFiniteNumber(entry[field]))
   );
 }
 

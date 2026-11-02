@@ -18,6 +18,7 @@ import {
   renewSession,
   reportBrowserError,
   reportBrowserLink,
+  reportBrowserStorage,
   reportBrowserUpgrade,
   requestSession,
   saveAccountTelemetry,
@@ -36,6 +37,7 @@ import { createAuth, type PasswordResetPage } from '../hooks/createAuth';
 import { type SwUpdateState, useServiceWorkerLifecycle } from '../hooks/useServiceWorkerLifecycle';
 import { isApiError, shouldRefreshSessionRequest } from '../lib/api-error';
 import { loadCachedDeviceList } from '../lib/device-list-cache';
+import { STORAGE_NAMES } from '../lib/storage-names';
 import { createTransportAutotuner } from '../lib/transport-autotuner';
 import { machineNotificationPath } from '../notification-route';
 import {
@@ -60,6 +62,10 @@ import {
   emitMainLongTask,
   emitStartupMilestone,
 } from '../perf/perf-event-codec';
+import {
+  type StorageFailureReporter,
+  startStorageFailureReporting,
+} from '../perf/storage-failure-reporter';
 import {
   applyTelemetryPerfRecorder,
   TELEMETRY_SESSION_BYTE_BUDGET,
@@ -140,7 +146,7 @@ export type { TelemetryConsentState } from './telemetry-consent-controller';
 
 const logger = createLogger('web');
 /** The machine this tab last had open, so a reload reopens it. */
-const lastOpenedDevice = sessionValue('merkur:last-device-id', (value) => {
+const lastOpenedDevice = sessionValue(STORAGE_NAMES.last_device, (value) => {
   const id = String(value);
   return value === id && id.length > 0 ? id : null;
 });
@@ -441,6 +447,7 @@ export function createAppController(): AppController {
    */
   let errorReporter: BrowserErrorReporter | null = null;
   let removeGlobalErrorHandlers: (() => void) | null = null;
+  let storageFailureReporter: StorageFailureReporter | null = null;
   let displayFrameAppliedForSession = false;
 
   function createProfilingWorker(rings: TerminalRingBundle): TelemetryWorkerClient | null {
@@ -477,6 +484,15 @@ export function createAppController(): AppController {
       },
     });
     removeGlobalErrorHandlers = installGlobalErrorHandlers(errorReporter);
+    // Storage failures, on the same terms: two closed unions and a count.
+    storageFailureReporter = startStorageFailureReporting((report) => {
+      const token = accessToken();
+      if (token === null) return;
+      void reportBrowserStorage(token, report).catch((cause: unknown) => {
+        // A report the network or the server refused is a non-event; anything else is a bug.
+        if (!(cause instanceof Error)) throw cause;
+      });
+    });
   }
 
   function stopErrorReporting(): void {
@@ -484,6 +500,8 @@ export function createAppController(): AppController {
     removeGlobalErrorHandlers = null;
     errorReporter?.stop();
     errorReporter = null;
+    storageFailureReporter?.stop();
+    storageFailureReporter = null;
   }
 
   const telemetryConsentController = createTelemetryConsentController({

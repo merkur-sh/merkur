@@ -1,11 +1,11 @@
 import { defineDatabase, keyedStore, withDatabase } from '@merkur/browser-storage';
-
+import { STORAGE_NAMES } from '../lib/storage-names';
 import { DISPLAY_RECEIVER_PROFILE_BYTES } from './display-receiver-profile';
 
 const STORE = 'receiver-profiles';
 const KEY = `${process.env.MERKUR_TERM_WASM_HASH ?? 'dev'}:${navigator.userAgent}`;
 
-const receiverProfiles = defineDatabase('merkur-display-performance', 1, {
+const receiverProfiles = defineDatabase(STORAGE_NAMES.receiver_profiles, 1, {
   [STORE]: keyedStore<string, ArrayBuffer>((value) =>
     value instanceof ArrayBuffer && value.byteLength === DISPLAY_RECEIVER_PROFILE_BYTES
       ? value

@@ -242,6 +242,25 @@ export const browserErrorCounter = Metric.counter('merkur_browser_errors_total',
   incremental: true,
 });
 
+/**
+ * Browser storage failures by store and class, labelled `<target>:<failure>`: fourteen stores by
+ * six failures, a closed 84-label set. A storage failure answers its caller with `null` or
+ * `false` and the app carries on, so this is the only place one is seen.
+ */
+export const browserStorageFailureFrequency = Metric.frequency(
+  'merkur_browser_storage_failure_total',
+  { description: 'Browser storage failures by store and class' },
+);
+
+export const browserStorageFailureCounter = Metric.counter(
+  'merkur_browser_storage_failures_total',
+  {
+    description:
+      'Total browser storage failures reported, including repeats within a coalescing window',
+    incremental: true,
+  },
+);
+
 export const browserTraceIngestFrequency = Metric.frequency('merkur_browser_trace_ingest_total', {
   description: 'Browser bootstrap span batch relay outcomes',
 });

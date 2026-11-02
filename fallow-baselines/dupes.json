@@ -17,7 +17,7 @@
   "apps/server/src/http/effect-route.ts": 4,
   "apps/server/src/http/routes/auth-routes.ts": 16,
   "apps/server/src/http/routes/notification-routes.ts": 1,
-  "apps/server/src/http/routes/telemetry-routes.ts": 16,
+  "apps/server/src/http/routes/telemetry-routes.ts": 14,
   "apps/server/src/http/web-ui.ts": 1,
   "apps/server/src/services/daemon-control-service.ts": 8,
   "apps/server/src/services/push-notification-service.ts": 2,

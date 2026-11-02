@@ -148,6 +148,7 @@ THIRD_PARTY_DEPENDENCIES = {
         "@solidjs/web",
         "@unocss/preset-uno",
         "effect",
+        "fake-indexeddb",
         "linkify-it",
         "motion",
         "solid-js",
@@ -159,6 +160,7 @@ THIRD_PARTY_DEPENDENCIES = {
         "nanoid",
     ],
     "packages/browser-storage": [
+        "@playwright/test",
         "fake-indexeddb",
     ],
     "packages/config": [

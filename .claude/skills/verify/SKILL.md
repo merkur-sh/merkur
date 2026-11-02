@@ -39,8 +39,8 @@ into rules_js's store, with the `.bin` commands pnpm would write; workspace pack
 checkout's own directories. What else a file reads, runs or spawns is declared in
 `bun_test_files`'s `files` (`data`, `tools`, `browsers`, `checkout`); an undeclared read fails
 with ENOENT or "Module not found" for a path under the checkout. Bun, Node (the release
-`.node-version` names), Redis and OpenSSL, and the Playwright Chromium revision
-`playwright-core` names are hermetic. A native helper a script spawns (the display fixture, the
+`.node-version` names), Redis and OpenSSL, and the Playwright Chromium, Firefox and WebKit
+revisions `playwright-core` names are hermetic. A native helper a script spawns (the display fixture, the
 session oracle) is a declared tool on `PATH`; run from the checkout, `scripts/bazel-tool.ts`
 builds it with `--config=release`.
 

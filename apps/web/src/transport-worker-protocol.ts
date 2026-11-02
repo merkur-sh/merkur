@@ -11,6 +11,7 @@
 // Native/task wake edges and frame-space credit also stay between the workers.
 // This channel carries initialization, server RPCs and cold host intents.
 
+import type { StorageFailure } from '@merkur/browser-storage';
 import type { TerminalUiEffect } from '@merkur/protocol';
 import type { BrowserUpgradeReport, RecoveryOutcome, SignalingStatus } from '@merkur/shared';
 import type { DaemonBinding } from '@merkur/shared/user-authorization';
@@ -324,6 +325,9 @@ export type TransportToMain =
   // One direct-upgrade attempt. The worker measures it but holds no access
   // token, so main posts it on the authenticated telemetry route.
   | { kind: 'upgrade_outcome'; startId: number; report: BrowserUpgradeReport }
+  // A browser storage failure in the worker (the delegation vault), for main to count. Not
+  // per start: the worker's storage outlives a session start.
+  | { kind: 'storage_failure'; target: string; failure: StorageFailure }
   // A program in the terminal asked to open this URL; main opens or offers it.
   // `(epoch, seq)` names the request, which the daemon may deliver again.
   | { kind: 'terminal_ui'; startId: number; effect: TerminalUiEffect }

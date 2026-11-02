@@ -18,4 +18,6 @@ exports_files(["extensions.bzl"])
 ) for browser in [
     "chromium",
     "chromium_headless_shell",
+    "firefox",
+    "webkit",
 ]]

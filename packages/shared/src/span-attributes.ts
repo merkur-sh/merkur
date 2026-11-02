@@ -106,6 +106,8 @@ const SPAN_ATTRIBUTE_SPEC = {
   // they reach a span.
   'merkur.error_kind': 'string',
   'merkur.error_source': 'string',
+  'merkur.storage_failure': 'string',
+  'merkur.storage_target': 'string',
 
   /**
    * Device-events streams this replica holds open for the account opening one,

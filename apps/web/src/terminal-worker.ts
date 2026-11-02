@@ -1,3 +1,4 @@
+import { observeStorageFailures } from '@merkur/browser-storage';
 import type { OwnedTimeout } from './lib/owned-scheduled-callback';
 
 import { createOwnedAnimationFrame, createOwnedTimeout } from './lib/owned-scheduled-callback';
@@ -905,6 +906,12 @@ function reportFatal(err: unknown): void {
   // Closing also retires already queued task, animation and port callbacks.
   self.close();
 }
+
+// This worker's storage failures (the receiver-profile cache) are counted on main, where the
+// reporter is.
+observeStorageFailures(({ target, failure }) => {
+  self.postMessage({ kind: 'storage_failure', target, failure } satisfies WorkerEvent);
+});
 
 self.addEventListener('error', (event) => {
   event.preventDefault();

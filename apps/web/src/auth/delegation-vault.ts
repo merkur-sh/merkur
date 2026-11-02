@@ -20,12 +20,19 @@ import {
 } from '@merkur/shared/user-authorization';
 
 import { loadE2eWasmModule } from '../lib/e2e-wasm-module';
+import { STORAGE_NAMES } from '../lib/storage-names';
 import { validateStoredBrowserDelegation } from './browser-delegation';
 import { decodeBase64UrlExact, encodeBase64Url } from './encoding';
 
 const VAULT_STORE = 'browser-delegation';
 const ACTIVE_VAULT = 'active';
 const DB_OPEN_TIMEOUT_MS = 3_000;
+/**
+ * Every write to the vault resolves only once it is on disk: a sign-in that
+ * returned must not lose its credential to a crash, and a sign-out that
+ * returned must not have it come back.
+ */
+const DURABLE = { durability: 'strict' } as const;
 const AES_NONCE_BYTES = 12;
 const AES_CIPHERTEXT_BYTES = USER_AUTHORIZATION_SEED_BYTES + 16;
 
@@ -48,7 +55,7 @@ interface PersistedVault {
   readonly delegation: PersistedDelegation;
 }
 
-const delegationVault = defineDatabase('merkur-auth', 2, {
+const delegationVault = defineDatabase(STORAGE_NAMES.delegation_vault, 2, {
   [VAULT_STORE]: keyedStore<typeof ACTIVE_VAULT, PersistedVault>(parseVault),
 });
 
@@ -130,9 +137,13 @@ export async function saveBrowserDelegation(
           nonce: encodeBase64Url(nonce),
           ciphertext: encodeBase64Url(ciphertext),
         };
-        await db.write([VAULT_STORE], (transaction) => {
-          transaction.store(VAULT_STORE).put(ACTIVE_VAULT, { wrappingKey, delegation });
-        });
+        await db.write(
+          [VAULT_STORE],
+          (transaction) => {
+            transaction.store(VAULT_STORE).put(ACTIVE_VAULT, { wrappingKey, delegation });
+          },
+          DURABLE,
+        );
       } finally {
         ciphertext.fill(0);
       }
@@ -306,20 +317,24 @@ export async function clearBrowserDelegation(
   expected?: BrowserDelegationIdentity,
 ): Promise<boolean> {
   return await withDelegationDb((db) =>
-    db.write([VAULT_STORE], async (transaction) => {
-      const store = transaction.store(VAULT_STORE);
-      const vault = await store.get(ACTIVE_VAULT);
-      if (
-        expected !== undefined &&
-        vault !== null &&
-        (vault.delegation.userId !== expected.userId ||
-          vault.delegation.certificate.delegationId !== expected.delegationId)
-      ) {
-        return false;
-      }
-      store.delete(ACTIVE_VAULT);
-      return true;
-    }),
+    db.write(
+      [VAULT_STORE],
+      async (transaction) => {
+        const store = transaction.store(VAULT_STORE);
+        const vault = await store.get(ACTIVE_VAULT);
+        if (
+          expected !== undefined &&
+          vault !== null &&
+          (vault.delegation.userId !== expected.userId ||
+            vault.delegation.certificate.delegationId !== expected.delegationId)
+        ) {
+          return false;
+        }
+        store.delete(ACTIVE_VAULT);
+        return true;
+      },
+      DURABLE,
+    ),
   );
 }
 

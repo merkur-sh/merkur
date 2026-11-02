@@ -1,3 +1,4 @@
+import { reportStorageFailure } from '@merkur/browser-storage';
 import type { TerminalUiEffect } from '@merkur/protocol';
 import type { RecoveryOutcome } from '@merkur/shared';
 // Thin main-side TerminalSession. The transport + session orchestration lives
@@ -458,6 +459,7 @@ export function createTransportSession(
     if (writer !== null) emitRecoveryOutcome(writer, atMs, outcome);
   }
 
+  worker.addEventListener('message', forwardStorageFailure);
   worker.onmessage = (event: MessageEvent<TransportToMain>): void => {
     if (terminated) return;
     const data = event.data;
@@ -1267,4 +1269,14 @@ function readSessionIssuanceErrorCode(error: unknown): SessionIssuanceErrorCode 
 function sessionRpcErrorFields(error: unknown): { errorCode?: SessionIssuanceErrorCode } {
   const errorCode = readSessionIssuanceErrorCode(error);
   return errorCode === undefined ? {} : { errorCode };
+}
+
+/**
+ * Counts a storage failure the worker reports in this realm, where the reporter
+ * hears it, as it would one of this page's own (`@merkur/browser-storage`).
+ */
+function forwardStorageFailure(event: MessageEvent<TransportToMain>): void {
+  if (event.data.kind === 'storage_failure') {
+    reportStorageFailure(event.data.target, event.data.failure);
+  }
 }

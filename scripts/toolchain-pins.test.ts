@@ -37,13 +37,24 @@ test('the wasm-bindgen CLI is the release of the crate Cargo.lock pins', () => {
   ).toEqual(locked);
 });
 
-test('Bazel installs the Chromium revision playwright-core launches', () => {
+test('Bazel installs the browser revisions playwright-core launches', () => {
   // `@playwright/test` → `playwright` → `playwright-core`, each resolved from the last.
   const from = (specifier: string, directory: string) =>
     path.dirname(Bun.resolveSync(`${specifier}/package.json`, directory));
   const core = from('playwright-core', from('playwright', from('@playwright/test', ROOT)));
   const manifest: { browsers: { name: string; revision: string; browserVersion: string }[] } =
     JSON.parse(readFileSync(path.join(core, 'browsers.json'), 'utf8'));
+  // WebKit's revision overrides cover only macOS 14 and Ubuntu 20.04, which Bazel does not pin.
+  for (const [name, constant] of [
+    ['webkit', 'WEBKIT_REVISION'],
+    ['firefox', 'FIREFOX_REVISION'],
+  ] as const) {
+    const [pinned] = captures(
+      'tools/bazel/playwright/extensions.bzl',
+      new RegExp(`^${constant} = "([^"]+)"$`, 'gm'),
+    );
+    expect(manifest.browsers.find((entry) => entry.name === name)?.revision, name).toBe(pinned);
+  }
   const [revision] = captures(
     'tools/bazel/playwright/extensions.bzl',
     /^CHROMIUM_REVISION = "([^"]+)"$/gm,

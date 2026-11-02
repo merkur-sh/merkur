@@ -2,6 +2,7 @@
 // so the types are the whole contract. Terminal display frames and ACKs stay on
 // the SAB data plane.
 
+import type { StorageFailure } from '@merkur/browser-storage';
 import type { TerminalFontFamily } from './terminal/fonts';
 import type { TerminalDisplayRingWakeMode } from './terminal/runtime-policy';
 import type { TerminalTheme } from './terminal/themes';
@@ -196,6 +197,9 @@ export type WorkerEvent =
   | { kind: 'worker_health'; diagnostics: TerminalWorkerDiagnostics }
   | { kind: 'display_diag'; event: string; detail: string }
   | { kind: 'fatal'; message: string }
+  // A browser storage failure in the worker (the receiver-profile cache), for main to count:
+  // the worker has no telemetry route of its own.
+  | { kind: 'storage_failure'; target: string; failure: StorageFailure }
   | { kind: 'mouse_mode_changed'; mode: number }
   // Whole viewport as untrimmed rows joined by `\n`, plus one wrap bit per row
   // (LSB-first). Both the selection layer and the accessibility mirror read it.

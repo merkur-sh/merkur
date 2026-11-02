@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { observeStorageFailures } from '@merkur/browser-storage';
 import {
   TEST_DAEMON_BINDING,
   TEST_DAEMON_P256_PUBLIC_KEY,
@@ -88,6 +89,7 @@ class FakeWorker {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: ((event: ErrorEvent) => void) | null = null;
   onmessageerror: ((event: MessageEvent) => void) | null = null;
+  readonly messageListeners: ((event: MessageEvent) => void)[] = [];
   terminateCalls = 0;
   inputWakes = 0;
 
@@ -107,8 +109,14 @@ class FakeWorker {
     if (transfer !== undefined) (this.transfers as Array<readonly Transferable[]>).push(transfer);
   }
 
+  addEventListener(type: 'message', listener: (event: MessageEvent) => void): void {
+    if (type === 'message') this.messageListeners.push(listener);
+  }
+
   emit(message: TransportToMain): void {
-    this.onmessage?.({ data: message } as MessageEvent);
+    const event = { data: message } as MessageEvent;
+    for (const listener of this.messageListeners) listener(event);
+    this.onmessage?.(event);
   }
 
   emitError(message: string): void {
@@ -312,6 +320,32 @@ describe('transport worker client start ownership', () => {
     session.close();
     await started;
     worker.emit({ kind: 'shutdown_complete' });
+  });
+
+  test("the worker's storage failures are counted in this realm, where the reporter is", () => {
+    const seen: { target: string; failure: string }[] = [];
+    const stop = observeStorageFailures((event) => seen.push(event));
+    const session = createTransportSession(
+      { onConnected: () => {}, onDisconnected: () => {}, onMetrics: () => {} },
+      createTerminalRingBundle('task'),
+      {
+        ...BROWSER_AUTHORIZATION_BRIDGE,
+        requestSession: async () => {
+          throw new Error('server bridge is not used in this harness');
+        },
+        cancelSessionRequest: async () => {},
+      },
+    );
+    try {
+      const worker = FakeWorker.current;
+      if (worker === null) throw new Error('transport worker was not created');
+      worker.emit({ kind: 'storage_failure', target: 'merkur-auth', failure: 'aborted' });
+      expect(seen).toEqual([{ target: 'merkur-auth', failure: 'aborted' }]);
+      session.close();
+      worker.emit({ kind: 'shutdown_complete' });
+    } finally {
+      stop();
+    }
   });
 
   test('init hands the worker its wake port, transferred, and the mode main resolved', () => {
