@@ -77,8 +77,16 @@ const VirtualTerminalKeyboard: Component<Props> = (props) => {
   let rootEl!: HTMLDivElement;
   let controller: DomKeyboardController | null = null;
   let mountedLayout: KeyboardLayout = props.layout ?? TERMINAL_US_LAYOUT;
-  let prior: KeyboardPrior | null = null;
-  let priorGeometry: ResolvedKeyboardGeometry | null = null;
+  /**
+   * One prior per geometry, so switching back to a layer reuses its table
+   * instead of rebuilding it inside the layer key's pointer handler.
+   */
+  const priors = new WeakMap<ResolvedKeyboardGeometry, KeyboardPrior>();
+  /**
+   * The personalised model per geometry, for the same reason. Replaced whole
+   * whenever the learned offsets move, which is the only thing that changes one.
+   */
+  let personalizedModels = new WeakMap<ResolvedKeyboardGeometry, KeyboardTouchModel>();
   /**
    * The last character this keyboard committed, which is all the context a
    * strictly causal per-tap prior can use. It is deliberately not the terminal's
@@ -102,15 +110,13 @@ const VirtualTerminalKeyboard: Component<Props> = (props) => {
       activeModifiers: activeModifierNames(props.modifiers),
       onKey: handleKey,
       onProvisionalKey: handleProvisionalKey,
-      onLayerChange: (layerId) => {
-        // A layer key commits at pointerdown and is consumed by the controller,
-        // so `onKey` never fires for it and the prior would stay cleared until
-        // the tap after next. Switching layers is also exactly when context
-        // matters most in shell text: it is how '-', '/', '.' and '|' are
-        // reached.
-        refreshPriorForContext();
-        props.onLayerChange?.(layerId);
-      },
+      onLayerChange: (layerId) => props.onLayerChange?.(layerId),
+      // Every geometry swap clears the engine's prior, which is indexed by key:
+      // a layer switch, and also a resize or rotation that keeps the layer. A
+      // layer key is consumed by the controller, so `onKey` never fires for it,
+      // and switching layers is exactly when context matters most in shell
+      // text: it is how '-', '/', '.' and '|' are reached.
+      onGeometryChange: () => refreshPriorForContext(),
       onTouchTrace: (trace) => {
         const geometry = mounted.getGeometry();
         // Folded into per-key sums and histograms immediately; no keystroke
@@ -118,18 +124,17 @@ const VirtualTerminalKeyboard: Component<Props> = (props) => {
         recordKeyboardTouch(trace, geometry);
         // Rebuilding the model allocates, so it happens on the learner's own
         // cadence rather than once per keystroke.
-        if (recordKeyboardOffsetTouch(trace, geometry)) {
-          mounted.setTouchModel(personalizedTouchModel);
-        }
+        if (recordKeyboardOffsetTouch(trace, geometry)) reapplyPersonalizedModel(mounted);
       },
     });
     controller = mounted;
+    // The first geometry was built inside `createDomKeyboard`, before
+    // `controller` was set, so its prior is set here.
+    refreshPriorForContext();
     mounted.setVisible(props.visible);
     // A settings-screen reset must reach the live engine now, not on the 25th
     // accepted tap after it; so must corrections a finished line folded in.
-    const unsubscribeOffsets = subscribeKeyboardOffsets(() => {
-      mounted.setTouchModel(personalizedTouchModel);
-    });
+    const unsubscribeOffsets = subscribeKeyboardOffsets(() => reapplyPersonalizedModel(mounted));
     return () => {
       unsubscribeOffsets();
       mounted.destroy();
@@ -249,12 +254,22 @@ const VirtualTerminalKeyboard: Component<Props> = (props) => {
    * is load-bearing.
    */
   function personalizedTouchModel(geometry: ResolvedKeyboardGeometry): KeyboardTouchModel {
+    const cached = personalizedModels.get(geometry);
+    if (cached !== undefined) return cached;
     let base = basePriors.get(geometry);
     if (base === undefined) {
       base = createKeyboardSpatialPrior(geometry);
       basePriors.set(geometry, base);
     }
-    return applyKeyboardOffsets(geometry, base);
+    const model = applyKeyboardOffsets(geometry, base);
+    personalizedModels.set(geometry, model);
+    return model;
+  }
+
+  /** The learned offsets moved: every cached personalised model is stale. */
+  function reapplyPersonalizedModel(mounted: DomKeyboardController): void {
+    personalizedModels = new WeakMap();
+    mounted.setTouchModel(personalizedTouchModel);
   }
 
   /**
@@ -273,7 +288,7 @@ const VirtualTerminalKeyboard: Component<Props> = (props) => {
   }
 
   /**
-   * Rebuilds the prior for whatever geometry is live now, without advancing the
+   * Sets the prior for whatever geometry is live now, without advancing the
    * context. `updateGeometry` clears the engine's prior because it is indexed by
    * key and a new layer has different keys, so every geometry change has to be
    * followed by this.
@@ -283,9 +298,10 @@ const VirtualTerminalKeyboard: Component<Props> = (props) => {
     if (active === null) return;
     const geometry = active.getGeometry();
     if (geometry === null) return;
-    if (prior === null || priorGeometry !== geometry) {
+    let prior = priors.get(geometry);
+    if (prior === undefined) {
       prior = createKeyboardPrior(geometry);
-      priorGeometry = geometry;
+      priors.set(geometry, prior);
     }
     active.setKeyPrior(prior.forPrevious(lastCharacter));
   }

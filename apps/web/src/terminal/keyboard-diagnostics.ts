@@ -366,13 +366,11 @@ export function createKeyboardDiagnostics(
   // its first letter was kept too.
   let previousIndex = -1;
   let previousKind: InputStreamClass = INPUT_STREAM_KEPT;
-  // An anchored tap commits at touch-down and traces at its lift, so its entry
-  // waits here, by pointer, for the trace. A release-decided tap traces just
-  // before its commit, so its trace waits in `pendingTrace` instead; commits of
-  // older contacts that the lift resolves can come in between.
+  // Every tap commits before it traces: an anchored or overtaken one at the
+  // moment it is decided and a release-decided one on its lift, whose trace the
+  // engine emits only after the byte has left. So a typed entry waits here, by
+  // pointer, for its trace.
   const untraced = new Map<number, number>();
-  let pendingTrace: KeyboardTouchTrace | null = null;
-  let pendingGeometry: ResolvedKeyboardGeometry | null = null;
   const analyzer = createInputStreamAnalyzer();
   const onCorrection = options?.onCorrection;
 
@@ -455,10 +453,7 @@ export function createKeyboardDiagnostics(
       untraced.delete(trace.pointerId);
       lineTraces[waiting] = trace;
       lineGeometries[waiting] = geometry;
-      return;
     }
-    pendingTrace = trace;
-    pendingGeometry = geometry;
   }
 
   function recordCommit(key: KeyboardKeyDefinition, pointerId: number, repeat: boolean): boolean {
@@ -471,17 +466,6 @@ export function createKeyboardDiagnostics(
     // A held key's repeats are real characters on the line, but the contact
     // traces once, for the press that started it.
     if (repeat) return false;
-    if (
-      pendingTrace !== null &&
-      pendingTrace.pointerId === pointerId &&
-      pendingTrace.predictedKey?.id === key.id
-    ) {
-      lineTraces[index] = pendingTrace;
-      lineGeometries[index] = pendingGeometry;
-      pendingTrace = null;
-      pendingGeometry = null;
-      return false;
-    }
     untraced.set(pointerId, index);
     return false;
   }
@@ -772,8 +756,6 @@ export function createKeyboardDiagnostics(
     keptDoubleGapSum = 0;
     extraUntraced = 0;
     wipeLine();
-    pendingTrace = null;
-    pendingGeometry = null;
     fastDriftSum = 0;
     fastDriftCount = 0;
     slowDriftSum = 0;

@@ -261,6 +261,8 @@ const fakeWorker = {
   predictDelete: () => true,
   predictCursorShift: () => true,
   flushPredictions: () => {},
+  // A shell at its prompt: no mode that reports extra input is set.
+  terminalMode: () => 0,
 } as unknown as TerminalWorkerClient;
 const noVirtualModifiers = { shift: false, ctrl: false, alt: false, meta: false } as const;
 /** The terminal panel: every benchmark key is aimed at the terminal. */

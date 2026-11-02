@@ -77,7 +77,7 @@
   },
   "packages/keyboard/src/engine.ts::endPointerAt": {
     "cyclomatic": 37,
-    "cognitive": 41
+    "cognitive": 38
   },
   "packages/keyboard/src/geometry.ts::buildCandidateAtlas": {
     "cyclomatic": 52,

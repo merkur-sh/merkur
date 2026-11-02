@@ -7,6 +7,7 @@ import {
   solveKeyboardGeometry,
 } from './geometry';
 import { createKeyboardLayout } from './layout';
+import { createKeyboardSpatialPrior } from './touch-model';
 import type {
   KeyboardBehaviorOptions,
   KeyboardCommit,
@@ -34,7 +35,10 @@ export interface DomKeyboardOptions {
   readonly theme?: KeyboardTheme;
   readonly labelResolver?: KeyboardLabelResolver;
   readonly touchModel?: KeyboardTouchModel | KeyboardTouchModelResolver;
-  /** Build inactive layer geometry during idle periods so the first switch cannot block input. */
+  /**
+   * Build inactive layers' geometry and key nodes during idle periods, so the
+   * first switch to each is a visibility flip rather than a build.
+   */
   readonly prewarmLayers?: boolean;
   /** Optional development telemetry; omitted from the hot path when undefined. */
   readonly onPerformanceSample?: (sample: KeyboardPerformanceSample) => void;
@@ -57,6 +61,14 @@ export interface DomKeyboardOptions {
   readonly onKeyCommit?: (commit: KeyboardCommit) => void;
   readonly onTouchTrace?: (trace: KeyboardTouchTrace) => void;
   readonly onLayerChange?: (layerId: string) => void;
+  /**
+   * Fires once the engine decides against a new geometry: a layer switch, a
+   * resize, a rotation or a new layout. The engine's key prior is indexed by key
+   * and is cleared at every such swap, so an owner that supplies one sets it
+   * again here. It can fire during `createDomKeyboard`, before the controller
+   * has been returned.
+   */
+  readonly onGeometryChange?: (geometry: ResolvedKeyboardGeometry) => void;
 }
 
 export type KeyboardPerformancePhase =
@@ -85,8 +97,8 @@ export interface DomKeyboardController {
   setTouchModel(model: KeyboardTouchModel | KeyboardTouchModelResolver | undefined): void;
   /**
    * Sets the causal probability of each key given the text committed so far, or
-   * clears it. Indexed by key in the CURRENT layer; a layer switch clears it, so
-   * the owner must set a fresh one after `setLayer`.
+   * clears it. Indexed by key in the CURRENT geometry; every geometry swap
+   * clears it, so the owner sets a fresh one from `onGeometryChange`.
    */
   setKeyPrior(logPrior: Float64Array | null): void;
   setModifiers(modifiers: readonly string[]): void;
@@ -111,6 +123,52 @@ const THEME_PROPERTIES: Readonly<Record<keyof KeyboardTheme, string>> = {
   specialFontSize: '--merkur-keyboard-special-size',
 };
 
+type ProfileField = keyof KeyboardGeometryProfile;
+
+/**
+ * Accepts a field list only when it names every profile field, so a field
+ * added to `KeyboardGeometryProfile` and left out of the list does not build.
+ * A hand-written comparison once omitted `slideDrift` and `priorWeight`, so a
+ * change to either never reached the engine.
+ */
+function everyProfileField<const Fields extends readonly ProfileField[]>(
+  fields: Fields & (Exclude<ProfileField, Fields[number]> extends never ? unknown : never),
+): Fields {
+  return fields;
+}
+
+const PROFILE_FIELD_NAMES = everyProfileField([
+  'horizontalPadding',
+  'topPadding',
+  'bottomPadding',
+  'bottomUtilityHeight',
+  'keyGap',
+  'rowGap',
+  'keyHeight',
+  'cornerRadius',
+  'hysteresis',
+  'tapDrift',
+  'slideDrift',
+  'releaseWeight',
+  'priorWeight',
+  'maximumPointers',
+]);
+
+/**
+ * The fields that place keys or size the hit atlas. The others are recognition
+ * parameters the engine reads live, and changing one must not discard a single
+ * cached atlas.
+ */
+const GEOMETRY_PROFILE_FIELDS = [
+  'horizontalPadding',
+  'topPadding',
+  'bottomPadding',
+  'bottomUtilityHeight',
+  'keyGap',
+  'rowGap',
+  'keyHeight',
+] as const satisfies readonly ProfileField[];
+
 const KEYCAP_PREVIEW_WIDTH = 50;
 const KEYCAP_PREVIEW_HEIGHT = 62;
 const KEYCAP_PREVIEW_OVERLAP = 7;
@@ -120,6 +178,46 @@ const PREWARM_IDLE_TIMEOUT_MS = 250;
 type KeyboardPrewarmHandle =
   | { readonly kind: 'idle'; readonly value: number }
   | { readonly kind: 'timer'; readonly value: number };
+
+/**
+ * One layer's pooled key and preview nodes. Every layer keeps its own, so a
+ * layer switch replaces the one attached subtree with another that is already
+ * built, placed and labelled. Rewriting and re-inserting every key instead put
+ * a full rebuild of the key surface inside the pointer handler of the key that
+ * switched layers, which in a terminal is how '-', '/', '|' and every digit are
+ * reached.
+ *
+ * Only the visible view is in the document. Inactive ones hidden with
+ * `display: none` measured a cost on every keystroke in WebKit, so they are
+ * kept detached instead.
+ *
+ * Nodes are created once per layout and layer, with everything that does not
+ * depend on the width; a new geometry only moves them. What the modifiers
+ * change is written to the visible view at once and to the others while idle
+ * or when they are shown, by generation.
+ */
+interface LayerView {
+  /**
+   * The keys in index order, then the preview layer: the surface's children
+   * while this view is shown. No wrapper element, because an extra positioned
+   * container between the surface and its keys measured slower relayouts.
+   */
+  readonly nodes: HTMLElement[];
+  readonly previewLayer: HTMLDivElement;
+  readonly keys: HTMLButtonElement[];
+  readonly previews: HTMLDivElement[];
+  readonly definitions: KeyboardKeyDefinition[];
+  /** Indices of the keys whose legend can change with the modifiers. */
+  readonly relabelled: number[];
+  /** Indices of the modifier keys, whose pressed state follows the modifiers. */
+  readonly modifierKeys: number[];
+  /** The geometry these nodes are positioned for; null until first placed. */
+  geometry: ResolvedKeyboardGeometry | null;
+  /** The label generation this view's legends were written for. */
+  labelGeneration: number;
+  /** The modifier generation this view's modifier keys show. */
+  modifierGeneration: number;
+}
 
 export function createDomKeyboard(
   root: HTMLElement,
@@ -136,16 +234,27 @@ export function createDomKeyboard(
   let activeModifiers = new Set(options.activeModifiers ?? []);
   let geometry: ResolvedKeyboardGeometry | null = null;
   let engine: KeyboardEngine | null = null;
-  let enginePointerCapacity = 0;
-  let keyElements: HTMLButtonElement[] = [];
-  let previewElements: HTMLDivElement[] = [];
-  let activeKeyElementCount = 0;
+  let engineProfile: KeyboardGeometryProfile | null = null;
+  let views = new Map<string, LayerView>();
+  let layerIds = Object.keys(layout.layers);
+  let activeView: LayerView | null = null;
+  // Advance whenever the modifiers change a legend, and whenever they change at
+  // all. Only the visible view follows at once; the others catch up while idle
+  // or when shown.
+  let labelGeneration = 0;
+  let modifierGeneration = 0;
+  let appliedRadius = Number.NaN;
+  let appliedUtilityHeight = Number.NaN;
   let surfaceLeft = 0;
   let surfaceTop = 0;
   let resizeFrame: number | null = null;
   let prewarmHandle: KeyboardPrewarmHandle | null = null;
   let geometryGeneration = 0;
   let destroyed = false;
+  // A layer key that the engine commits while it is itself mid-swap is applied
+  // once the swap is done, rather than starting a second swap inside the first.
+  let swappingGeometry = false;
+  let pendingLayerId: string | null = null;
   const geometryCache = new Map<string, ResolvedKeyboardGeometry>();
   let cachedLayout = layout;
   let cachedWidth = Number.NaN;
@@ -160,9 +269,6 @@ export function createDomKeyboard(
   surface.className = 'merkur-keyboard__surface';
   surface.setAttribute('role', 'group');
   surface.setAttribute('aria-label', 'Terminal keyboard');
-  const previewLayer = document.createElement('div');
-  previewLayer.className = 'merkur-keyboard__preview-layer';
-  previewLayer.setAttribute('aria-hidden', 'true');
   root.replaceChildren(surface);
   if (options.theme !== undefined) applyTheme(root, options.theme);
 
@@ -184,6 +290,11 @@ export function createDomKeyboard(
 
   refreshGeometry();
 
+  /**
+   * Measures the keyboard and resolves its profile, then shows the current
+   * layer for them. Runs for resizes, rotations, profile and layout changes;
+   * a layer switch on an unchanged board skips the measurement (`setLayer`).
+   */
   function refreshGeometry(): void {
     if (destroyed || root.hidden) return;
     const width = root.getBoundingClientRect().width;
@@ -200,65 +311,113 @@ export function createDomKeyboard(
       cachedWidth !== width ||
       cachedDpr !== dpr ||
       cachedProfile === null ||
-      !sameGeometryProfile(cachedProfile, profile)
+      !sameProfileFields(cachedProfile, profile, GEOMETRY_PROFILE_FIELDS)
     ) {
       invalidateGeometryCache();
       cachedLayout = layout;
       cachedWidth = width;
       cachedDpr = dpr;
-      cachedProfile = { ...profile };
     }
-    let nextGeometry = geometryCache.get(layerId);
-    if (nextGeometry === undefined) {
-      const startedAt = options.onPerformanceSample === undefined ? 0 : performance.now();
-      nextGeometry = solveKeyboardGeometry(layout, layerId, width, dpr, profile);
-      geometryCache.set(layerId, nextGeometry);
-      if (options.onPerformanceSample !== undefined) {
-        emitPerformanceSample({
-          phase: 'geometry-build',
-          layerId,
-          durationMs: performance.now() - startedAt,
-        });
+    cachedProfile = { ...profile };
+    showGeometry(geometryFor(layerId, cachedProfile), cachedProfile);
+  }
+
+  function geometryFor(id: string, profile: KeyboardGeometryProfile): ResolvedKeyboardGeometry {
+    const cached = geometryCache.get(id);
+    if (cached !== undefined) return cached;
+    const startedAt = options.onPerformanceSample === undefined ? 0 : performance.now();
+    const built = solveKeyboardGeometry(layout, id, cachedWidth, cachedDpr, profile);
+    geometryCache.set(id, built);
+    if (options.onPerformanceSample !== undefined) {
+      emitPerformanceSample({
+        phase: 'geometry-build',
+        layerId: id,
+        durationMs: performance.now() - startedAt,
+      });
+    }
+    return built;
+  }
+
+  /**
+   * Makes `nextGeometry` the one the engine decides against and the one on
+   * screen, or hands a changed profile to the engine when the geometry stayed.
+   *
+   * The order is the contract. The engine swaps first, while the visible view
+   * still describes the old geometry: a contact that is still down owes the
+   * stream its byte and commits against the board it was typed on, and its
+   * pressed highlight is cleared on the node it was set on. Only then does the
+   * new view show. Clearing contacts before the swap, as this once did,
+   * released a resting thumb before the engine could commit it, and the
+   * keystroke vanished without a trace.
+   */
+  function showGeometry(
+    nextGeometry: ResolvedKeyboardGeometry,
+    profile: KeyboardGeometryProfile,
+  ): void {
+    const view = viewFor(nextGeometry);
+    placeView(view, nextGeometry);
+    if (
+      nextGeometry !== geometry ||
+      engine === null ||
+      engineProfile === null ||
+      engineProfile.maximumPointers !== profile.maximumPointers
+    ) {
+      const touchModel = resolveTouchModel(touchModelSource, nextGeometry);
+      swappingGeometry = true;
+      try {
+        if (
+          engine === null ||
+          engineProfile === null ||
+          engineProfile.maximumPointers !== profile.maximumPointers
+        ) {
+          engine?.destroy();
+          engine = createKeyboardEngine({
+            geometry: nextGeometry,
+            profile,
+            touchModel,
+            onKeyStateChange: updatePressedState,
+            onRawCommit: handleEngineCommit,
+            onRawProvisional: handleEngineProvisional,
+            onTouchTrace: options.onTouchTrace,
+          });
+        } else {
+          engine.updateGeometry(nextGeometry, profile, touchModel);
+        }
+      } finally {
+        swappingGeometry = false;
       }
+      engineProfile = profile;
+      geometry = nextGeometry;
+      activateView(view);
+      setStylePx(surface.style, 'height', nextGeometry.height);
+      applyProfileStyle(profile);
+      options.onGeometryChange?.(nextGeometry);
+    } else if (!sameProfileFields(engineProfile, profile, PROFILE_FIELD_NAMES)) {
+      engine.updateProfile(profile);
+      engineProfile = profile;
+      applyProfileStyle(profile);
     }
 
-    if (nextGeometry !== geometry) {
-      // Commit held contacts before clearing highlights or rebinding the old
-      // geometry: a layer switch still owes each undecided character its byte.
-      engine?.commitLiveContacts();
-      // Clear old pointer highlights while keyElements still describes the old
-      // layer. Rebinding first could remove the pressed state from an unrelated
-      // key that happens to reuse the same numeric index.
-      engine?.cancelAll();
-      geometry = nextGeometry;
-      setStylePx(surface.style, 'height', nextGeometry.height);
+    const pending = pendingLayerId;
+    if (pending !== null) {
+      pendingLayerId = null;
+      setLayer(pending);
+    }
+    scheduleGeometryPrewarm();
+  }
+
+  function applyProfileStyle(profile: KeyboardGeometryProfile): void {
+    if (appliedRadius !== profile.cornerRadius) {
+      appliedRadius = profile.cornerRadius;
       root.style.setProperty('--merkur-keyboard-radius', `${profile.cornerRadius}px`);
+    }
+    if (appliedUtilityHeight !== profile.bottomUtilityHeight) {
+      appliedUtilityHeight = profile.bottomUtilityHeight;
       root.style.setProperty(
         '--merkur-keyboard-bottom-utility-height',
         `${profile.bottomUtilityHeight}px`,
       );
-      renderKeys(nextGeometry);
-
-      if (engine === null || enginePointerCapacity !== profile.maximumPointers) {
-        engine?.destroy();
-        enginePointerCapacity = profile.maximumPointers;
-        engine = createKeyboardEngine({
-          geometry: nextGeometry,
-          profile,
-          touchModel: resolveTouchModel(touchModelSource, nextGeometry),
-          onKeyStateChange: updatePressedState,
-          onRawCommit: handleEngineCommit,
-          onRawProvisional: handleEngineProvisional,
-          onTouchTrace: options.onTouchTrace,
-        });
-      } else {
-        engine.updateGeometry(nextGeometry, profile);
-        const touchModel = resolveTouchModel(touchModelSource, nextGeometry);
-        if (touchModel !== undefined) engine.updateTouchModel(touchModel);
-      }
     }
-
-    scheduleGeometryPrewarm();
   }
 
   /**
@@ -285,49 +444,77 @@ export function createDomKeyboard(
     surfaceTop = rect.top;
   }
 
-  function renderKeys(nextGeometry: ResolvedKeyboardGeometry): void {
-    const keyFragment = document.createDocumentFragment();
+  /** The layer's pooled nodes, created detached on first use. */
+  function viewFor(nextGeometry: ResolvedKeyboardGeometry): LayerView {
+    const existing = views.get(nextGeometry.layerId);
+    if (existing !== undefined) return existing;
+    const previewLayer = document.createElement('div');
+    previewLayer.className = 'merkur-keyboard__preview-layer';
+    previewLayer.setAttribute('aria-hidden', 'true');
+    const view: LayerView = {
+      nodes: [],
+      previewLayer,
+      keys: [],
+      previews: [],
+      definitions: [],
+      relabelled: [],
+      modifierKeys: [],
+      geometry: null,
+      labelGeneration,
+      modifierGeneration,
+    };
     const previewFragment = document.createDocumentFragment();
     for (const resolved of nextGeometry.keys) {
       const key = resolved.definition;
-      let button = keyElements[resolved.index];
-      if (button === undefined) {
-        button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'merkur-keyboard__key';
-        keyElements[resolved.index] = button;
-      }
-      setDataset(button, 'keyId', key.id);
-      setDataset(button, 'keyIndex', String(resolved.index));
-      setDataset(
-        button,
-        'variant',
-        key.variant ?? (key.kind === 'input' ? 'character' : 'special'),
-      );
-      setStylePx(button.style, 'left', resolved.rect.x);
-      setStylePx(button.style, 'top', resolved.rect.y);
-      setStylePx(button.style, 'width', resolved.rect.width);
-      setStylePx(button.style, 'height', resolved.rect.height);
+      const variant = key.variant ?? (key.kind === 'input' ? 'character' : 'special');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'merkur-keyboard__key';
+      button.dataset.keyId = key.id;
+      button.dataset.keyIndex = String(resolved.index);
+      button.dataset.variant = variant;
+      button.setAttribute('aria-label', key.ariaLabel ?? key.label);
       const label = resolveLabel(key);
-      if (button.textContent !== label) button.textContent = label;
-      setAttribute(button, 'aria-label', key.ariaLabel ?? key.label);
-      button.removeAttribute('data-pressed');
+      button.textContent = label;
       updateModifierState(button, key.modifier);
-      keyFragment.append(button);
+      view.nodes.push(button);
 
-      let preview = previewElements[resolved.index];
-      if (preview === undefined) {
-        preview = document.createElement('div');
-        preview.className = 'merkur-keyboard__preview';
-        preview.setAttribute('aria-hidden', 'true');
-        previewElements[resolved.index] = preview;
+      const preview = document.createElement('div');
+      preview.className = 'merkur-keyboard__preview';
+      preview.setAttribute('aria-hidden', 'true');
+      preview.dataset.keyId = key.id;
+      preview.dataset.variant = variant;
+      preview.textContent = label;
+      preview.hidden = behavior.preview !== 'keycap' || !supportsKeycapPreview(key);
+      previewFragment.append(preview);
+
+      view.keys[resolved.index] = button;
+      view.previews[resolved.index] = preview;
+      view.definitions[resolved.index] = key;
+      if (options.labelResolver !== undefined || key.shiftedLabel !== undefined) {
+        view.relabelled.push(resolved.index);
       }
-      setDataset(preview, 'keyId', key.id);
-      setDataset(
-        preview,
-        'variant',
-        key.variant ?? (key.kind === 'input' ? 'character' : 'special'),
-      );
+      if (key.modifier !== undefined) view.modifierKeys.push(resolved.index);
+    }
+    previewLayer.append(previewFragment);
+    view.nodes.push(previewLayer);
+    views.set(nextGeometry.layerId, view);
+    return view;
+  }
+
+  /** Moves a view's nodes to the rectangles of `nextGeometry`. */
+  function placeView(view: LayerView, nextGeometry: ResolvedKeyboardGeometry): void {
+    if (view.geometry === nextGeometry) return;
+    for (const resolved of nextGeometry.keys) {
+      const button = view.keys[resolved.index];
+      if (button !== undefined) {
+        setStylePx(button.style, 'left', resolved.rect.x);
+        setStylePx(button.style, 'top', resolved.rect.y);
+        setStylePx(button.style, 'width', resolved.rect.width);
+        setStylePx(button.style, 'height', resolved.rect.height);
+      }
+      const preview = view.previews[resolved.index];
+      if (preview === undefined) continue;
       const previewWidth = Math.max(KEYCAP_PREVIEW_WIDTH, resolved.rect.width);
       const previewLeft = Math.min(
         Math.max(2, resolved.rect.x + (resolved.rect.width - previewWidth) / 2),
@@ -341,14 +528,49 @@ export function createDomKeyboard(
       );
       setStylePx(preview.style, 'width', previewWidth);
       setStylePx(preview.style, 'height', KEYCAP_PREVIEW_HEIGHT);
-      if (preview.textContent !== label) preview.textContent = label;
-      preview.hidden = behavior.preview !== 'keycap' || !supportsKeycapPreview(key);
-      preview.removeAttribute('data-visible');
-      previewFragment.append(preview);
     }
-    activeKeyElementCount = nextGeometry.keys.length;
-    previewLayer.replaceChildren(previewFragment);
-    surface.replaceChildren(keyFragment, previewLayer);
+    view.geometry = nextGeometry;
+  }
+
+  function activateView(view: LayerView): void {
+    if (activeView === view) return;
+    syncView(view);
+    surface.replaceChildren(...view.nodes);
+    activeView = view;
+  }
+
+  function resolveLabel(key: KeyboardKeyDefinition): string {
+    if (options.labelResolver !== undefined) return options.labelResolver(key, activeModifiers);
+    return activeModifiers.has('shift') ? (key.shiftedLabel ?? key.label) : key.label;
+  }
+
+  /**
+   * Writes the legends the current modifiers call for, when this view's are
+   * from an older generation. A legend is text rather than CSS generated
+   * content on purpose: drawing it from an attribute made Shift one attribute
+   * write, but every engine then rebuilt each key's generated box, and the
+   * layout after a Shift press measured slower than rewriting the text.
+   */
+  function syncView(view: LayerView): void {
+    if (view.labelGeneration !== labelGeneration) {
+      view.labelGeneration = labelGeneration;
+      for (const index of view.relabelled) {
+        const key = view.definitions[index];
+        if (key === undefined) continue;
+        const label = resolveLabel(key);
+        const button = view.keys[index];
+        if (button !== undefined && button.textContent !== label) button.textContent = label;
+        const preview = view.previews[index];
+        if (preview !== undefined && preview.textContent !== label) preview.textContent = label;
+      }
+    }
+    if (view.modifierGeneration !== modifierGeneration) {
+      view.modifierGeneration = modifierGeneration;
+      for (const index of view.modifierKeys) {
+        const button = view.keys[index];
+        if (button !== undefined) updateModifierState(button, view.definitions[index]?.modifier);
+      }
+    }
   }
 
   function handleEngineCommit(
@@ -362,7 +584,8 @@ export function createDomKeyboard(
   ): void {
     const key = resolved.definition;
     if (key.kind === 'layer' && key.targetLayer !== undefined) {
-      setLayer(key.targetLayer);
+      if (swappingGeometry) pendingLayerId = key.targetLayer;
+      else setLayer(key.targetLayer);
       return;
     }
     // Modifier state is read when the key commits. For a key decided at
@@ -399,12 +622,21 @@ export function createDomKeyboard(
     options.onProvisionalKey?.(key, value, pointerId);
   }
 
+  /**
+   * A layer switch on an unchanged board reuses the measurement and profile of
+   * the last refresh: nothing that feeds them has changed, and every change
+   * that does (a resize, a rotation, a profile or layout) refreshes them on its
+   * own. This runs inside the pointer handler of the layer key, where a layout
+   * read would force the style the key's own pressed state just invalidated.
+   */
   function setLayer(nextLayerId: string): void {
     if (nextLayerId === layerId) return;
     if (!(nextLayerId in layout.layers)) throw new Error(`Unknown keyboard layer: ${nextLayerId}`);
     layerId = nextLayerId;
     root.setAttribute('data-keyboard-layer', layerId);
-    refreshGeometry();
+    const profile = cachedProfile;
+    if (profile === null || cachedLayout !== layout || root.hidden) refreshGeometry();
+    else showGeometry(geometryFor(layerId, profile), profile);
     options.onLayerChange?.(layerId);
   }
 
@@ -414,8 +646,13 @@ export function createDomKeyboard(
       throw new Error(`Unknown keyboard layer: ${initialLayer}`);
     }
     layout = validated;
+    layerIds = Object.keys(layout.layers);
     layerId = initialLayer;
     invalidateGeometryCache();
+    // The old layout's visible view stays attached, and `activeView`, until the
+    // engine has swapped away from it, so contacts still on it clear their
+    // highlights where they were set.
+    views = new Map();
     root.setAttribute('data-keyboard-layout', layout.id);
     root.setAttribute('data-keyboard-layer', layerId);
     refreshGeometry();
@@ -432,13 +669,14 @@ export function createDomKeyboard(
     if (sameKeyboardBehavior(behavior, resolved)) return;
     behavior = resolved;
     applyBehaviorAttributes(root, behavior);
-    const nextGeometry = geometry;
-    if (nextGeometry === null) return;
-    for (const key of nextGeometry.keys) {
-      const preview = previewElements[key.index];
-      if (preview === undefined) continue;
-      preview.removeAttribute('data-visible');
-      preview.hidden = behavior.preview !== 'keycap' || !supportsKeycapPreview(key.definition);
+    for (const view of views.values()) {
+      for (let index = 0; index < view.previews.length; index += 1) {
+        const preview = view.previews[index];
+        const definition = view.definitions[index];
+        if (preview === undefined || definition === undefined) continue;
+        preview.removeAttribute('data-visible');
+        preview.hidden = behavior.preview !== 'keycap' || !supportsKeycapPreview(definition);
+      }
     }
   }
 
@@ -446,11 +684,13 @@ export function createDomKeyboard(
     nextModel: KeyboardTouchModel | KeyboardTouchModelResolver | undefined,
   ): void {
     touchModelSource = nextModel;
-    const nextGeometry = geometry;
-    if (nextGeometry === null) return;
-    const touchModel = resolveTouchModel(touchModelSource, nextGeometry);
-    if (touchModel === undefined) engine?.updateGeometry(nextGeometry);
-    else engine?.updateTouchModel(touchModel);
+    const current = geometry;
+    if (current === null || engine === null) return;
+    // Clearing the model returns to the geometric one. It is a model change
+    // only: contacts that are down stay down.
+    engine.updateTouchModel(
+      resolveTouchModel(touchModelSource, current) ?? createKeyboardSpatialPrior(current),
+    );
   }
 
   /**
@@ -467,24 +707,12 @@ export function createDomKeyboard(
     if (sameModifiers(activeModifiers, modifiers)) return;
     const shiftedBefore = activeModifiers.has('shift');
     activeModifiers = new Set(modifiers);
-    const shiftedAfter = activeModifiers.has('shift');
-    const nextGeometry = geometry;
-    if (nextGeometry === null) return;
-    for (const resolved of nextGeometry.keys) {
-      const button = keyElements[resolved.index];
-      if (button === undefined) continue;
-      const key = resolved.definition;
-      if (
-        options.labelResolver !== undefined ||
-        (shiftedBefore !== shiftedAfter && key.shiftedLabel !== undefined)
-      ) {
-        const label = resolveLabel(key);
-        if (button.textContent !== label) button.textContent = label;
-        const preview = previewElements[resolved.index];
-        if (preview !== undefined && preview.textContent !== label) preview.textContent = label;
-      }
-      if (key.modifier !== undefined) updateModifierState(button, key.modifier);
+    if (options.labelResolver !== undefined || shiftedBefore !== activeModifiers.has('shift')) {
+      labelGeneration += 1;
     }
+    modifierGeneration += 1;
+    if (activeView !== null) syncView(activeView);
+    scheduleGeometryPrewarm();
   }
 
   function setTheme(theme: KeyboardTheme): void {
@@ -505,11 +733,6 @@ export function createDomKeyboard(
     scheduleGeometryRefresh();
   }
 
-  function resolveLabel(key: Parameters<KeyboardLabelResolver>[0]): string {
-    if (options.labelResolver !== undefined) return options.labelResolver(key, activeModifiers);
-    return activeModifiers.has('shift') ? (key.shiftedLabel ?? key.label) : key.label;
-  }
-
   function updateModifierState(button: HTMLButtonElement, modifier: string | undefined): void {
     if (modifier === undefined) {
       if (button.hasAttribute('aria-pressed')) button.removeAttribute('aria-pressed');
@@ -522,9 +745,10 @@ export function createDomKeyboard(
   }
 
   function updatePressedState(keyIndex: number, active: boolean): void {
-    if (keyIndex >= activeKeyElementCount) return;
-    keyElements[keyIndex]?.toggleAttribute('data-pressed', active);
-    const preview = previewElements[keyIndex];
+    const view = activeView;
+    if (view === null) return;
+    view.keys[keyIndex]?.toggleAttribute('data-pressed', active);
+    const preview = view.previews[keyIndex];
     if (preview !== undefined && !preview.hidden) preview.toggleAttribute('data-visible', active);
   }
 
@@ -637,13 +861,25 @@ export function createDomKeyboard(
     });
   }
 
+  /** Whether a layer's geometry is built and its nodes are placed and current for it. */
+  function layerReady(candidateLayerId: string): boolean {
+    const built = geometryCache.get(candidateLayerId);
+    const view = views.get(candidateLayerId);
+    return (
+      built !== undefined &&
+      view?.geometry === built &&
+      view.labelGeneration === labelGeneration &&
+      view.modifierGeneration === modifierGeneration
+    );
+  }
+
   function scheduleGeometryPrewarm(): void {
     if (
       destroyed ||
       options.prewarmLayers !== true ||
       prewarmHandle !== null ||
       cachedProfile === null ||
-      Object.keys(layout.layers).every((candidateLayerId) => geometryCache.has(candidateLayerId))
+      layerIds.every(layerReady)
     ) {
       return;
     }
@@ -675,21 +911,19 @@ export function createDomKeyboard(
   }
 
   function prewarmNextLayer(generation: number): void {
-    if (destroyed || generation !== geometryGeneration || cachedProfile === null) return;
-    const nextLayerId = Object.keys(layout.layers).find(
-      (candidateLayerId) => !geometryCache.has(candidateLayerId),
-    );
+    const profile = cachedProfile;
+    if (destroyed || generation !== geometryGeneration || profile === null) return;
+    const nextLayerId = layerIds.find((candidateLayerId) => !layerReady(candidateLayerId));
     if (nextLayerId === undefined) return;
     const startedAt = options.onPerformanceSample === undefined ? 0 : performance.now();
-    const nextGeometry = solveKeyboardGeometry(
-      layout,
-      nextLayerId,
-      cachedWidth,
-      cachedDpr,
-      cachedProfile,
-    );
+    const built = geometryCache.get(nextLayerId);
+    const nextGeometry =
+      built ?? solveKeyboardGeometry(layout, nextLayerId, cachedWidth, cachedDpr, profile);
     if (destroyed || generation !== geometryGeneration) return;
     geometryCache.set(nextLayerId, nextGeometry);
+    const view = viewFor(nextGeometry);
+    placeView(view, nextGeometry);
+    syncView(view);
     if (options.onPerformanceSample !== undefined) {
       emitPerformanceSample({
         phase: 'geometry-prewarm',
@@ -753,9 +987,8 @@ export function createDomKeyboard(
     engine?.destroy();
     engine = null;
     geometryCache.clear();
-    keyElements = [];
-    previewElements = [];
-    activeKeyElementCount = 0;
+    views.clear();
+    activeView = null;
     root.classList.remove('merkur-keyboard');
     root.replaceChildren();
   }
@@ -820,24 +1053,15 @@ function applyTheme(root: HTMLElement, theme: KeyboardTheme): void {
   }
 }
 
-function sameGeometryProfile(
+function sameProfileFields(
   left: KeyboardGeometryProfile,
   right: KeyboardGeometryProfile,
+  fields: readonly ProfileField[],
 ): boolean {
-  return (
-    left.horizontalPadding === right.horizontalPadding &&
-    left.topPadding === right.topPadding &&
-    left.bottomPadding === right.bottomPadding &&
-    left.bottomUtilityHeight === right.bottomUtilityHeight &&
-    left.keyGap === right.keyGap &&
-    left.rowGap === right.rowGap &&
-    left.keyHeight === right.keyHeight &&
-    left.cornerRadius === right.cornerRadius &&
-    left.hysteresis === right.hysteresis &&
-    left.tapDrift === right.tapDrift &&
-    left.releaseWeight === right.releaseWeight &&
-    left.maximumPointers === right.maximumPointers
-  );
+  for (const field of fields) {
+    if (left[field] !== right[field]) return false;
+  }
+  return true;
 }
 
 function sameModifiers(current: ReadonlySet<string>, next: readonly string[]): boolean {
@@ -846,14 +1070,6 @@ function sameModifiers(current: ReadonlySet<string>, next: readonly string[]): b
     if (!current.has(modifier)) return false;
   }
   return true;
-}
-
-function setDataset(
-  element: HTMLElement,
-  property: 'keyId' | 'keyIndex' | 'variant',
-  value: string,
-): void {
-  if (element.dataset[property] !== value) element.dataset[property] = value;
 }
 
 function setStylePx(

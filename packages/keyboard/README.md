@@ -127,8 +127,9 @@ Two invariants make it safe on a surface where bytes reach a PTY irrevocably:
   a high guess lets the prior turn a letter into a destructive key, a low one does the
   reverse.
 
-The prior is indexed by key, so a layer change clears it and the owner must set a fresh one
-for the layer it switched to.
+The prior is indexed by key, so every geometry change clears it: a layer switch, and also a
+resize, rotation or new layout. The DOM adapter's `onGeometryChange` fires after each one,
+and the owner sets a fresh prior there.
 
 ## Learned offsets and privacy
 
@@ -188,11 +189,19 @@ label sizes, system font, shadows, active colours and pressed colours.
 Event listeners are delegated once on the keyboard root. Pointer events use scalar engine
 methods backed by fixed typed-array slots; candidate generation is one bounds check and one
 top-four atlas lookup, and final recognition scores those four candidates. Resolved
-geometry and atlases are cached per layer until the layout, width, pixel ratio or profile
-changes; `prewarmLayers` builds inactive layers one at a time during idle periods. Key
-buttons and `keycap` previews are pooled DOM nodes whose state changes mutate attributes
-only, so the pointer path allocates no package-owned objects and enters no framework's
-reactive graph.
+geometry and atlases are cached per layer until the layout, width, pixel ratio or a profile
+field that places keys changes; the recognition fields (`hysteresis`, `tapDrift`,
+`slideDrift`, `releaseWeight`, `priorWeight`) reach the engine without a rebuild.
+`prewarmLayers` builds inactive layers one at a time during idle periods. Key buttons and
+`keycap` previews are pooled DOM nodes, one set per layer, whose state changes mutate
+attributes only, so the pointer path allocates no package-owned objects and enters no
+framework's reactive graph. Only the visible layer's nodes are in the document; a layer
+switch swaps in a set that is already placed and labelled, and makes no layout read. Legends
+that the modifiers change are rewritten on the visible layer at once and on the others while
+idle or when they are shown.
+
+A release-decided tap's touch trace is emitted after its commit, so the learner and the
+diagnostics that read it never delay the byte.
 
 The offset learner caches visual centres, normalised positions, pitches and clamps once
 per resolved geometry, with weak ownership. Each accepted tap updates the same field and

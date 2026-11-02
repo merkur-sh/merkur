@@ -1,4 +1,4 @@
-import { hitTestKeyboard, rectContainsExpanded } from './geometry';
+import { hitTestKeyboard, rectContainsExpanded, validateKeyboardGeometryProfile } from './geometry';
 import {
   classifyKeyboardTouch,
   createKeyboardSpatialPrior,
@@ -68,9 +68,21 @@ export interface KeyboardEngine {
   endPointerAt(pointerId: number, x: number, y: number, timeStamp: number): boolean;
   cancelPointer(pointerId: number): boolean;
   activateKey(keyId: string, timeStamp?: number): boolean;
-  /** Commit held release-decided contacts before the host rebinds their geometry. */
-  commitLiveContacts(): void;
-  updateGeometry(geometry: ResolvedKeyboardGeometry, profile?: KeyboardGeometryProfile): void;
+  /**
+   * Swaps the resolved geometry. Contacts still down are committed against the
+   * geometry they were typed on first. `touchModel` replaces the spatial model
+   * in the same step; without it the engine derives the geometric one.
+   */
+  updateGeometry(
+    geometry: ResolvedKeyboardGeometry,
+    profile?: KeyboardGeometryProfile,
+    touchModel?: KeyboardTouchModel,
+  ): void;
+  /**
+   * Replaces the profile's recognition parameters while the geometry stays.
+   * Live contacts are kept: nothing about the board under them moved.
+   */
+  updateProfile(profile: KeyboardGeometryProfile): void;
   updateTouchModel(model: KeyboardTouchModel): void;
   /**
    * Sets the causal log-probability of every key given the text committed so
@@ -530,31 +542,20 @@ export function createKeyboardEngine(options: KeyboardEngineOptions): KeyboardEn
     );
     keepSpatialWinner(slot);
     const commitKey = commitIndex === null ? undefined : geometry.keys[commitIndex];
-    if (options.onTouchTrace !== undefined) {
-      options.onTouchTrace({
-        predictedKey: commitKey?.definition ?? null,
-        layerId: geometry.layerId,
-        pointerId,
-        downX: originX,
-        downY: originY,
-        trajectoryX: centroidX[slot] ?? x,
-        trajectoryY: centroidY[slot] ?? y,
-        releaseX: x,
-        releaseY: y,
-        durationMs,
-        sampleCount: contactSamples[slot] ?? 0,
-        contactAtMs,
-        modelCenterX:
-          commitKey === undefined
-            ? Number.NaN
-            : (spatialPrior.centerX[commitKey.index] ?? Number.NaN),
-        modelCenterY:
-          commitKey === undefined
-            ? Number.NaN
-            : (spatialPrior.centerY[commitKey.index] ?? Number.NaN),
-        spatialKey: spatialKeyOf(slot),
-      });
-    }
+    // The trace describes this contact as it was decided, so its fields are
+    // read now, before the slot is released and before the commit can reach an
+    // owner that swaps the touch model. It is emitted only after the commit:
+    // the learner and the diagnostics that read it must not stand between the
+    // finger lifting and the byte leaving.
+    const traceLayerId = geometry.layerId;
+    const traceX = centroidX[slot] ?? x;
+    const traceY = centroidY[slot] ?? y;
+    const traceSamples = contactSamples[slot] ?? 0;
+    const traceSpatialKey = spatialKeyOf(slot);
+    const traceCenterX =
+      commitKey === undefined ? Number.NaN : (spatialPrior.centerX[commitKey.index] ?? Number.NaN);
+    const traceCenterY =
+      commitKey === undefined ? Number.NaN : (spatialPrior.centerY[commitKey.index] ?? Number.NaN);
 
     // Anything that pressed earlier and is still undecided commits first, from
     // where its finger currently sits. It is not waited on, so this contact's
@@ -564,6 +565,23 @@ export function createKeyboardEngine(options: KeyboardEngineOptions): KeyboardEn
     }
     releaseSlot(slot, true);
     if (commitKey !== undefined) emitCommit(commitKey, pointerId, x, y, contactAtMs, false);
+    options.onTouchTrace?.({
+      predictedKey: commitKey?.definition ?? null,
+      layerId: traceLayerId,
+      pointerId,
+      downX: originX,
+      downY: originY,
+      trajectoryX: traceX,
+      trajectoryY: traceY,
+      releaseX: x,
+      releaseY: y,
+      durationMs,
+      sampleCount: traceSamples,
+      contactAtMs,
+      modelCenterX: traceCenterX,
+      modelCenterY: traceCenterY,
+      spatialKey: traceSpatialKey,
+    });
     return true;
   }
 
@@ -594,10 +612,15 @@ export function createKeyboardEngine(options: KeyboardEngineOptions): KeyboardEn
     return true;
   }
 
-  function updateGeometry(nextGeometry: ResolvedKeyboardGeometry, nextProfile = profile): void {
+  function updateGeometry(
+    nextGeometry: ResolvedKeyboardGeometry,
+    nextProfile = profile,
+    nextTouchModel?: KeyboardTouchModel,
+  ): void {
     if (nextProfile.maximumPointers !== capacity) {
       throw new Error('Keyboard maximumPointers cannot change after engine construction');
     }
+    if (nextTouchModel !== undefined) validateKeyboardTouchModel(nextGeometry, nextTouchModel);
     // A contact that is still down when the layer changes has to be committed
     // against the geometry it was typed on, not dropped. Tapping a layer key
     // while a letter is still under the other thumb is ordinary two-thumb
@@ -608,12 +631,20 @@ export function createKeyboardEngine(options: KeyboardEngineOptions): KeyboardEn
     cancelAll();
     geometry = nextGeometry;
     profile = nextProfile;
-    spatialPrior = createKeyboardSpatialPrior(geometry);
+    spatialPrior = nextTouchModel ?? createKeyboardSpatialPrior(geometry);
     activeCounts = new Uint8Array(geometry.keys.length);
     // A prior is indexed by key, and a different layer has different keys, so
     // carrying it across would score the new layer against the old layer's
     // probabilities. The owner sets a fresh one for the layer it switched to.
     keyPrior = null;
+  }
+
+  function updateProfile(nextProfile: KeyboardGeometryProfile): void {
+    if (nextProfile.maximumPointers !== capacity) {
+      throw new Error('Keyboard maximumPointers cannot change after engine construction');
+    }
+    validateKeyboardGeometryProfile(nextProfile);
+    profile = nextProfile;
   }
 
   function updateTouchModel(nextModel: KeyboardTouchModel): void {
@@ -630,7 +661,7 @@ export function createKeyboardEngine(options: KeyboardEngineOptions): KeyboardEn
 
   /**
    * Commits every still-down, release-decided contact from where it currently
-   * sits. Geometry replacement calls this before rebinding: `destroy` and a real `pointercancel`
+   * sits. Only `updateGeometry` calls this: `destroy` and a real `pointercancel`
    * must keep discarding, because there the contact genuinely did not become a
    * keystroke. Contacts decided at touch-down have already committed and are
    * skipped.
@@ -914,8 +945,8 @@ export function createKeyboardEngine(options: KeyboardEngineOptions): KeyboardEn
     endPointerAt,
     cancelPointer,
     activateKey,
-    commitLiveContacts,
     updateGeometry,
+    updateProfile,
     updateTouchModel,
     setKeyPrior,
     cancelAll,

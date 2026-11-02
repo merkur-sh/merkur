@@ -93,7 +93,7 @@ export function solveKeyboardGeometry(
   if (!Number.isFinite(width) || width <= profile.horizontalPadding * 2) {
     throw new Error('Keyboard width must be larger than its horizontal padding');
   }
-  validateProfile(profile);
+  validateKeyboardGeometryProfile(profile);
 
   const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
   const snap = (value: number): number => Math.round(value * dpr) / dpr;
@@ -376,7 +376,12 @@ function buildCandidateAtlas(
   return atlas;
 }
 
-function validateProfile(profile: KeyboardGeometryProfile): void {
+/**
+ * The geometry solver checks a profile whenever it builds, but a profile whose
+ * recognition parameters change while the geometry stays cached reaches the
+ * engine without a build, so the engine checks it the same way.
+ */
+export function validateKeyboardGeometryProfile(profile: KeyboardGeometryProfile): void {
   const nonNegative = [
     profile.horizontalPadding,
     profile.topPadding,

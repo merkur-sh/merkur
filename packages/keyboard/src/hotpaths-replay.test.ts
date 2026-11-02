@@ -13,34 +13,35 @@ import { createKeyboardOffsetModel } from './offset-model';
 import { classifyKeyboardTouch, createKeyboardSpatialPrior } from './touch-model';
 import type { KeyboardTouchTrace, ResolvedKeyboardKey } from './types';
 
-// Captured before optimization at 9c111c036c7621ecac8da6e7bcac93217d34d502.
 // Each digest covers every decision, spatial winner, learning acceptance,
-// intermediate covariance/coefficient/residual snapshot and applied centre.
+// intermediate covariance/coefficient/residual snapshot and applied centre, in
+// the order the engine emits them: a release-decided contact's trace follows
+// its commit.
 const expected: Record<string, string> = {
-  '320.5/alpha/false': '4a54a043d60d7097ac0ed76b2b6d8c6b776792990f3f9c21161517695730aeba',
-  '320.5/alpha/true': '3342ec477ca82a6e1a1e257487b2ceee463511b39531554f874b35afddcf64de',
-  '320.5/numbers/false': '7c4f0d209f0f9691583bbb39f607a69dd870359ce24f1e7d82168e8c633e545e',
-  '320.5/numbers/true': 'c2bc00c21f1de5ab24c5893ff5acd270bb65aa0afd7f902d4ccbb8408413106d',
-  '320.5/symbols/false': '2984c671f6f639134c3ed4defecffbbe49ef0e0cf9c97be779701ee3888e3922',
-  '320.5/symbols/true': 'af4f3000029060cc299ecdb4e19d5297db5a421331732f9d206facd6896e7170',
-  '320.5/pc/false': 'c0b415176aadadd67c47993b2aee08be624e8e8ac3bdf1b6ae9044d9fb30fc9d',
-  '320.5/pc/true': '0609840123379f0f71aabe7a965fe7dfacb2d455626fcc4a1933cd36d59b6753',
-  '402/alpha/false': '538e40cfea815520431911bf1d6faca06f445c56848bad38b3ad81eb71d627eb',
-  '402/alpha/true': '9ac171de39805d76d7bb22e5880ce363c653baa05cb9501b1d1f5ab624232ff7',
-  '402/numbers/false': 'c9f42f62229dd2bf0027343e63729f2b56bd67b128c66020578cc083b9cd52f8',
-  '402/numbers/true': '5d063b46108c6f890f481ef646cb29efe1f31c89228e7c26c5acc73c5963dea4',
-  '402/symbols/false': 'e078b658a2956b8e6b07d5067f8eafb348350c12656004dfee91403654d05079',
-  '402/symbols/true': '7f831895b0d600c67c60b6876df6f9b3851f12e1bad17d7129874a6e850806ef',
-  '402/pc/false': '3a73246899c397a851e084d1715fc70e183396054525e10bc4e35abc20cd99a6',
-  '402/pc/true': '494cf45a5c0e4929b2080c33bcb506e1ca87d85283e51589b6b63a8c4659d79f',
-  '844/alpha/false': '6c0d21e1dbfc8f95a89160b6d63f442587a7f1336c47aa84023d0fb7dd33e605',
-  '844/alpha/true': '4ea372e0936fed30d79f4c4f12f4229d723e2427658c3430babc28a20deeb898',
-  '844/numbers/false': '4f1140979b4ab5fe26077abb4b16d6f8842419f8e2f75e9e1d20c5609409a57b',
-  '844/numbers/true': 'c75dc734d5ac438cfe53e29e41335a62acf7492dca46b4d9b4385c0788f0b935',
-  '844/symbols/false': '02a06838130f6586611b7a7c86ed68a1cc0f378579d80e3ef5227a28e26d1734',
-  '844/symbols/true': 'c340b1ed3b802fc7836722ab5e2089d1ec132734bd29d5621f23efb67d03500e',
-  '844/pc/false': '146c8c6a218e43a57f9c2965c7bb04883b48b1f5ef2586246703675dd1157a72',
-  '844/pc/true': '15b9cdf2f78fbf2df8348cf4d85752388507bbcb0d3ec6bbc78525edb272662a',
+  '320.5/alpha/false': 'e83a0ea31ddffff461a9fb07d2b277a7189b168c240351ed4be7e93ea715d446',
+  '320.5/alpha/true': 'd13cbbf23008598b5ac5c4d35c633e9dc95b5334c8b21158914b34e5ccb639df',
+  '320.5/numbers/false': '518ce5ae58f5f060b560b78d7f3ddf64d36407b47767731e73740d22f7afe653',
+  '320.5/numbers/true': 'c4cbb969fa8740cfa6a00ae1a356cac208c575a5e63ff859895cb477a3da795f',
+  '320.5/symbols/false': '2e79d43fd316ec20a19019a149eba3d40ebdca4993b00f8a294de9e6162e9dd6',
+  '320.5/symbols/true': '936a40448b0ca4a90b94070d7623ed9011f7f41248b0b85b1a0fd2d229e9f9c3',
+  '320.5/pc/false': '326d465e7809e014745384e994c2ef85f84e76f1a519eefc44cbb5700552b2ed',
+  '320.5/pc/true': '17fdbb645f3826199ee2c42a44440e262a23502416f61cf3e40c1f60c30bbbd6',
+  '402/alpha/false': 'b65f23eb18383130ab613a7d3e4747fb6fc918d699ff3af5bd067bf7a4113a35',
+  '402/alpha/true': 'af002c4f3d03077e01b362e7564cfd75ce27f939700abb6b8c998d77c6fb7dd0',
+  '402/numbers/false': 'b52866acebde8790dd8626ab5e59ce3d8c22f33cd1ee5751a22136cdf68cff88',
+  '402/numbers/true': 'dde95194d458a64cdd72ef942f1b093c3e49fe14d28413e3747db4f49379d77e',
+  '402/symbols/false': '5f780d0a6449c9bd11989da89e334b58c758c9d02e555b30470517d99a06109f',
+  '402/symbols/true': '22d62bbfe881c4e5e4ecb6d3eb424d4bc6ac0cffd886e56d7039cde0e9fb0356',
+  '402/pc/false': 'fcbc2b44b66568ee3c2dc1d7157a3efa86c33e99d509a9427b110c916adf8b90',
+  '402/pc/true': 'a9f40ba556ab2088f516d230f384d32838fa75906ef721372faf620ab6f50b8a',
+  '844/alpha/false': '622738679793a2d6ccc500c9519c5d6c10d9bfa1f4063cb26fd10d8fa040ec59',
+  '844/alpha/true': 'f76932adc3403d3a39aa7d83a44e68b379cc6d997871dbd56fcca5d8848228a2',
+  '844/numbers/false': 'd022ece2b36b4a3f8b827222ab0918c89eb45728e31e3758fd4c4bea94c99e43',
+  '844/numbers/true': '26216a03bcd144bceb28fd883222157f6045d3a7fffa0f773ce72f1d73b7f495',
+  '844/symbols/false': '8f599cbc5bcb1fc4b5f9f4061ba7efb11f81c8a82e0ffd641fc9254e918d047f',
+  '844/symbols/true': '480e7e63c1fdfe22b31adadc1b928e044cac5deda616ee352782302231b2f7dc',
+  '844/pc/false': 'ea92d84aac227398ddf0b1a5c26d74aacb4d98e912dc89819a4996515afc5ae4',
+  '844/pc/true': '94a5f8094acaa52621334288190fe08a78c2a7d7b33b9b0154c94ee7bf5d63de',
 };
 
 for (const width of [320.5, 402, 844]) {

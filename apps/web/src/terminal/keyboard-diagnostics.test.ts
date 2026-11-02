@@ -243,7 +243,7 @@ describe('corrections', () => {
   let pointer = 10;
   type Diagnostics = ReturnType<typeof createKeyboardDiagnostics>;
 
-  /** A release-decided tap: the trace arrives, then its commit. */
+  /** A release-decided tap: the commit leaves, then its trace arrives. */
   function type(
     diagnostics: Diagnostics,
     keyId: string,
@@ -252,11 +252,11 @@ describe('corrections', () => {
     overrides: Partial<KeyboardTouchTrace> = {},
   ): void {
     pointer += 1;
+    diagnostics.recordCommit(keyFor(keyId).definition, pointer, false);
     diagnostics.record(
       trace(keyId, offsetX, 0, driftX, { pointerId: pointer, ...overrides }),
       geometry,
     );
-    diagnostics.recordCommit(keyFor(keyId).definition, pointer, false);
   }
 
   function erase(diagnostics: Diagnostics, repeat = false): void {
@@ -365,12 +365,12 @@ describe('corrections', () => {
 
   test('pairs a release trace across an older contact committing first', () => {
     const diagnostics = createKeyboardDiagnostics();
-    // Contact 20 is still down on 'a' when contact 21 lifts: 21 traces, the
-    // lift resolves 20 (its commit comes first), then 21 commits, and 20's
-    // trace arrives at its own lift.
-    diagnostics.record(trace('key-e', -14, 0, 0, { pointerId: 21 }), geometry);
+    // Contact 20 is still down on 'a' when contact 21 lifts: the lift resolves
+    // 20 (its commit comes first), then 21 commits and traces, and 20's trace
+    // arrives at its own lift.
     diagnostics.recordCommit(keyFor('key-a').definition, 20, false);
     diagnostics.recordCommit(keyFor('key-e').definition, 21, false);
+    diagnostics.record(trace('key-e', -14, 0, 0, { pointerId: 21 }), geometry);
     diagnostics.record(trace('key-a', 0, 0, 0, { pointerId: 20 }), geometry);
     erase(diagnostics);
     type(diagnostics, 'key-w');

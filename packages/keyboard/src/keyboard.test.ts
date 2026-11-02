@@ -1309,4 +1309,121 @@ describe('touch trace', () => {
       expect(trace.modelCenterY).toBeCloseTo(visual.y - 2, 9);
     }
   });
+
+  test('traces a release-decided tap only after its byte has left', () => {
+    const resolved = geometry();
+    const events: string[] = [];
+    const engine = createKeyboardEngine({
+      geometry: resolved,
+      profile: CUPERTINO_PORTRAIT_PROFILE,
+      onRawCommit: (key) => events.push(`commit:${key.definition.id}`),
+      onTouchTrace: (trace) => events.push(`trace:${trace.predictedKey?.id}`),
+    });
+    const a = offAnchorOf(resolved, 'key-a');
+    const l = offAnchorOf(resolved, 'key-l');
+
+    // 'a' is still down when 'l' lifts: the lift resolves 'a' first, sends 'l',
+    // and only then traces 'l'.
+    engine.beginPointerAt(1, a.x, a.y, 0);
+    engine.beginPointerAt(2, l.x, l.y, 20);
+    engine.endPointerAt(2, l.x, l.y, 80);
+    engine.endPointerAt(1, a.x, a.y, 120);
+
+    expect(events).toEqual(['commit:key-a', 'commit:key-l', 'trace:key-l', 'trace:key-a']);
+  });
+
+  test('reports the model a tap was decided against when its commit swaps the model', () => {
+    const resolved = geometry();
+    const key = resolved.keys.find((candidate) => candidate.definition.id === 'key-e');
+    if (key === undefined) throw new Error('Missing key key-e');
+    const base = createKeyboardSpatialPrior(resolved);
+    const moved = Float64Array.from(base.centerX);
+    moved[key.index] = (moved[key.index] ?? 0) + 5;
+    const traces: KeyboardTouchTrace[] = [];
+    const engine: KeyboardEngine = createKeyboardEngine({
+      geometry: resolved,
+      profile: CUPERTINO_PORTRAIT_PROFILE,
+      touchModel: base,
+      // An owner that re-applies learned offsets from inside a commit, as a
+      // finished line's corrections can.
+      onRawCommit: () => engine.updateTouchModel({ ...base, centerX: moved }),
+      onTouchTrace: (trace) => traces.push(trace),
+    });
+    const offAnchor = offAnchorOf(resolved, 'key-e');
+
+    engine.beginPointerAt(1, offAnchor.x, offAnchor.y, 0);
+    engine.endPointerAt(1, offAnchor.x, offAnchor.y, 60);
+
+    expect(traces[0]?.modelCenterX).toBe(base.centerX[key.index]);
+  });
+});
+
+describe('engine reconfiguration', () => {
+  test('a profile change keeps the contact that is down and decides with the new values', () => {
+    const resolved = geometry();
+    const s = resolved.keys.find((candidate) => candidate.definition.id === 'key-s');
+    if (s === undefined) throw new Error('Missing key key-s');
+    // Every key has statistics, and 's' is one nat likelier than the rest: too
+    // little to outweigh the touch at the shipped weight, enough at four.
+    const prior = new Float64Array(resolved.keys.length).fill(-1);
+    prior[s.index] = 0;
+    const tap = offAnchorOf(resolved, 'key-a');
+    const decide = (priorWeight: number | null): string[] => {
+      const commits: string[] = [];
+      const engine = createKeyboardEngine({
+        geometry: resolved,
+        profile: CUPERTINO_PORTRAIT_PROFILE,
+        onRawCommit: (key) => commits.push(key.definition.id),
+      });
+      engine.setKeyPrior(prior);
+      engine.beginPointerAt(1, tap.x, tap.y, 0);
+      if (priorWeight !== null) {
+        engine.updateProfile({ ...CUPERTINO_PORTRAIT_PROFILE, priorWeight });
+        expect(commits).toEqual([]);
+      }
+      engine.endPointerAt(1, tap.x, tap.y, 60);
+      return commits;
+    };
+
+    expect(decide(null)).toEqual(['key-a']);
+    expect(decide(4)).toEqual(['key-s']);
+  });
+
+  test('a profile change cannot resize the pointer slots or carry an invalid weight', () => {
+    const engine = createKeyboardEngine({
+      geometry: geometry(),
+      profile: CUPERTINO_PORTRAIT_PROFILE,
+      onRawCommit() {},
+    });
+    expect(() =>
+      engine.updateProfile({ ...CUPERTINO_PORTRAIT_PROFILE, maximumPointers: 2 }),
+    ).toThrow('maximumPointers');
+    expect(() => engine.updateProfile({ ...CUPERTINO_PORTRAIT_PROFILE, releaseWeight: 2 })).toThrow(
+      'release weight',
+    );
+  });
+
+  test('a geometry swap scores against the touch model supplied with it', () => {
+    const alpha = geometry();
+    const numbers = geometry('numbers');
+    const key = numbers.keys[0];
+    if (key === undefined) throw new Error('empty numbers layer');
+    const model = createKeyboardSpatialPrior(numbers);
+    const centerX = Float64Array.from(model.centerX);
+    centerX[key.index] = (centerX[key.index] ?? 0) + 4;
+    const traces: KeyboardTouchTrace[] = [];
+    const engine = createKeyboardEngine({
+      geometry: alpha,
+      profile: CUPERTINO_PORTRAIT_PROFILE,
+      onRawCommit() {},
+      onTouchTrace: (trace) => traces.push(trace),
+    });
+
+    engine.updateGeometry(numbers, CUPERTINO_PORTRAIT_PROFILE, { ...model, centerX });
+    const at = centerOf(numbers, key.definition.id);
+    engine.beginPointerAt(1, at.x, at.y, 0);
+    engine.endPointerAt(1, at.x, at.y, 60);
+
+    expect(traces[0]?.modelCenterX).toBe(centerX[key.index]);
+  });
 });

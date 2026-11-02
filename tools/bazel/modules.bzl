@@ -5726,9 +5726,7 @@ MODULES = {
         "src/dom.test.ts": [
             ":package.json.module",
             ":src/dom.ts.module",
-            ":src/engine.ts.module",
             ":src/geometry.ts.module",
-            ":src/layout.ts.module",
             ":src/layouts/terminal-us.ts.module",
             ":tsconfig.json.module",
         ],
@@ -5738,6 +5736,7 @@ MODULES = {
             ":src/engine.ts.module",
             ":src/geometry.ts.module",
             ":src/layout.ts.module",
+            ":src/touch-model.ts.module",
             ":tsconfig.json.module",
         ],
         "src/engine.ts": [
