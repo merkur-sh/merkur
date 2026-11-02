@@ -71,6 +71,29 @@ export function sessionValue<T>(
   return storedValue('sessionStorage', key, parse);
 }
 
+/**
+ * Removes every `localStorage` key `stale` names, such as one an earlier build
+ * wrote that no declared value reads any more. Where there is no area, or the
+ * browser refuses it, there is nothing to remove.
+ */
+export function removeLocalKeys(stale: (key: string) => boolean): void {
+  const storage = storageArea('localStorage', 'localStorage');
+  if (storage === null) return;
+  // Listed first: removing while walking the indices shifts them.
+  const keys = attempt('localStorage', () => {
+    const listed: string[] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key !== null) listed.push(key);
+    }
+    return listed;
+  });
+  if (keys === REFUSAL) return;
+  for (const key of keys) {
+    if (stale(key)) removeKey(storage, key);
+  }
+}
+
 function storedValue<T>(area: StorageArea, key: string, parse: Parse<Json, T>): StoredValue<T> {
   return {
     read() {

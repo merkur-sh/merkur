@@ -1,4 +1,4 @@
-import { reportStorageFailure } from './failures';
+import { refusalOf, reportStorageFailure } from './failures';
 import type { Cloned, Parse } from './parse';
 
 /*
@@ -333,6 +333,39 @@ function sharedConnection(
       if (current !== null) forget(current);
     },
   };
+}
+
+/**
+ * Deletes every IndexedDB database of the origin that `stale` names, such as one
+ * an earlier build opened that no declared database is any more. Resolves once
+ * each delete has finished; a delete that another connection blocks waits for it
+ * to close. A refusal is counted, against the database where it has one.
+ */
+export async function deleteDatabases(stale: (name: string) => boolean): Promise<void> {
+  if (typeof indexedDB === 'undefined') return;
+  let listed: IDBDatabaseInfo[];
+  try {
+    listed = await indexedDB.databases();
+  } catch (cause) {
+    const failure = refusalOf(cause);
+    if (failure === null) throw cause;
+    reportStorageFailure('indexedDB', failure);
+    return;
+  }
+  await Promise.all(
+    listed.flatMap(({ name }) => (name !== undefined && stale(name) ? [deleteDatabase(name)] : [])),
+  );
+}
+
+function deleteDatabase(name: string): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const request = indexedDB.deleteDatabase(name);
+    request.onsuccess = () => resolve();
+    request.onerror = () => {
+      reportStorageFailure(name, 'refused');
+      resolve();
+    };
+  });
 }
 
 function replaceStores(connection: IDBDatabase, stores: StoreDefinitions): void {

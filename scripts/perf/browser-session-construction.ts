@@ -79,23 +79,26 @@ async function prepareVault() {
   await saveBrowserDelegation('user', publicKey, certificate, delegateSeed);
   delegateSeed.fill(0);
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open('merkur-auth', 1);
+    // At the version saveBrowserDelegation created it with.
+    const request = indexedDB.open('merkur-auth');
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
   const read = db.transaction('browser-delegation', 'readonly').objectStore('browser-delegation');
-  const [key, stored] = await Promise.all([
-    request(read.get('wrapping-key')),
-    request(read.get('active-delegation')),
-  ]);
-  // SAFETY: saveBrowserDelegation wrote this record, and this fixture is the
-  // only writer before the readonly snapshot above.
-  const record = stored as {
-    rootPublicKey: string;
-    certificate: UserDelegationCertificate;
-    nonce: string;
-    ciphertext: string;
+  // SAFETY: saveBrowserDelegation wrote this record, the wrapping key and the
+  // delegation it seals together, and this fixture is the only writer before the
+  // readonly snapshot.
+  const stored = (await request(read.get('active'))) as {
+    wrappingKey: CryptoKey;
+    delegation: {
+      rootPublicKey: string;
+      certificate: UserDelegationCertificate;
+      nonce: string;
+      ciphertext: string;
+    };
   };
+  const key = stored.wrappingKey;
+  const record = stored.delegation;
   const aad = new TextEncoder().encode(
     JSON.stringify({
       rootPublicKey: record.rootPublicKey,
@@ -161,9 +164,10 @@ async function resetVault(kind: Kind, fixture: Fixture): Promise<void> {
   const tx = fixture.db.transaction('browser-delegation', 'readwrite');
   const store = tx.objectStore('browser-delegation');
   store.clear();
-  if (kind !== 'empty' && kind !== 'orphan') store.put(fixture.key, 'wrapping-key');
-  if (kind !== 'empty')
-    store.put(kind === 'wrong-seed' ? fixture.wrongRecord : fixture.record, 'active-delegation');
+  const delegation = kind === 'wrong-seed' ? fixture.wrongRecord : fixture.record;
+  // An orphan is a delegation stored without the key that opens it.
+  if (kind === 'orphan') store.put({ delegation }, 'active');
+  else if (kind !== 'empty') store.put({ wrappingKey: fixture.key, delegation }, 'active');
   await complete(tx);
 }
 

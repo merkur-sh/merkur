@@ -26,6 +26,10 @@ another tab's writes asynchronously, so even a read taken under a Web Lock can m
 previous holder made: two tabs taking turns under one lock lost an update in Firefox. A value
 several tabs change belongs in IndexedDB.
 
+`removeLocalKeys(stale)` removes every `localStorage` key the predicate names: what an earlier
+build wrote under a name no value declares any more. The web app passes "a `merkur` name its
+storage table does not hold" (`apps/web/src/lib/storage-names.ts`) once per page load.
+
 ## IndexedDB
 
 `defineDatabase(name, version, stores)` declares a database and answers it, ready for
@@ -39,6 +43,10 @@ structured clone.
 | `database.write(stores, body, { durability })` | One read-write transaction; a body that throws aborts it, and none of its writes land. `'strict'` resolves only once the write is on disk. |
 | `database.connect({ signal })` | Opens the connection ahead of the transactions. An abort rejects, and a connection that arrives later is closed. |
 | `database.close()` | Closes the connection; the next transaction opens a new one. |
+
+`deleteDatabases(stale)` deletes every database of the origin the predicate names, as listed by
+`indexedDB.databases()`; the web app sweeps with the same predicate as `removeLocalKeys`. A
+connection this package holds to one gives way to the delete.
 
 A read-only transaction's stores have `get` only. In a read-write transaction a value that does
 not parse reads as `null` and is deleted.

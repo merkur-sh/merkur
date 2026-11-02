@@ -3431,7 +3431,14 @@ MODULES = {
             ":package.json.module",
             ":tsconfig.json.module",
         ],
+        "src/lib/storage-names.test.ts": [
+            "//apps/web:node_modules/fake-indexeddb",
+            ":package.json.module",
+            ":src/lib/storage-names.ts.module",
+            ":tsconfig.json.module",
+        ],
         "src/lib/storage-names.ts": [
+            "//packages/browser-storage:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
@@ -3473,6 +3480,7 @@ MODULES = {
             ":package.json.module",
             ":src/App.tsx.module",
             ":src/lib/atom-solid.ts.module",
+            ":src/lib/storage-names.ts.module",
             ":tsconfig.json.module",
         ],
         "src/notification-route.test.ts": [
@@ -5261,6 +5269,7 @@ MODULES = {
             ":src/lib/right-meta.ts.module",
             ":src/lib/spsc-ring-wake.test.ts.module",
             ":src/lib/spsc-ring-wake.ts.module",
+            ":src/lib/storage-names.test.ts.module",
             ":src/lib/storage-names.ts.module",
             ":src/lib/task-wake.test.ts.module",
             ":src/lib/task-wake.ts.module",
@@ -9490,6 +9499,7 @@ TYPE_INPUTS = {
             "src/lib/right-meta.ts",
             "src/lib/spsc-ring-wake.test.ts",
             "src/lib/spsc-ring-wake.ts",
+            "src/lib/storage-names.test.ts",
             "src/lib/storage-names.ts",
             "src/lib/task-wake.test.ts",
             "src/lib/task-wake.ts",

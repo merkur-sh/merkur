@@ -2,6 +2,7 @@ import 'virtual:uno.css';
 import { render } from '@solidjs/web';
 import App from './App';
 import { RegistryProvider } from './lib/atom-solid';
+import { removeUndeclaredStorage } from './lib/storage-names';
 
 // One atom registry for the whole app: the device-events recovery loop and the
 // state it publishes are atoms, and they must be the same atoms everything
@@ -21,3 +22,6 @@ render(
 // the wordmark twice, and anything later leaves a static disc sitting over the
 // live orb.
 document.getElementById('boot-splash')?.remove();
+
+// Once per page load, after the first render, so it never delays the first frame.
+void removeUndeclaredStorage();

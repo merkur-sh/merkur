@@ -6,10 +6,10 @@
  * state, and asserts with `check`, whose message names what the engine did
  * instead.
  */
-import { defineDatabase, keyedStore } from '../src/database';
+import { defineDatabase, deleteDatabases, keyedStore } from '../src/database';
 import { observeStorageFailures, type StorageFailureEvent } from '../src/failures';
 import type { Cloned } from '../src/parse';
-import { localValue, sessionValue } from '../src/web-storage';
+import { localValue, removeLocalKeys, sessionValue } from '../src/web-storage';
 
 /** What a realm has: a page has both, a dedicated worker has no web storage. */
 export interface Capabilities {
@@ -589,8 +589,64 @@ const SCENARIOS: readonly Scenario[] = [
         same(value.read(), null, 'read');
         same(value.write(1), false, 'write');
         value.remove();
+        removeLocalKeys(() => true);
       });
       same(failures, [], 'failures reported');
+    },
+  },
+  {
+    name: 'removeLocalKeys removes the keys it names and leaves the rest',
+    needs: ['webStorage'],
+    async run() {
+      const stale = unique('stale');
+      const kept = unique('kept');
+      const names = [`${stale}-a`, `${stale}-b`, kept];
+      for (const name of names) localStorage.setItem(name, JSON.stringify(name));
+      const failures = await failuresDuring(async () => {
+        removeLocalKeys((key) => key.startsWith(stale));
+      });
+      same(
+        names.map((name) => localStorage.getItem(name)),
+        [null, null, JSON.stringify(kept)],
+        'keys after the removal',
+      );
+      same(failures, [], 'failures reported');
+      localStorage.removeItem(kept);
+    },
+  },
+  {
+    name: 'deleteDatabases deletes the databases it names, and a deleted one reopens empty',
+    needs: ['indexedDB'],
+    async run() {
+      const stale = unique('stale');
+      const deleted = notesDatabase(`${stale}-open`);
+      const kept = notesDatabase(unique('kept'));
+      for (const database of [deleted, kept]) {
+        await database.write(['notes'], (tx) => tx.store('notes').put('a', { text: 'there' }));
+      }
+      // One the package never opened, as an earlier build's module left it.
+      (await rawOpen(`${stale}-raw`)).close();
+      const failures = await failuresDuring(() =>
+        deleteDatabases((name) => name.startsWith(stale)),
+      );
+      same(failures, [], 'failures reported');
+      const remaining = (await indexedDB.databases()).flatMap(({ name }) =>
+        name === undefined ? [] : [name],
+      );
+      check(!remaining.some((name) => name.startsWith(stale)), 'every named database is gone');
+      check(remaining.includes(kept.name), 'the database it did not name is kept');
+      same(
+        await deleted.read(['notes'], (tx) => tx.store('notes').get('a')),
+        null,
+        'a deleted database, opened again',
+      );
+      same(
+        await kept.read(['notes'], (tx) => tx.store('notes').get('a')),
+        { text: 'there' },
+        'the kept database',
+      );
+      await deleteUnblocked(deleted.name, HELD);
+      await deleteUnblocked(kept.name, HELD);
     },
   },
 ];

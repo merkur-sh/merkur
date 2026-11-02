@@ -1,4 +1,4 @@
-export { defineDatabase, keyedStore } from './database';
+export { defineDatabase, deleteDatabases, keyedStore } from './database';
 export {
   observeStorageFailures,
   reportStorageFailure,
@@ -6,4 +6,4 @@ export {
   type StorageFailure,
 } from './failures';
 export { type Cloned, guarded } from './parse';
-export { localValue, sessionValue } from './web-storage';
+export { localValue, removeLocalKeys, sessionValue } from './web-storage';
