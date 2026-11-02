@@ -30,7 +30,6 @@
   "apps/site/src/vite/font-coverage.ts": 2,
   "apps/web/public/legal/legal.css": 2,
   "apps/web/src/app/createAppController.ts": 1,
-  "apps/web/src/auth/delegation-vault.ts": 2,
   "apps/web/src/components/MailedCodeForm.tsx": 1,
   "apps/web/src/graphics/compositor.ts": 2,
   "apps/web/src/hooks/createAuth.ts": 3,
