@@ -1,0 +1,19 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A browser store declared and exported in one statement: `export const $name = localValue(…)`,
+// `sessionValue(…)` or `defineDatabase(…)`. A store stays in the module that declares it, so that
+// module's functions are its only writers and every change to it can be read in one file:
+// another module calls those functions, never `write` on the store.
+//
+// What GritQL cannot see: a store declared, then exported by name (`export { store }`), or
+// handed out through a function's return value.
+
+`export const $name = $callee($args)` as $export where {
+  $callee <: or {
+    `localValue`,
+    `sessionValue`,
+    `defineDatabase`
+  },
+  register_diagnostic(span=$export, message="[no-exported-storage] A browser store leaves the module that owns it. Keep the declaration private and export the functions that read and write it, so every writer is in one file.", severity="error")
+}

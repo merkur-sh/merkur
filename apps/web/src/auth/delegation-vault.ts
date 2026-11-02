@@ -1,10 +1,4 @@
-import {
-  type Cloned,
-  type Database,
-  defineDatabase,
-  keyedStore,
-  openDatabase,
-} from '@merkur/browser-storage';
+import { type Cloned, defineDatabase, keyedStore } from '@merkur/browser-storage';
 import { hasExactKeys, isRecord } from '@merkur/shared';
 import {
   decodeUserAuthorizationBytes,
@@ -59,8 +53,6 @@ const delegationVault = defineDatabase(STORAGE_NAMES.delegation_vault, 2, {
   [VAULT_STORE]: keyedStore<typeof ACTIVE_VAULT, PersistedVault>(parseVault),
 });
 
-type VaultSchema = typeof delegationVault.stores;
-
 export interface UnlockedBrowserDelegation {
   readonly username: string;
   readonly userId: string;
@@ -114,10 +106,10 @@ export async function saveBrowserDelegation(
   const nonce = crypto.getRandomValues(new Uint8Array(AES_NONCE_BYTES));
   const plaintext = Uint8Array.from(delegateSeed);
   try {
-    await withDelegationDb(async (db) => {
+    await withDelegationDb(async () => {
       // Encryption is not an IndexedDB request, so it runs between the read
       // and the write rather than inside either transaction.
-      const wrappingKey = (await readVault(db))?.wrappingKey ?? (await createWrappingKey());
+      const wrappingKey = (await readVault())?.wrappingKey ?? (await createWrappingKey());
       const ciphertext = new Uint8Array(
         await crypto.subtle.encrypt(
           { name: 'AES-GCM', iv: nonce, additionalData: aad, tagLength: 128 },
@@ -137,7 +129,7 @@ export async function saveBrowserDelegation(
           nonce: encodeBase64Url(nonce),
           ciphertext: encodeBase64Url(ciphertext),
         };
-        await db.write(
+        await delegationVault.write(
           [VAULT_STORE],
           (transaction) => {
             transaction.store(VAULT_STORE).put(ACTIVE_VAULT, { wrappingKey, delegation });
@@ -316,8 +308,8 @@ function unlockSigner(
 export async function clearBrowserDelegation(
   expected?: BrowserDelegationIdentity,
 ): Promise<boolean> {
-  return await withDelegationDb((db) =>
-    db.write(
+  return await withDelegationDb(() =>
+    delegationVault.write(
       [VAULT_STORE],
       async (transaction) => {
         const store = transaction.store(VAULT_STORE);
@@ -338,32 +330,28 @@ export async function clearBrowserDelegation(
   );
 }
 
-function readVault(db: Database<VaultSchema>): Promise<PersistedVault | null> {
-  return db.read([VAULT_STORE], (transaction) => transaction.store(VAULT_STORE).get(ACTIVE_VAULT));
+function readVault(): Promise<PersistedVault | null> {
+  return delegationVault.read([VAULT_STORE], (transaction) =>
+    transaction.store(VAULT_STORE).get(ACTIVE_VAULT),
+  );
 }
 
 /**
- * Opens the vault, bounded: an open that has not succeeded by the deadline is
- * given up, and the connection it would have produced is closed on arrival.
- * One failed attempt is retried before the error reaches the caller.
+ * Connects to the vault, bounded, then runs `use` on the connection: an open
+ * that has not succeeded by the deadline is given up, and the connection it
+ * would have produced is closed on arrival. One failed attempt is retried
+ * before the error reaches the caller; `use` itself runs once.
  */
-async function withDelegationDb<A>(use: (db: Database<VaultSchema>) => Promise<A>): Promise<A> {
+async function withDelegationDb<A>(use: () => Promise<A>): Promise<A> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    let db: Database<VaultSchema>;
     try {
-      db = await openDatabase(delegationVault, {
-        signal: AbortSignal.timeout(DB_OPEN_TIMEOUT_MS),
-      });
+      await delegationVault.connect({ signal: AbortSignal.timeout(DB_OPEN_TIMEOUT_MS) });
     } catch (error) {
       lastError = error;
       continue;
     }
-    try {
-      return await use(db);
-    } finally {
-      db.close();
-    }
+    return await use();
   }
   throw lastError instanceof Error
     ? lastError

@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
-import { observeStorageFailures, type StorageFailureEvent } from './failures';
-import { guarded } from './parse';
+import { observeStorageFailures, type StorageFailureEvent } from '../src/failures';
+import { guarded } from '../src/parse';
+import { localValue, sessionValue } from '../src/web-storage';
 import {
   installStorage,
   installStorageGetter,
   removeGlobal,
   restoreGlobals,
 } from './test-environment';
-import { localValue, sessionValue } from './web-storage';
 
 // The behaviour every engine must share is in `conformance.ts`, run here and in
 // real browsers. This file holds the refusals only a fake can produce, and the types.

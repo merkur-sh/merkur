@@ -1,4 +1,4 @@
-import { defineDatabase, keyedStore, withDatabase } from '@merkur/browser-storage';
+import { defineDatabase, keyedStore } from '@merkur/browser-storage';
 import { STORAGE_NAMES } from '../lib/storage-names';
 import { DISPLAY_RECEIVER_PROFILE_BYTES } from './display-receiver-profile';
 
@@ -16,8 +16,8 @@ const receiverProfiles = defineDatabase(STORAGE_NAMES.receiver_profiles, 1, {
 export async function restoreDisplayReceiverProfile(destination: SharedArrayBuffer): Promise<void> {
   if (destination.byteLength !== DISPLAY_RECEIVER_PROFILE_BYTES) return;
   try {
-    const value = await withDatabase(receiverProfiles, (database) =>
-      database.read([STORE], (transaction) => transaction.store(STORE).get(KEY)),
+    const value = await receiverProfiles.read([STORE], (transaction) =>
+      transaction.store(STORE).get(KEY),
     );
     if (value === null) return;
     const source = new Int32Array(value);
@@ -61,8 +61,8 @@ export async function persistDisplayReceiverProfile(source: SharedArrayBuffer): 
     }
     if (snapshot === null) return;
     const profile = snapshot.buffer;
-    await withDatabase(receiverProfiles, (database) =>
-      database.write([STORE], (transaction) => transaction.store(STORE).put(KEY, profile)),
+    await receiverProfiles.write([STORE], (transaction) =>
+      transaction.store(STORE).put(KEY, profile),
     );
   } catch {
     // Performance evidence is opportunistic and never blocks display.

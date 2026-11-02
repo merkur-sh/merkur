@@ -335,7 +335,7 @@ app carries on. `@merkur/browser-storage` counts each, the workers forward their
 | Field | Values |
 | --- | --- |
 | `target` | The store: one per web-storage key and IndexedDB database the web app declares (`apps/web/src/lib/storage-names.ts`), or `unlisted` |
-| `failure` | `quota`, `refused`, `unparseable`, `aborted`, `open_failed`, `open_abandoned` |
+| `failure` | `quota`, `refused`, `unparseable`, `aborted`, `open_failed`, `open_abandoned`, `connection_lost` (an open connection the engine closed; the next transaction reopens, so no caller sees it) |
 | `count` | Occurrences within one coalescing window |
 
 A target names a store, never a key's value or a record.
@@ -570,7 +570,7 @@ Metrics derived from browser reports:
 | `merkur_browser_perf_rows_total` | Counter | Profiling rows forwarded |
 | `merkur_browser_error_total` | Frequency | Failures labelled `<source>:<kind>`, a closed 78-label set |
 | `merkur_browser_errors_total` | Counter | Failures including repeats within a coalescing window |
-| `merkur_browser_storage_failure_total` | Frequency | Browser storage failures labelled `<target>:<failure>`, a closed 78-label set (`@merkur/shared` `browser-storage-diagnostics.ts`) |
+| `merkur_browser_storage_failure_total` | Frequency | Browser storage failures labelled `<target>:<failure>`, a closed 91-label set (`@merkur/shared` `browser-storage-diagnostics.ts`) |
 | `merkur_browser_storage_failures_total` | Counter | Storage failures including repeats within a coalescing window |
 | `merkur_browser_link_rtt_p50_ms`, `_p95_ms` | Histogram | Heartbeat RTT per report |
 | `merkur_browser_input_ack_rtt_p50_ms`, `_p95_ms` | Histogram | Input-acknowledgement RTT per report |

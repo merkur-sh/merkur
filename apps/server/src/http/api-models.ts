@@ -609,6 +609,7 @@ export const ApiModels = {
         t.Literal('aborted'),
         t.Literal('open_failed'),
         t.Literal('open_abandoned'),
+        t.Literal('connection_lost'),
       ]),
       count: BoundedCount(10_000),
     },

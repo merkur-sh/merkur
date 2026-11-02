@@ -1,4 +1,4 @@
-import { type Cloned, defineDatabase, keyedStore, withDatabase } from '@merkur/browser-storage';
+import { type Cloned, defineDatabase, keyedStore } from '@merkur/browser-storage';
 import {
   BYTES_PER_KIB,
   BYTES_PER_MIB,
@@ -109,25 +109,23 @@ export function createTransportAutotuner(contextId: string): TransportAutotuner 
     let takenArms: number[] = [];
     let takenRewards: number[] = [];
     try {
-      await withDatabase(transportTuning, (database) =>
-        database.write(['tuners'], async (transaction) => {
-          const store = transaction.store('tuners');
-          const stored = await store.get(contextId);
-          // Nothing awaits from here on, so no reward lands between the
-          // rewards taken and the record written.
-          takenArms = pendingArms;
-          takenRewards = pendingRewards;
-          pendingArms = [];
-          pendingRewards = [];
-          if (stored !== null || shared) {
-            const merged = stored ?? initialState();
-            replay(merged, takenArms, takenRewards);
-            state = merged;
-          }
-          shared = true;
-          store.put(contextId, state);
-        }),
-      );
+      await transportTuning.write(['tuners'], async (transaction) => {
+        const store = transaction.store('tuners');
+        const stored = await store.get(contextId);
+        // Nothing awaits from here on, so no reward lands between the
+        // rewards taken and the record written.
+        takenArms = pendingArms;
+        takenRewards = pendingRewards;
+        pendingArms = [];
+        pendingRewards = [];
+        if (stored !== null || shared) {
+          const merged = stored ?? initialState();
+          replay(merged, takenArms, takenRewards);
+          state = merged;
+        }
+        shared = true;
+        store.put(contextId, state);
+      });
     } catch (cause) {
       if (!(cause instanceof DOMException)) throw cause;
       pendingArms = takenArms.concat(pendingArms);

@@ -1,5 +1,5 @@
 import { treaty } from '@elysia/eden';
-import { defineDatabase, keyedStore, withDatabase } from '@merkur/browser-storage';
+import { defineDatabase, keyedStore } from '@merkur/browser-storage';
 import type { App } from '@merkur/server';
 import {
   type AccountKeyboardSettings,
@@ -177,10 +177,8 @@ let retiredAtGeneration: number | null = null;
 async function readRefreshCredential(): Promise<RefreshCredentialState | null> {
   try {
     const state =
-      (await withDatabase(refreshCredential, (database) =>
-        database.read(['credential'], (transaction) =>
-          transaction.store('credential').get('current'),
-        ),
+      (await refreshCredential.read(['credential'], (transaction) =>
+        transaction.store('credential').get('current'),
       )) ?? INITIAL_CREDENTIAL;
     knownGeneration = state.generation;
     return state;
@@ -199,17 +197,15 @@ async function updateRefreshCredential(
   change: (current: RefreshCredentialState) => RefreshCredentialState,
 ): Promise<void> {
   try {
-    await withDatabase(refreshCredential, (database) =>
-      database.write(
-        ['credential'],
-        async (transaction) => {
-          const store = transaction.store('credential');
-          const next = change((await store.get('current')) ?? INITIAL_CREDENTIAL);
-          knownGeneration = next.generation;
-          store.put('current', next);
-        },
-        DURABLE,
-      ),
+    await refreshCredential.write(
+      ['credential'],
+      async (transaction) => {
+        const store = transaction.store('credential');
+        const next = change((await store.get('current')) ?? INITIAL_CREDENTIAL);
+        knownGeneration = next.generation;
+        store.put('current', next);
+      },
+      DURABLE,
     );
   } catch (cause) {
     if (!(cause instanceof DOMException)) throw cause;

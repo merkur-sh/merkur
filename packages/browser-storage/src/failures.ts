@@ -13,6 +13,9 @@
  *   caller's own body abandoned is the caller's error and is not counted.
  * - `open_failed`: an IndexedDB open the engine refused, or no IndexedDB at all.
  * - `open_abandoned`: an IndexedDB open its caller gave up on before it opened.
+ * - `connection_lost`: an open IndexedDB connection the engine closed (site
+ *   data cleared, WebKit's storage process lost). The next transaction opens
+ *   a new one, so no caller sees it; this is how often it happens.
  */
 export const STORAGE_FAILURES = [
   'quota',
@@ -21,6 +24,7 @@ export const STORAGE_FAILURES = [
   'aborted',
   'open_failed',
   'open_abandoned',
+  'connection_lost',
 ] as const;
 
 export type StorageFailure = (typeof STORAGE_FAILURES)[number];

@@ -1,15 +1,15 @@
 /**
  * The behaviour this package promises, as scenarios that run unchanged in Bun
- * against `fake-indexeddb` (`database.test.ts`, `web-storage.test.ts`) and in
- * Chromium, WebKit and Firefox, in a page and in a dedicated worker
- * (`engines.test.ts`). Each scenario makes its own database names and keys, so
- * scenarios never share state, and asserts with `check`, whose message names
- * what the engine did instead.
+ * against `fake-indexeddb` (`conformance.test.ts`) and in Chromium, WebKit and
+ * Firefox, in a page and in a dedicated worker (`engines.test.ts`). Each
+ * scenario makes its own database names and keys, so scenarios never share
+ * state, and asserts with `check`, whose message names what the engine did
+ * instead.
  */
-import { defineDatabase, keyedStore, openDatabase, withDatabase } from './database';
-import { observeStorageFailures, type StorageFailureEvent } from './failures';
-import type { Cloned } from './parse';
-import { localValue, sessionValue } from './web-storage';
+import { defineDatabase, keyedStore } from '../src/database';
+import { observeStorageFailures, type StorageFailureEvent } from '../src/failures';
+import type { Cloned } from '../src/parse';
+import { localValue, sessionValue } from '../src/web-storage';
 
 /** What a realm has: a page has both, a dedicated worker has no web storage. */
 export interface Capabilities {
@@ -113,6 +113,26 @@ async function failuresDuring(body: () => Promise<void>): Promise<StorageFailure
   return seen;
 }
 
+/**
+ * Runs `body` while counting the connections this realm's `indexedDB.open`
+ * hands out, and answers them in order.
+ */
+async function connectionsDuring(body: () => Promise<void>): Promise<IDBDatabase[]> {
+  const opened: IDBDatabase[] = [];
+  const open = indexedDB.open;
+  indexedDB.open = (name, version) => {
+    const request = open.call(indexedDB, name, version);
+    request.addEventListener('success', () => opened.push(request.result));
+    return request;
+  };
+  try {
+    await body();
+  } finally {
+    indexedDB.open = open;
+  }
+  return opened;
+}
+
 interface Note {
   readonly text: string;
 }
@@ -175,7 +195,10 @@ async function countRaw(database: string, store: string): Promise<number> {
   }
 }
 
-/** Deletes `name`, failing when an open connection would block the delete. */
+/**
+ * Deletes `name`, failing when an open connection would block the delete. The
+ * package's own connection gives way to it, as it does to a newer version.
+ */
 function deleteUnblocked(name: string, blockedBecause: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const request = indexedDB.deleteDatabase(name);
@@ -185,198 +208,233 @@ function deleteUnblocked(name: string, blockedBecause: string): Promise<void> {
   });
 }
 
+const HELD = 'the shared connection did not give way to a delete';
+
 const SCENARIOS: readonly Scenario[] = [
   {
     name: 'a write is read back through its store parser',
     needs: ['indexedDB'],
     async run() {
-      const definition = notesDatabase(unique('roundtrip'));
-      await withDatabase(definition, async (database) => {
-        await database.write(['notes', 'counts'], (transaction) => {
-          transaction.store('notes').put('first', { text: 'hello' });
-          transaction.store('counts').put(1, 7);
-        });
+      const database = notesDatabase(unique('roundtrip'));
+      await database.write(['notes', 'counts'], (transaction) => {
+        transaction.store('notes').put('first', { text: 'hello' });
+        transaction.store('counts').put(1, 7);
+      });
+      same(
+        await database.read(['notes', 'counts'], async (transaction) => [
+          await transaction.store('notes').get('first'),
+          await transaction.store('counts').get(1),
+          await transaction.store('notes').get('missing'),
+        ]),
+        [{ text: 'hello' }, 7, null],
+        'values read back',
+      );
+      await deleteUnblocked(database.name, HELD);
+    },
+  },
+  {
+    name: 'every transaction shares one connection, and one closed by a delete is reopened',
+    needs: ['indexedDB'],
+    async run() {
+      const database = notesDatabase(unique('shared'));
+      const opened = await connectionsDuring(async () => {
+        await database.write(['notes'], (tx) => tx.store('notes').put('a', { text: 'one' }));
+        await Promise.all([
+          database.read(['notes'], (tx) => tx.store('notes').get('a')),
+          database.write(['counts'], (tx) => tx.store('counts').put(1, 1)),
+        ]);
         same(
-          await database.read(['notes', 'counts'], async (transaction) => [
-            await transaction.store('notes').get('first'),
-            await transaction.store('counts').get(1),
-            await transaction.store('notes').get('missing'),
-          ]),
-          [{ text: 'hello' }, 7, null],
-          'values read back',
+          await database.read(['notes'], (tx) => tx.store('notes').get('a')),
+          { text: 'one' },
+          'value through the shared connection',
+        );
+        await deleteUnblocked(database.name, HELD);
+        same(
+          await database.read(['notes'], (tx) => tx.store('notes').get('a')),
+          null,
+          'value after the delete',
         );
       });
-      await deleteUnblocked(definition.name, 'connection left open');
+      same(opened.length, 2, 'connections opened: one, then one after the delete');
+      await deleteUnblocked(database.name, HELD);
+    },
+  },
+  {
+    name: 'a connection closed underneath is replaced before the transaction begins',
+    needs: ['indexedDB'],
+    async run() {
+      const database = notesDatabase(unique('closed-underneath'));
+      let value: Note | null = null;
+      const failures = await failuresDuring(async () => {
+        const opened = await connectionsDuring(async () => {
+          await database.write(['notes'], (tx) => tx.store('notes').put('a', { text: 'kept' }));
+        });
+        // Closed without an event, as the engine's own close is before its
+        // `close` event arrives: `transaction()` answers `InvalidStateError`.
+        for (const connection of opened) connection.close();
+        value = await database.read(['notes'], (tx) => tx.store('notes').get('a'));
+      });
+      same(value, { text: 'kept' }, 'value through the replacement connection');
+      same(failures, [{ target: database.name, failure: 'connection_lost' }], 'failures reported');
+      await deleteUnblocked(database.name, HELD);
     },
   },
   {
     name: 'an unparseable value reads as absent, is counted, and only a write deletes it',
     needs: ['indexedDB'],
     async run() {
-      const definition = notesDatabase(unique('unparseable'));
-      await withDatabase(definition, async () => undefined);
-      await putRaw(definition.name, 'notes', 'stale', { body: 'from an older build' });
-      const failures = await failuresDuring(() =>
-        withDatabase(definition, async (database) => {
-          same(
-            await database.read(['notes'], (tx) => tx.store('notes').get('stale')),
-            null,
-            'read-only get',
-          );
-          same(await countRaw(definition.name, 'notes'), 1, 'records after a read-only get');
-          same(
-            await database.write(['notes'], (tx) => tx.store('notes').get('stale')),
-            null,
-            'read-write get',
-          );
-          same(await countRaw(definition.name, 'notes'), 0, 'records after a read-write get');
-        }),
-      );
+      const database = notesDatabase(unique('unparseable'));
+      await database.read(['notes'], () => null);
+      await putRaw(database.name, 'notes', 'stale', { body: 'from an older build' });
+      const failures = await failuresDuring(async () => {
+        same(
+          await database.read(['notes'], (tx) => tx.store('notes').get('stale')),
+          null,
+          'read-only get',
+        );
+        same(await countRaw(database.name, 'notes'), 1, 'records after a read-only get');
+        same(
+          await database.write(['notes'], (tx) => tx.store('notes').get('stale')),
+          null,
+          'read-write get',
+        );
+        same(await countRaw(database.name, 'notes'), 0, 'records after a read-write get');
+      });
       same(
         failures,
         [
-          { target: definition.name, failure: 'unparseable' },
-          { target: definition.name, failure: 'unparseable' },
+          { target: database.name, failure: 'unparseable' },
+          { target: database.name, failure: 'unparseable' },
         ],
         'failures reported',
       );
-      await deleteUnblocked(definition.name, 'connection left open');
+      await deleteUnblocked(database.name, HELD);
     },
   },
   {
     name: 'a body that throws aborts its transaction, and the engine is not blamed',
     needs: ['indexedDB'],
     async run() {
-      const definition = notesDatabase(unique('throwing-body'));
-      const failures = await failuresDuring(() =>
-        withDatabase(definition, async (database) => {
-          const refusal = new ConformanceError('refused by the body');
-          check(
-            await rejectsWith(
-              database.write(['notes', 'counts'], (transaction) => {
-                transaction.store('notes').put('kept-out', { text: 'never' });
-                transaction.store('counts').put(2, 2);
-                throw refusal;
-              }),
-              refusal,
-            ),
-            'the write rejects with the body’s own error',
-          );
-          same(
-            await database.read(['notes', 'counts'], async (transaction) => [
-              await transaction.store('notes').get('kept-out'),
-              await transaction.store('counts').get(2),
-            ]),
-            [null, null],
-            'writes of the aborted transaction',
-          );
-        }),
-      );
+      const database = notesDatabase(unique('throwing-body'));
+      const failures = await failuresDuring(async () => {
+        const refusal = new ConformanceError('refused by the body');
+        check(
+          await rejectsWith(
+            database.write(['notes', 'counts'], (transaction) => {
+              transaction.store('notes').put('kept-out', { text: 'never' });
+              transaction.store('counts').put(2, 2);
+              throw refusal;
+            }),
+            refusal,
+          ),
+          'the write rejects with the body’s own error',
+        );
+        same(
+          await database.read(['notes', 'counts'], async (transaction) => [
+            await transaction.store('notes').get('kept-out'),
+            await transaction.store('counts').get(2),
+          ]),
+          [null, null],
+          'writes of the aborted transaction',
+        );
+      });
       same(failures, [], 'failures reported');
-      await deleteUnblocked(definition.name, 'connection left open');
+      await deleteUnblocked(database.name, HELD);
     },
   },
   {
     name: 'a body that rejects after a read aborts the writes it queued',
     needs: ['indexedDB'],
     async run() {
-      const definition = notesDatabase(unique('late-rejection'));
-      await withDatabase(definition, async (database) => {
-        same(
-          await rejection(
-            database.write(['notes'], async (transaction) => {
-              const store = transaction.store('notes');
-              store.put('half', { text: 'queued' });
-              await store.get('half');
-              throw new ConformanceError('late refusal');
-            }),
-          ),
-          'ConformanceError',
-          'rejection',
-        );
-        same(
-          await database.read(['notes'], (tx) => tx.store('notes').get('half')),
-          null,
-          'the queued write',
-        );
-      });
-      await deleteUnblocked(definition.name, 'connection left open');
+      const database = notesDatabase(unique('late-rejection'));
+      same(
+        await rejection(
+          database.write(['notes'], async (transaction) => {
+            const store = transaction.store('notes');
+            store.put('half', { text: 'queued' });
+            await store.get('half');
+            throw new ConformanceError('late refusal');
+          }),
+        ),
+        'ConformanceError',
+        'rejection',
+      );
+      same(
+        await database.read(['notes'], (tx) => tx.store('notes').get('half')),
+        null,
+        'the queued write',
+      );
+      await deleteUnblocked(database.name, HELD);
     },
   },
   {
     name: 'a value that cannot be cloned rejects the write with DataCloneError',
     needs: ['indexedDB'],
     async run() {
-      const definition = defineDatabase(unique('uncloneable'), 1, {
+      const database = defineDatabase(unique('uncloneable'), 1, {
         values: keyedStore<string, () => void>((value) =>
           value instanceof Function ? () => undefined : null,
         ),
       });
-      await withDatabase(definition, async (database) => {
-        same(
-          await rejection(
-            database.write(['values'], (transaction) => {
-              transaction.store('values').put('fn', () => undefined);
-            }),
-          ),
-          'DataCloneError',
-          'rejection',
-        );
-      });
-      await deleteUnblocked(definition.name, 'connection left open');
+      same(
+        await rejection(
+          database.write(['values'], (transaction) => {
+            transaction.store('values').put('fn', () => undefined);
+          }),
+        ),
+        'DataCloneError',
+        'rejection',
+      );
+      await deleteUnblocked(database.name, HELD);
     },
   },
   {
     name: 'awaiting other work inside a body loses the transaction from under it',
     needs: ['indexedDB'],
     async run() {
-      const definition = notesDatabase(unique('inactive'));
-      await withDatabase(definition, async (database) => {
-        // `TransactionInactiveError` while the commit is under way,
-        // `InvalidStateError` once it has finished: which one depends on how
-        // far the engine got, never on anything the body can control.
-        const name = await rejection(
-          database.write(['notes'], async (transaction) => {
-            transaction.store('notes').put('before', { text: 'committed' });
-            await new Promise((resolve) => setTimeout(resolve, 0));
-            transaction.store('notes').put('after', { text: 'too late' });
-          }),
-        );
-        check(
-          name === 'TransactionInactiveError' || name === 'InvalidStateError',
-          `the late request is refused as inactive or finished: got ${name}`,
-        );
-        // Whether the earlier write landed is not the body's to decide: Chromium
-        // and WebKit had not finished it when the timer fired, so the refusal
-        // aborted the whole transaction, while `fake-indexeddb` had committed it.
-        // Only the late write is certain to be lost.
-        same(
-          await database.read(['notes'], (tx) => tx.store('notes').get('after')),
-          null,
-          'the late write',
-        );
-      });
-      await deleteUnblocked(definition.name, 'connection left open');
+      const database = notesDatabase(unique('inactive'));
+      // `TransactionInactiveError` while the commit is under way,
+      // `InvalidStateError` once it has finished: which one depends on how
+      // far the engine got, never on anything the body can control.
+      const name = await rejection(
+        database.write(['notes'], async (transaction) => {
+          transaction.store('notes').put('before', { text: 'committed' });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          transaction.store('notes').put('after', { text: 'too late' });
+        }),
+      );
+      check(
+        name === 'TransactionInactiveError' || name === 'InvalidStateError',
+        `the late request is refused as inactive or finished: got ${name}`,
+      );
+      // Whether the earlier write landed is not the body's to decide: Chromium
+      // and WebKit had not finished it when the timer fired, so the refusal
+      // aborted the whole transaction, while `fake-indexeddb` had committed it.
+      // Only the late write is certain to be lost.
+      same(
+        await database.read(['notes'], (tx) => tx.store('notes').get('after')),
+        null,
+        'the late write',
+      );
+      await deleteUnblocked(database.name, HELD);
     },
   },
   {
     name: 'a strict write resolves and reads back, and the engine records strict durability',
     needs: ['indexedDB'],
     async run() {
-      const definition = notesDatabase(unique('strict'));
-      await withDatabase(definition, async (database) => {
-        await database.write(
-          ['notes'],
-          (transaction) => transaction.store('notes').put('durable', { text: 'flushed' }),
-          { durability: 'strict' },
-        );
-        same(
-          await database.read(['notes'], (tx) => tx.store('notes').get('durable')),
-          { text: 'flushed' },
-          'value read back',
-        );
-      });
-      const connection = await rawOpen(definition.name);
+      const database = notesDatabase(unique('strict'));
+      await database.write(
+        ['notes'],
+        (transaction) => transaction.store('notes').put('durable', { text: 'flushed' }),
+        { durability: 'strict' },
+      );
+      same(
+        await database.read(['notes'], (tx) => tx.store('notes').get('durable')),
+        { text: 'flushed' },
+        'value read back',
+      );
+      const connection = await rawOpen(database.name);
       try {
         const transaction = connection.transaction('notes', 'readwrite', { durability: 'strict' });
         check(
@@ -387,84 +445,69 @@ const SCENARIOS: readonly Scenario[] = [
       } finally {
         connection.close();
       }
-      await deleteUnblocked(definition.name, 'connection left open');
+      await deleteUnblocked(database.name, HELD);
     },
   },
   {
-    name: 'a newer version replaces every store and is not blocked by an open connection',
+    name: 'a newer version replaces every store, and the older build can no longer open it',
     needs: ['indexedDB'],
     async run() {
       const name = unique('versions');
       const older = notesDatabase(name, 1);
-      const held = await openDatabase(older);
-      await held.write(['notes'], (tx) => tx.store('notes').put('old', { text: 'old layout' }));
+      await older.write(['notes'], (tx) => tx.store('notes').put('old', { text: 'old layout' }));
       const newer = defineDatabase(name, 2, { notes: keyedStore<string, Note>(parseNote) });
-      await withDatabase(newer, async (database) => {
-        same(
-          await database.read(['notes'], (tx) => tx.store('notes').get('old')),
-          null,
-          'record of the older layout',
-        );
-      });
       same(
-        await rejection(held.read(['notes'], (tx) => tx.store('notes').get('old'))),
-        'InvalidStateError',
-        'the older connection after it gave way',
+        await newer.read(['notes'], (tx) => tx.store('notes').get('old')),
+        null,
+        'record of the older layout',
       );
+      let refused: string | null = null;
+      const failures = await failuresDuring(async () => {
+        refused = await rejection(older.read(['notes'], (tx) => tx.store('notes').get('old')));
+      });
+      same(refused, 'VersionError', 'the older build after its connection gave way');
+      same(failures, [{ target: name, failure: 'open_failed' }], 'failures reported');
       const connection = await rawOpen(name);
       const stores = Array.from(connection.objectStoreNames);
       connection.close();
       same(stores, ['notes'], 'stores after the upgrade');
-      await deleteUnblocked(name, 'connection left open');
+      await deleteUnblocked(name, HELD);
     },
   },
   {
     name: 'an open given up before it starts rejects with the reason and is counted',
     needs: ['indexedDB'],
     async run() {
-      const definition = notesDatabase(unique('abort-early'));
+      const database = notesDatabase(unique('abort-early'));
       const reason = new ConformanceError('gave up');
       const controller = new AbortController();
       controller.abort(reason);
       let rejected = false;
       const failures = await failuresDuring(async () => {
-        rejected = await rejectsWith(
-          openDatabase(definition, { signal: controller.signal }),
-          reason,
-        );
+        rejected = await rejectsWith(database.connect({ signal: controller.signal }), reason);
       });
       check(rejected, 'the open rejects with the abort reason');
-      same(failures, [{ target: definition.name, failure: 'open_abandoned' }], 'failures reported');
+      same(failures, [{ target: database.name, failure: 'open_abandoned' }], 'failures reported');
     },
   },
   {
-    name: 'an open given up mid-flight rejects, and its late connection is closed',
+    name: 'an open given up mid-flight rejects, its late connection is closed, and the next opens',
     needs: ['indexedDB'],
     async run() {
-      const definition = notesDatabase(unique('abort-late'));
+      const database = notesDatabase(unique('abort-late'));
       const controller = new AbortController();
       const reason = new ConformanceError('timed out');
-      const pending = openDatabase(definition, { signal: controller.signal });
+      const pending = database.connect({ signal: controller.signal });
       controller.abort(reason);
       check(await rejectsWith(pending, reason), 'the open rejects with the abort reason');
-      await deleteUnblocked(definition.name, 'the abandoned connection is still open');
-    },
-  },
-  {
-    name: 'withDatabase closes its connection when its body throws',
-    needs: ['indexedDB'],
-    async run() {
-      const definition = notesDatabase(unique('closes'));
+      await deleteUnblocked(database.name, 'the abandoned connection is still open');
+      await database.write(['notes'], (tx) => tx.store('notes').put('next', { text: 'opened' }));
       same(
-        await rejection(
-          withDatabase(definition, async () => {
-            throw new ConformanceError('body failed');
-          }),
-        ),
-        'ConformanceError',
-        'rejection',
+        await database.read(['notes'], (tx) => tx.store('notes').get('next')),
+        { text: 'opened' },
+        'a transaction after the abandoned open',
       );
-      await deleteUnblocked(definition.name, 'withDatabase left its connection open');
+      await deleteUnblocked(database.name, HELD);
     },
   },
   {
@@ -531,7 +574,7 @@ const SCENARIOS: readonly Scenario[] = [
     async run() {
       const database = unique('counter');
       same(await incrementConcurrently(database, 25), 25, 'final count');
-      await deleteUnblocked(database, 'connection left open');
+      await deleteUnblocked(database, HELD);
     },
   },
   {
@@ -552,17 +595,14 @@ const SCENARIOS: readonly Scenario[] = [
   },
 ];
 
-function counterDatabase(name: string) {
-  return defineDatabase(name, 1, { counts: keyedStore<'count', number>(parseCount) });
-}
-
 /**
  * Adds one to the count in database `name` `times` times, every addition a
  * read-modify-write of its own and all of them started at once, then answers
  * the count. Exported so a test can run it in two tabs together.
  */
 export async function incrementConcurrently(name: string, times: number): Promise<number | null> {
-  return await withDatabase(counterDatabase(name), async (database) => {
+  const database = defineDatabase(name, 1, { counts: keyedStore<'count', number>(parseCount) });
+  try {
     await Promise.all(
       Array.from({ length: times }, () =>
         database.write(['counts'], async (transaction) => {
@@ -572,5 +612,7 @@ export async function incrementConcurrently(name: string, times: number): Promis
       ),
     );
     return await database.read(['counts'], (tx) => tx.store('counts').get('count'));
-  });
+  } finally {
+    database.close();
+  }
 }

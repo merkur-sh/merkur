@@ -6,8 +6,9 @@ import type { Cloned, Parse } from './parse';
  * not its runtime: `idb` wraps every database, transaction, store and cursor in
  * a Proxy and looks each property read up in a WeakMap, which this does not
  * pay. It covers what Merkur stores, out-of-line keys and whole values, and
- * adds what `idb` leaves to its caller: every value read is parsed, and a
- * schema change replaces the database instead of migrating it.
+ * adds what `idb` leaves to its caller: every value read is parsed, a schema
+ * change replaces the database instead of migrating it, and one connection per
+ * database serves every transaction, reopened whenever the engine closes it.
  */
 
 declare const KEY: unique symbol;
@@ -21,20 +22,6 @@ export interface StoreDefinition<K extends IDBValidKey, V> {
 
 /** The stores a database holds, by name. */
 export type StoreDefinitions = Readonly<Record<string, StoreDefinition<IDBValidKey, unknown>>>;
-
-/**
- * A database's name, its schema version and its stores. The version is the
- * schema's identity, not a migration step: opening a database stored under an
- * older version deletes every store it holds and creates the declared ones
- * empty, so a changed layout is a hard cutover and nothing ever reads a
- * record in an older shape. Bump it whenever a store is added, removed,
- * renamed, or its value shape changes.
- */
-export interface DatabaseDefinition<S extends StoreDefinitions> {
-  readonly name: string;
-  readonly version: number;
-  readonly stores: S;
-}
 
 type KeyOf<D> = D extends StoreDefinition<infer K, unknown> ? K : never;
 type ValueOf<D> = D extends StoreDefinition<IDBValidKey, infer V> ? V : never;
@@ -77,7 +64,17 @@ export interface WriteTransaction<S extends StoreDefinitions, N extends StoreNam
  */
 type TransactionBody<T, R> = (transaction: T) => R | Promise<R>;
 
+/**
+ * A database's name, its schema version and its stores, and the transactions
+ * over it. The first transaction opens the connection, and every later one
+ * reuses it. The engine may close it: another tab opening a newer version, the
+ * user clearing site data, WebKit losing its storage process while the page
+ * was suspended. Each of these is an event or an `InvalidStateError` from the
+ * connection itself, and the next transaction opens a new one. A transaction
+ * already running on a connection that closes rejects; it is never run twice.
+ */
 export interface Database<S extends StoreDefinitions> {
+  readonly name: string;
   /** Runs `body` in one read-only transaction over `stores`, resolving once it completes. */
   read<N extends StoreName<S>, R>(
     stores: readonly N[],
@@ -93,7 +90,26 @@ export interface Database<S extends StoreDefinitions> {
     body: TransactionBody<WriteTransaction<S, N>, R>,
     options?: WriteOptions,
   ): Promise<R>;
+  /**
+   * Opens the connection ahead of the transactions that will use it, resolving
+   * at once while one is open. A caller that cannot wait on an open
+   * indefinitely bounds it here, then runs its transactions on the connection.
+   */
+  connect(options?: ConnectOptions): Promise<void>;
+  /**
+   * Closes the connection, and abandons an open still in flight. The next
+   * transaction opens a new one.
+   */
   close(): void;
+}
+
+export interface ConnectOptions {
+  /**
+   * Gives up on the open. The open is abandoned with it: the connection it
+   * would have produced is closed the moment it arrives, so an abandoned open
+   * never holds the database, and the next call starts a new open.
+   */
+  readonly signal?: AbortSignal;
 }
 
 export interface WriteOptions {
@@ -107,14 +123,6 @@ export interface WriteOptions {
   readonly durability?: IDBTransactionDurability;
 }
 
-export interface OpenOptions {
-  /**
-   * Gives up on the open. A connection that arrives after the abort is closed
-   * the moment it does, so an abandoned open never holds the database.
-   */
-  readonly signal?: AbortSignal;
-}
-
 /** A store of `V` values under out-of-line keys of type `K`, each read through `parse`. */
 export function keyedStore<K extends IDBValidKey, V>(
   parse: Parse<Cloned, V>,
@@ -122,86 +130,209 @@ export function keyedStore<K extends IDBValidKey, V>(
   return { parse };
 }
 
+/**
+ * Declares a database; nothing opens until its first transaction. The version
+ * is the schema's identity, not a migration step: opening a database stored
+ * under an older version deletes every store it holds and creates the declared
+ * ones empty, so a changed layout is a hard cutover and nothing ever reads a
+ * record in an older shape. Bump it whenever a store is added, removed,
+ * renamed, or its value shape changes.
+ */
 export function defineDatabase<S extends StoreDefinitions>(
   name: string,
   version: number,
   stores: S,
-): DatabaseDefinition<S> {
+): Database<S> {
   if (!Number.isSafeInteger(version) || version < 1) {
     throw new RangeError(`IndexedDB ${name} version must be a positive integer`);
   }
-  return { name, version, stores };
+  const connection = sharedConnection(name, version, stores);
+  return {
+    name,
+    read(names, body) {
+      return connection.transact(
+        (database) => database.transaction(names, 'readonly'),
+        (transaction) =>
+          runTransaction(
+            name,
+            transaction,
+            {
+              store: (store) =>
+                readStore(name, transaction.objectStore(store), parserOf(stores, store)),
+            },
+            body,
+          ),
+      );
+    },
+    write(names, body, options = {}) {
+      return connection.transact(
+        (database) => database.transaction(names, 'readwrite', options),
+        (transaction) =>
+          runTransaction(
+            name,
+            transaction,
+            {
+              store: (store) =>
+                writeStore(name, transaction.objectStore(store), parserOf(stores, store)),
+            },
+            body,
+          ),
+      );
+    },
+    async connect(options = {}) {
+      await connection.connect(options.signal);
+    },
+    close() {
+      connection.close();
+    },
+  };
 }
 
-/**
- * Opens the database. The connection closes itself when another tab opens a
- * newer version, so a schema cutover is never blocked by a tab still running
- * the previous build's connection.
- */
-export function openDatabase<S extends StoreDefinitions>(
-  definition: DatabaseDefinition<S>,
-  options: OpenOptions = {},
-): Promise<Database<S>> {
-  const { signal } = options;
-  const { name } = definition;
-  return new Promise<Database<S>>((resolve, reject) => {
+interface SharedConnection {
+  /**
+   * Begins a transaction on the connection, opening it first when there is
+   * none, and hands it to `run`. A connection that turns out to be closing is
+   * dropped and the transaction begun once more on a new one: `transaction()`
+   * throws before any work starts, so nothing runs twice.
+   */
+  transact<R>(
+    begin: (connection: IDBDatabase) => IDBTransaction,
+    run: (transaction: IDBTransaction) => Promise<R>,
+  ): Promise<R>;
+  /** The open connection, or the one an open in flight or a new open produces. */
+  connect(signal: AbortSignal | undefined): Promise<IDBDatabase>;
+  close(): void;
+}
+
+function sharedConnection(
+  name: string,
+  version: number,
+  stores: StoreDefinitions,
+): SharedConnection {
+  let current: IDBDatabase | null = null;
+  let opening: Promise<IDBDatabase> | null = null;
+
+  const forget = (connection: IDBDatabase): void => {
+    if (current === connection) current = null;
+    connection.close();
+  };
+
+  /**
+   * A connection closed by the engine rather than by this module: counted once,
+   * by whichever of its `close` event and a refused `transaction()` comes
+   * first. An abandoned open's connection, closed here, is never current.
+   */
+  const lost = (connection: IDBDatabase): void => {
+    if (current === connection) reportStorageFailure(name, 'connection_lost');
+    forget(connection);
+  };
+
+  const open = (): Promise<IDBDatabase> => {
+    const pending: Promise<IDBDatabase> = new Promise((resolve, reject) => {
+      const request = indexedDB.open(name, version);
+      request.onupgradeneeded = () => {
+        replaceStores(request.result, stores);
+      };
+      request.onsuccess = () => {
+        const connection = request.result;
+        if (opening !== pending) {
+          // Abandoned: closed on arrival. A caller still waiting on it finds it
+          // closing and opens again.
+          connection.close();
+          resolve(connection);
+          return;
+        }
+        opening = null;
+        current = connection;
+        // Another tab opening a newer version: close, so its upgrade is never
+        // blocked by this build's connection.
+        connection.onversionchange = () => forget(connection);
+        // The engine closed it: site data cleared, or the storage process lost.
+        connection.onclose = () => lost(connection);
+        resolve(connection);
+      };
+      request.onerror = () => {
+        if (opening === pending) {
+          opening = null;
+          reportStorageFailure(name, 'open_failed');
+        }
+        reject(
+          request.error ?? new DOMException(`Unable to open IndexedDB ${name}`, 'UnknownError'),
+        );
+      };
+      // `blocked` needs no handler: the open waits until the older connections
+      // close, which this module's own connections do on `versionchange`, and a
+      // caller that cannot wait connects with a signal.
+    });
+    return pending;
+  };
+
+  const connect = (signal: AbortSignal | undefined): Promise<IDBDatabase> => {
+    if (current !== null) return Promise.resolve(current);
     if (signal?.aborted === true) {
       reportStorageFailure(name, 'open_abandoned');
-      reject(signal.reason);
-      return;
+      return Promise.reject(signal.reason);
     }
     if (typeof indexedDB === 'undefined') {
       reportStorageFailure(name, 'open_failed');
       // A `DOMException` like every refusal an engine makes, so a caller tells a
       // storage failure from a bug by type alone.
-      reject(new DOMException('IndexedDB is unavailable', 'NotSupportedError'));
-      return;
+      return Promise.reject(new DOMException('IndexedDB is unavailable', 'NotSupportedError'));
     }
-    const request = indexedDB.open(name, definition.version);
-    let abandoned = false;
-    const onAbort = (): void => {
-      abandoned = true;
-      reportStorageFailure(name, 'open_abandoned');
-      reject(signal?.reason);
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-    request.onupgradeneeded = () => {
-      replaceStores(request.result, definition.stores);
-    };
-    request.onsuccess = () => {
-      signal?.removeEventListener('abort', onAbort);
-      const connection = request.result;
-      if (abandoned) {
-        connection.close();
-        return;
-      }
-      connection.onversionchange = () => connection.close();
-      resolve(createDatabase(name, connection, definition.stores));
-    };
-    request.onerror = () => {
-      signal?.removeEventListener('abort', onAbort);
-      if (abandoned) return;
-      reportStorageFailure(name, 'open_failed');
-      reject(request.error ?? new Error(`Unable to open IndexedDB ${name}`));
-    };
-    // `blocked` needs no handler: the open waits until the older connections
-    // close, which this module's own connections do on `versionchange`, and a
-    // caller that cannot wait passes a signal.
-  });
-}
+    opening ??= open();
+    const pending = opening;
+    if (signal === undefined) return pending;
+    return new Promise<IDBDatabase>((resolve, reject) => {
+      const onAbort = (): void => {
+        reportStorageFailure(name, 'open_abandoned');
+        if (opening === pending) opening = null;
+        reject(signal.reason);
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      pending.then(
+        (connection) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(connection);
+        },
+        (cause: unknown) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(cause);
+        },
+      );
+    });
+  };
 
-/** Opens the database, runs `use`, and closes the connection however `use` ends. */
-export async function withDatabase<S extends StoreDefinitions, R>(
-  definition: DatabaseDefinition<S>,
-  use: (database: Database<S>) => Promise<R>,
-  options?: OpenOptions,
-): Promise<R> {
-  const database = await openDatabase(definition, options);
-  try {
-    return await use(database);
-  } finally {
-    database.close();
-  }
+  const transact = <R>(
+    begin: (connection: IDBDatabase) => IDBTransaction,
+    run: (transaction: IDBTransaction) => Promise<R>,
+    reopened: boolean,
+  ): Promise<R> => {
+    const attempt = (connection: IDBDatabase): Promise<R> => {
+      let transaction: IDBTransaction;
+      try {
+        transaction = begin(connection);
+      } catch (cause) {
+        // A connection closing underneath answers `InvalidStateError` before any
+        // work starts; anything else (an undeclared store) is the caller's.
+        if (reopened || !(cause instanceof DOMException && cause.name === 'InvalidStateError')) {
+          return Promise.reject(cause);
+        }
+        lost(connection);
+        return transact(begin, run, true);
+      }
+      return run(transaction);
+    };
+    return current === null ? connect(undefined).then(attempt) : attempt(current);
+  };
+
+  return {
+    transact: (begin, run) => transact(begin, run, false),
+    connect,
+    close() {
+      opening = null;
+      if (current !== null) forget(current);
+    },
+  };
 }
 
 function replaceStores(connection: IDBDatabase, stores: StoreDefinitions): void {
@@ -211,40 +342,6 @@ function replaceStores(connection: IDBDatabase, stores: StoreDefinitions): void 
   for (const name of Object.keys(stores)) {
     connection.createObjectStore(name);
   }
-}
-
-function createDatabase<S extends StoreDefinitions>(
-  name: string,
-  connection: IDBDatabase,
-  stores: S,
-): Database<S> {
-  return {
-    read(names, body) {
-      return runTransaction(
-        name,
-        () => connection.transaction(names, 'readonly'),
-        (transaction) => ({
-          store: (store) =>
-            readStore(name, transaction.objectStore(store), parserOf(stores, store)),
-        }),
-        body,
-      );
-    },
-    write(names, body, options = {}) {
-      return runTransaction(
-        name,
-        () => connection.transaction(names, 'readwrite', options),
-        (transaction) => ({
-          store: (store) =>
-            writeStore(name, transaction.objectStore(store), parserOf(stores, store)),
-        }),
-        body,
-      );
-    },
-    close() {
-      connection.close();
-    },
-  };
 }
 
 /** The parser declared for `name`. */
@@ -267,14 +364,11 @@ function parserOf<S extends StoreDefinitions, N extends StoreName<S>>(
  */
 function runTransaction<T, R>(
   database: string,
-  begin: () => IDBTransaction,
-  view: (transaction: IDBTransaction) => T,
+  transaction: IDBTransaction,
+  view: T,
   body: TransactionBody<T, R>,
 ): Promise<R> {
-  // Created inside the executor, so a closed connection or an undeclared store
-  // rejects the returned promise instead of throwing at the call.
   return new Promise<R>((resolve, reject) => {
-    const transaction = begin();
     let settled = false;
     let completed = false;
     let result: { readonly value: R } | null = null;
@@ -307,12 +401,12 @@ function runTransaction<T, R>(
         transaction.error ?? new DOMException('IndexedDB transaction failed', 'UnknownError'),
       );
     };
-    // The body starts synchronously, inside the task that created the
+    // The body starts synchronously, in the same turn that created the
     // transaction, so its first request is issued while the transaction is
     // certainly active.
     let started: R | Promise<R>;
     try {
-      started = body(view(transaction));
+      started = body(view);
     } catch (cause) {
       started = Promise.reject(cause);
     }

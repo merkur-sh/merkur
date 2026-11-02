@@ -26,6 +26,7 @@ const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator
 
 afterEach(() => {
   crypto.subtle.decrypt = originalDecrypt;
+  installedDatabase?.close();
   restoreGlobal('indexedDB', originalIndexedDb);
   restoreGlobal('location', originalLocation);
   restoreGlobal('navigator', originalNavigator);
@@ -313,6 +314,8 @@ function persistedDelegation(userId: string, delegationId: string): object {
   };
 }
 
+let installedDatabase: { close(): void } | null = null;
+
 function installFakeIndexedDb(records: Map<string, unknown>): {
   readonly records: Map<string, unknown>;
   readonly deletedKeys: string[];
@@ -321,9 +324,15 @@ function installFakeIndexedDb(records: Map<string, unknown>): {
 } {
   const deletedKeys: string[] = [];
   const writeDurabilities: (IDBTransactionDurability | undefined)[] = [];
+  // The vault holds its connection between calls: this fake closes the one it
+  // replaces, as an engine closes a connection whose data is gone, so the
+  // vault's next transaction finds it closing and opens on this one.
+  installedDatabase?.close();
+  let closed = false;
   const database = {
     objectStoreNames: { contains: () => true },
     transaction(_storeName: string, mode: IDBTransactionMode, options?: IDBTransactionOptions) {
+      if (closed) throw new DOMException('The database connection is closing', 'InvalidStateError');
       if (mode === 'readwrite') writeDurabilities.push(options?.durability);
       // A transaction completes once every request issued on it has run, so a
       // write that issues two puts is not reported complete after the first.
@@ -382,8 +391,11 @@ function installFakeIndexedDb(records: Map<string, unknown>): {
       }
       return transaction;
     },
-    close() {},
+    close() {
+      closed = true;
+    },
   };
+  installedDatabase = database;
   Object.defineProperty(globalThis, 'indexedDB', {
     configurable: true,
     value: {

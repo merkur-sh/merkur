@@ -25,6 +25,7 @@
     "./tools/biome/slop/no-chained-type-assertions.grit",
     "./tools/biome/slop/no-compat-names.grit",
     "./tools/biome/slop/no-conditional-empty-object-spread.grit",
+    "./tools/biome/slop/no-exported-storage.grit",
     "./tools/biome/slop/no-known-value-widening.grit",
     "./tools/biome/slop/no-literal-timer-delay.grit",
     "./tools/biome/slop/no-manual-effect-error-tag.grit",

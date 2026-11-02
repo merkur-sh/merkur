@@ -33,6 +33,7 @@
     "apps/daemon/src/index.ts",
     "packages/*/src/index.ts",
     "packages/*/src/*.test.ts",
+    "packages/*/test/*.test.ts",
     "packages/merkur-client-native/scripts/browser-registration-oracle.ts"
   ],
   "dynamicallyLoaded": [

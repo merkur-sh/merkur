@@ -46,6 +46,33 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": [
+        "apps/**",
+        "packages/**",
+        "!packages/browser-storage/**",
+        "!**/*.test.ts",
+        "!**/*.test.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": {
+              "level": "error",
+              "options": {
+                "deniedGlobals": {
+                  "localStorage": "Declare the key with localValue from @merkur/browser-storage, which parses every read and counts every failure.",
+                  "sessionStorage": "Declare the key with sessionValue from @merkur/browser-storage, which parses every read and counts every failure.",
+                  "indexedDB": "Declare the database with defineDatabase from @merkur/browser-storage, which parses every read and counts every failure."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "single",

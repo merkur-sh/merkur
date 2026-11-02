@@ -14,8 +14,15 @@ beforeEach(() => {
   jest.useFakeTimers();
 });
 
-afterEach(() => {
+afterEach(async () => {
   jest.useRealTimers();
+  // The autotuner holds its connection between saves; deleting the database
+  // closes it, so the next test's autotuner opens on that test's factory.
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(STORAGE_NAMES.transport_autotuner);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
   if (originalIndexedDb === undefined) Reflect.deleteProperty(globalThis, 'indexedDB');
   else Object.defineProperty(globalThis, 'indexedDB', originalIndexedDb);
 });

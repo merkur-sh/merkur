@@ -268,6 +268,36 @@
       "reported": 1
     }
   ],
+  "no-exported-storage": [
+    {
+      "code": "const appearance = localValue(STORAGE_NAMES.appearance, parseAppearance);",
+      "reported": 0
+    },
+    {
+      "code": "const vault = defineDatabase('vault', 1, {});",
+      "reported": 0
+    },
+    {
+      "code": "export function loadAppearance() { return appearance.read(); }",
+      "reported": 0
+    },
+    {
+      "code": "export const parse = parseValue(value);",
+      "reported": 0
+    },
+    {
+      "code": "export const appearance = localValue(STORAGE_NAMES.appearance, parseAppearance);",
+      "reported": 1
+    },
+    {
+      "code": "export const lastDevice = sessionValue(STORAGE_NAMES.last_device, parseId);",
+      "reported": 1
+    },
+    {
+      "code": "export const vault = defineDatabase('vault', 1, { records: keyedStore(parse) });",
+      "reported": 1
+    }
+  ],
   "no-known-value-widening": [
     {
       "code": "type Command = () => void; const startCommand = () => {}; const commands: Record<string, Command> = {};",

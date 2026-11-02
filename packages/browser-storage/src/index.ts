@@ -1,4 +1,4 @@
-export { type Database, defineDatabase, keyedStore, openDatabase, withDatabase } from './database';
+export { defineDatabase, keyedStore } from './database';
 export {
   observeStorageFailures,
   reportStorageFailure,

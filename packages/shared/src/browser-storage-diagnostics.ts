@@ -39,6 +39,7 @@ export const BROWSER_STORAGE_FAILURES = [
   'aborted',
   'open_failed',
   'open_abandoned',
+  'connection_lost',
 ] as const;
 
 export type BrowserStorageFailure = (typeof BROWSER_STORAGE_FAILURES)[number];

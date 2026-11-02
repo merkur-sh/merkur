@@ -12,7 +12,7 @@
  * another's. (`localStorage` cannot do this: Firefox lost an update between two
  * tabs taking turns under one Web Lock, see `@merkur/browser-storage`.)
  */
-import { defineDatabase, keyedStore, withDatabase } from '@merkur/browser-storage';
+import { defineDatabase, keyedStore } from '@merkur/browser-storage';
 import {
   createKeyboardOffsetModel,
   isKeyboardOffsetSnapshot,
@@ -263,38 +263,36 @@ async function save(): Promise<void> {
   saving = true;
   let taken: Evidence | null = null;
   try {
-    const merged = await withDatabase(typingOffsets, (database) =>
-      database.write(['offsets'], async (transaction) => {
-        const store = transaction.store('offsets');
-        const stored = await store.get('current');
-        // From here to the end of the body nothing awaits, so no tap can land
-        // between the evidence taken and the pair written.
-        if (clearRequested) {
-          clearRequested = false;
-          store.delete('current');
-          return false;
-        }
-        taken = takePending();
-        let mergedOther = false;
-        if (stored !== null) {
-          models.portrait.restore(stored.portrait);
-          models.landscape.restore(stored.landscape);
-          replay(taken);
-          mergedOther = true;
-        } else if (shared) {
-          models.portrait.reset();
-          models.landscape.reset();
-          replay(taken);
-          mergedOther = true;
-        }
-        shared = true;
-        store.put('current', {
-          portrait: models.portrait.snapshot(),
-          landscape: models.landscape.snapshot(),
-        });
-        return mergedOther;
-      }),
-    );
+    const merged = await typingOffsets.write(['offsets'], async (transaction) => {
+      const store = transaction.store('offsets');
+      const stored = await store.get('current');
+      // From here to the end of the body nothing awaits, so no tap can land
+      // between the evidence taken and the pair written.
+      if (clearRequested) {
+        clearRequested = false;
+        store.delete('current');
+        return false;
+      }
+      taken = takePending();
+      let mergedOther = false;
+      if (stored !== null) {
+        models.portrait.restore(stored.portrait);
+        models.landscape.restore(stored.landscape);
+        replay(taken);
+        mergedOther = true;
+      } else if (shared) {
+        models.portrait.reset();
+        models.landscape.reset();
+        replay(taken);
+        mergedOther = true;
+      }
+      shared = true;
+      store.put('current', {
+        portrait: models.portrait.snapshot(),
+        landscape: models.landscape.snapshot(),
+      });
+      return mergedOther;
+    });
     if (merged) notify();
   } catch (cause) {
     if (!(cause instanceof DOMException)) throw cause;

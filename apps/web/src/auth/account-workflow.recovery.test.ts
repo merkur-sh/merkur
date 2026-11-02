@@ -47,6 +47,7 @@ beforeAll(async () => {
 afterAll(() => {
   if (previousPin === undefined) delete process.env.VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY;
   else process.env.VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY = previousPin;
+  installedDatabase?.close();
   restoreGlobal('indexedDB', originalIndexedDb);
   restoreGlobal('location', originalLocation);
 });
@@ -561,11 +562,19 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+let installedDatabase: { close(): void } | null = null;
+
 function installFakeIndexedDb(onPut?: () => void): Map<string, unknown> {
   const records = new Map<string, unknown>();
+  // The vault holds its connection between calls: this fake closes the one it
+  // replaces, as an engine closes a connection whose data is gone, so the
+  // vault's next transaction finds it closing and opens on this one.
+  installedDatabase?.close();
+  let closed = false;
   const database = {
     objectStoreNames: { contains: () => true },
     transaction(_storeName: string, _mode: IDBTransactionMode) {
+      if (closed) throw new DOMException('The database connection is closing', 'InvalidStateError');
       let pending = 0;
       let completeQueued = false;
       let completed = false;
@@ -632,8 +641,11 @@ function installFakeIndexedDb(onPut?: () => void): Map<string, unknown> {
       }
       return transaction;
     },
-    close() {},
+    close() {
+      closed = true;
+    },
   };
+  installedDatabase = database;
   Object.defineProperty(globalThis, 'indexedDB', {
     configurable: true,
     value: {

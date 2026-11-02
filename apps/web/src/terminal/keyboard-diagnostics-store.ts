@@ -18,7 +18,7 @@
  * retyping a neighbour in a tap's place is the one label for that tap that is
  * not the decoder's own guess.
  */
-import { defineDatabase, guarded, keyedStore, withDatabase } from '@merkur/browser-storage';
+import { defineDatabase, guarded, keyedStore } from '@merkur/browser-storage';
 import type {
   KeyboardKeyDefinition,
   KeyboardTouchTrace,
@@ -136,26 +136,24 @@ async function save(): Promise<void> {
   saving = true;
   let owed: KeyboardDiagnosticsSnapshot | null = null;
   try {
-    await withDatabase(typingDiagnostics, (database) =>
-      database.write(['diagnostics'], async (transaction) => {
-        const store = transaction.store('diagnostics');
-        const stored = await store.get('current');
-        // From here to the end of the body nothing awaits, so no tap can land
-        // between the aggregate read and the aggregate written.
-        if (clearRequested) {
-          clearRequested = false;
-          store.delete('current');
-          return;
-        }
-        // An absent aggregate is a first save, or another tab's reset: either way
-        // this tab's own counts since its last save are all there is to add.
-        const merged = mergeDiagnosticsSnapshots(stored ?? EMPTY, diagnostics.snapshot(), base);
-        diagnostics.adopt(merged);
-        owed = stored ?? EMPTY;
-        base = merged;
-        store.put('current', merged);
-      }),
-    );
+    await typingDiagnostics.write(['diagnostics'], async (transaction) => {
+      const store = transaction.store('diagnostics');
+      const stored = await store.get('current');
+      // From here to the end of the body nothing awaits, so no tap can land
+      // between the aggregate read and the aggregate written.
+      if (clearRequested) {
+        clearRequested = false;
+        store.delete('current');
+        return;
+      }
+      // An absent aggregate is a first save, or another tab's reset: either way
+      // this tab's own counts since its last save are all there is to add.
+      const merged = mergeDiagnosticsSnapshots(stored ?? EMPTY, diagnostics.snapshot(), base);
+      diagnostics.adopt(merged);
+      owed = stored ?? EMPTY;
+      base = merged;
+      store.put('current', merged);
+    });
   } catch (cause) {
     if (!(cause instanceof DOMException)) throw cause;
     // What this tab now holds is the stored aggregate plus its own counts, so
