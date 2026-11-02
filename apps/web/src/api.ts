@@ -1,4 +1,5 @@
 import { treaty } from '@elysia/eden';
+import { type Json, localValue } from '@merkur/browser-storage';
 import type { App } from '@merkur/server';
 import {
   type AccountKeyboardSettings,
@@ -98,12 +99,12 @@ const REFRESH_TIMEOUT = '4 seconds';
  * from a replay, so the credential is retired and the session ends in a
  * re-login instead of a revocation.
  *
- * Retirement is origin-wide, because the cookie is. {@link REFRESH_RETIREMENT_KEY}
+ * Retirement is origin-wide, because the cookie is. {@link retiredRefreshGeneration}
  * carries it to every tab on the origin, including ones opened after the
  * failure.
  *
  * It is recorded as the *generation* it applies to rather than as a boolean.
- * Sign-in increments {@link REFRESH_GENERATION_KEY}, so a refresh that captured
+ * Sign-in increments {@link refreshGeneration}, so a refresh that captured
  * an older generation and only fails afterwards writes a value that no longer
  * matches, and is inert. That is what keeps a tab whose refresh timed out from
  * retiring the brand-new chain another tab just signed in for. Authentication
@@ -124,9 +125,14 @@ const REFRESH_TIMEOUT = '4 seconds';
  * deliberately: a false `refresh_token_reuse_detected` is more expensive than a
  * sign-in, and the app is already showing the login form at that point.
  */
-const REFRESH_RETIREMENT_KEY = 'merkur:refresh-credential-retired';
-const REFRESH_GENERATION_KEY = 'merkur:refresh-credential-generation';
 const FIRST_GENERATION = 0;
+
+function parseGeneration(value: Json): number | null {
+  return Number.isSafeInteger(value) && Number(value) >= FIRST_GENERATION ? Number(value) : null;
+}
+
+const retiredRefreshGeneration = localValue('merkur:refresh-credential-retired', parseGeneration);
+const refreshGeneration = localValue('merkur:refresh-credential-generation', parseGeneration);
 
 /**
  * The generation this tab retired, or null while it holds a live credential.
@@ -199,11 +205,8 @@ export function markAccountSessionEstablished(): void {
 export function retireAccountRefreshCredential(): void {
   const generation = currentRefreshGeneration();
   retiredAtGeneration = generation;
-  try {
-    localStorage.setItem(REFRESH_RETIREMENT_KEY, String(generation));
-  } catch {
-    // This tab's in-memory latch still fails closed when storage is unavailable.
-  }
+  // When storage is unavailable this tab's in-memory latch still fails closed.
+  retiredRefreshGeneration.write(generation);
 }
 
 /** The release this server's daemons run (`/api/release`). */
@@ -636,12 +639,9 @@ function withRefreshCredentialLock(
       // carries no ordering guarantee, so it must not take effect.
       if (released) return;
       retiredAtGeneration = generation;
-      try {
-        localStorage.setItem(REFRESH_RETIREMENT_KEY, String(generation));
-      } catch {
-        // Storage blocked by the browser. This tab's own latch still holds;
-        // only the origin-wide reach is lost.
-      }
+      // With storage blocked by the browser this tab's own latch still holds;
+      // only the origin-wide reach is lost.
+      retiredRefreshGeneration.write(generation);
     }).finally(() => {
       released = true;
     });
@@ -653,7 +653,7 @@ function isRefreshCredentialRetired(): boolean {
   if (retiredAtGeneration === generation) {
     return true;
   }
-  return readStoredInteger(REFRESH_RETIREMENT_KEY) === generation;
+  return retiredRefreshGeneration.read() === generation;
 }
 
 function clearRefreshCredentialRetirement(): void {
@@ -661,28 +661,12 @@ function clearRefreshCredentialRetirement(): void {
   // blocked the generation can never move, and this is what lets a tab that
   // retired sign back in.
   retiredAtGeneration = null;
-  try {
-    localStorage.removeItem(REFRESH_RETIREMENT_KEY);
-    localStorage.setItem(REFRESH_GENERATION_KEY, String(currentRefreshGeneration() + 1));
-  } catch {
-    // As above.
-  }
+  retiredRefreshGeneration.remove();
+  refreshGeneration.write(currentRefreshGeneration() + 1);
 }
 
 function currentRefreshGeneration(): number {
-  return readStoredInteger(REFRESH_GENERATION_KEY) ?? FIRST_GENERATION;
-}
-
-function readStoredInteger(key: string): number | null {
-  let raw: string | null;
-  try {
-    raw = localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-  if (raw === null) return null;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isSafeInteger(parsed) && parsed >= FIRST_GENERATION ? parsed : null;
+  return refreshGeneration.read() ?? FIRST_GENERATION;
 }
 
 function edenEffect<A>(

@@ -19,8 +19,7 @@ import { TEST_DELEGATION_CERTIFICATE } from './test-authorization-fixtures';
 import { deriveUserRootPublicKey, generateUserRootSeed } from './user-root';
 
 const originalDecrypt = crypto.subtle.decrypt;
-const WRAPPING_KEY_ID = 'wrapping-key';
-const ACTIVE_DELEGATION_ID = 'active-delegation';
+const ACTIVE_VAULT = 'active';
 const originalIndexedDb = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
 const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
 const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
@@ -34,71 +33,74 @@ afterEach(() => {
 
 describe('browser delegation vault ownership', () => {
   test('an old tab cannot clear a newer delegation', async () => {
-    const record = persistedDelegation('user-new', 'delegation-new');
-    const fake = installFakeIndexedDb(
-      new Map([
-        [WRAPPING_KEY_ID, { fake: 'key' }],
-        [ACTIVE_DELEGATION_ID, record],
-      ]),
-    );
+    const vault = await persistedVault('user-new', 'delegation-new');
+    const fake = installFakeIndexedDb(new Map([[ACTIVE_VAULT, vault]]));
 
     expect(
       await clearBrowserDelegation({ userId: 'user-old', delegationId: 'delegation-old' }),
     ).toBe(false);
-    expect(fake.records.get(ACTIVE_DELEGATION_ID)).toEqual(record);
+    expect(fake.records.get(ACTIVE_VAULT)).toBe(vault);
     expect(fake.deletedKeys).toEqual([]);
   });
 
   test('clears the exact delegation and its nonextractable wrapping key together', async () => {
     const fake = installFakeIndexedDb(
-      new Map([
-        [WRAPPING_KEY_ID, { fake: 'key' }],
-        [ACTIVE_DELEGATION_ID, persistedDelegation('user-1', 'delegation-1')],
-      ]),
+      new Map([[ACTIVE_VAULT, await persistedVault('user-1', 'delegation-1')]]),
     );
 
     expect(await clearBrowserDelegation({ userId: 'user-1', delegationId: 'delegation-1' })).toBe(
       true,
     );
     expect(fake.records.size).toBe(0);
-    expect(fake.deletedKeys).toEqual([WRAPPING_KEY_ID, ACTIVE_DELEGATION_ID]);
+    expect(fake.deletedKeys).toEqual([ACTIVE_VAULT]);
+  });
+
+  test('a malformed vault is no one credential, so a conditional clear removes it', async () => {
+    const fake = installFakeIndexedDb(
+      new Map([[ACTIVE_VAULT, { wrappingKey: { fake: 'key' }, delegation: {} }]]),
+    );
+
+    expect(await clearBrowserDelegation({ userId: 'user-1', delegationId: 'delegation-1' })).toBe(
+      true,
+    );
+    expect(fake.records.size).toBe(0);
   });
 
   test('a previous account observes an origin-wide replacement without deleting it', async () => {
-    const record = persistedDelegation('user-new', 'delegation-new');
-    const fake = installFakeIndexedDb(
-      new Map([
-        [WRAPPING_KEY_ID, { fake: 'key' }],
-        [ACTIVE_DELEGATION_ID, record],
-      ]),
-    );
+    const vault = await persistedVault('user-new', 'delegation-new');
+    const fake = installFakeIndexedDb(new Map([[ACTIVE_VAULT, vault]]));
 
     expect(await loadBrowserDelegation('user-old')).toBeNull();
-    expect(fake.records.get(ACTIVE_DELEGATION_ID)).toEqual(record);
+    expect(fake.records.get(ACTIVE_VAULT)).toBe(vault);
     expect(fake.deletedKeys).toEqual([]);
   });
 });
 
 describe('browser delegation vault presence', () => {
   test('a complete record is present for any account', async () => {
-    installFakeIndexedDb(
-      new Map([
-        [WRAPPING_KEY_ID, { fake: 'key' }],
-        [ACTIVE_DELEGATION_ID, persistedDelegation('user-1', 'delegation-1')],
-      ]),
-    );
+    installFakeIndexedDb(new Map([[ACTIVE_VAULT, await persistedVault('user-1', 'delegation-1')]]));
 
     expect(await hasBrowserDelegation()).toBe(true);
   });
 
-  test('an empty vault and an orphaned half are both absent', async () => {
+  test('an empty vault and a malformed one are both absent, and reading deletes nothing', async () => {
     installFakeIndexedDb(new Map());
     expect(await hasBrowserDelegation()).toBe(false);
 
-    installFakeIndexedDb(
-      new Map([[ACTIVE_DELEGATION_ID, persistedDelegation('user-1', 'delegation-1')]]),
+    const extractable = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, [
+      'encrypt',
+      'decrypt',
+    ]);
+    const fake = installFakeIndexedDb(
+      new Map([
+        [
+          ACTIVE_VAULT,
+          { wrappingKey: extractable, delegation: persistedDelegation('user-1', 'delegation-1') },
+        ],
+      ]),
     );
     expect(await hasBrowserDelegation()).toBe(false);
+    expect(fake.deletedKeys).toEqual([]);
   });
 });
 
@@ -271,8 +273,7 @@ describe('browser delegation vault durability hint', () => {
     ]);
 
     expect(requested).toBe(1);
-    expect(records.has(WRAPPING_KEY_ID)).toBe(true);
-    expect(records.has(ACTIVE_DELEGATION_ID)).toBe(true);
+    expect(records.has(ACTIVE_VAULT)).toBe(true);
   });
 });
 
@@ -282,6 +283,14 @@ function restoreGlobal(
 ): void {
   if (descriptor === undefined) Reflect.deleteProperty(globalThis, name);
   else Object.defineProperty(globalThis, name, descriptor);
+}
+
+async function persistedVault(userId: string, delegationId: string): Promise<object> {
+  const wrappingKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
+    'encrypt',
+    'decrypt',
+  ]);
+  return { wrappingKey, delegation: persistedDelegation(userId, delegationId) };
 }
 
 function persistedDelegation(userId: string, delegationId: string): object {

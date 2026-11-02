@@ -1,3 +1,4 @@
+import { localValue } from '@merkur/browser-storage';
 import { createKeyboardLayout, type KeyboardLayout } from '@merkur/keyboard';
 import { TERMINAL_US_LAYOUT } from '@merkur/keyboard/layouts/terminal-us';
 import {
@@ -142,6 +143,7 @@ export interface VirtualKeyboardPreferences {
  * the account holds and overwrites this.
  */
 const STORAGE_KEY = 'merkur.terminal.virtualKeyboard';
+const storedPreferences = localValue(STORAGE_KEY, normalizeVirtualKeyboardPreferences);
 const PREFERENCES_CHANGED_EVENT = 'merkur:virtual-keyboard-preferences-changed';
 
 export const VIRTUAL_KEY_DEFINITIONS: Record<VirtualKeyId, VirtualKeyDefinition> = {
@@ -285,24 +287,15 @@ export function isTouchKeyboardEligible(): boolean {
 }
 
 export function loadVirtualKeyboardPreferences(): VirtualKeyboardPreferences {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw === null) return DEFAULT_VIRTUAL_KEYBOARD_PREFERENCES;
-    return normalizeVirtualKeyboardPreferences(JSON.parse(raw));
-  } catch {
-    return DEFAULT_VIRTUAL_KEYBOARD_PREFERENCES;
-  }
+  return storedPreferences.read() ?? DEFAULT_VIRTUAL_KEYBOARD_PREFERENCES;
 }
 
 export function saveVirtualKeyboardPreferences(preferences: VirtualKeyboardPreferences): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
-  } catch {
-    // Quota or private mode. Losing the cache is survivable — the account sync
-    // still carries the change, and the notification below still reaches the
-    // live keyboard — whereas throwing from here would take out whichever
-    // caller made the change, including the sync fiber, permanently.
-  }
+  // Quota or private mode loses only the cache: the account sync still carries
+  // the change and the notification below still reaches the live keyboard. A
+  // write never throws, so it cannot take out the caller that made the change,
+  // the sync fiber included.
+  storedPreferences.write(preferences);
   window.dispatchEvent(
     new CustomEvent<VirtualKeyboardPreferences>(PREFERENCES_CHANGED_EVENT, {
       detail: preferences,

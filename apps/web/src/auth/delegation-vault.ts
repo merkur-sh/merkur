@@ -1,3 +1,10 @@
+import {
+  type Cloned,
+  type Database,
+  defineDatabase,
+  keyedStore,
+  openDatabase,
+} from '@merkur/browser-storage';
 import { hasExactKeys, isRecord } from '@merkur/shared';
 import {
   decodeUserAuthorizationBytes,
@@ -16,11 +23,8 @@ import { loadE2eWasmModule } from '../lib/e2e-wasm-module';
 import { validateStoredBrowserDelegation } from './browser-delegation';
 import { decodeBase64UrlExact, encodeBase64Url } from './encoding';
 
-const DB_NAME = 'merkur-auth';
-const DB_VERSION = 1;
-const STORE_NAME = 'browser-delegation';
-const WRAPPING_KEY_ID = 'wrapping-key';
-const ACTIVE_DELEGATION_ID = 'active-delegation';
+const VAULT_STORE = 'browser-delegation';
+const ACTIVE_VAULT = 'active';
 const DB_OPEN_TIMEOUT_MS = 3_000;
 const AES_NONCE_BYTES = 12;
 const AES_CIPHERTEXT_BYTES = USER_AUTHORIZATION_SEED_BYTES + 16;
@@ -33,6 +37,22 @@ interface PersistedDelegation {
   readonly nonce: string;
   readonly ciphertext: string;
 }
+
+/**
+ * The wrapping key and the delegation it seals, as one record: a reader sees
+ * both or neither, so no tab ever finds a key without its delegation or a
+ * delegation without the key that opens it.
+ */
+interface PersistedVault {
+  readonly wrappingKey: CryptoKey;
+  readonly delegation: PersistedDelegation;
+}
+
+const delegationVault = defineDatabase('merkur-auth', 2, {
+  [VAULT_STORE]: keyedStore<typeof ACTIVE_VAULT, PersistedVault>(parseVault),
+});
+
+type VaultSchema = typeof delegationVault.stores;
 
 export interface UnlockedBrowserDelegation {
   readonly username: string;
@@ -88,8 +108,9 @@ export async function saveBrowserDelegation(
   const plaintext = Uint8Array.from(delegateSeed);
   try {
     await withDelegationDb(async (db) => {
-      const wrappingKey = (await readRecord(db, WRAPPING_KEY_ID)) ?? (await createWrappingKey());
-      requireWrappingKey(wrappingKey);
+      // Encryption is not an IndexedDB request, so it runs between the read
+      // and the write rather than inside either transaction.
+      const wrappingKey = (await readVault(db))?.wrappingKey ?? (await createWrappingKey());
       const ciphertext = new Uint8Array(
         await crypto.subtle.encrypt(
           { name: 'AES-GCM', iv: nonce, additionalData: aad, tagLength: 128 },
@@ -101,7 +122,7 @@ export async function saveBrowserDelegation(
         if (ciphertext.byteLength !== AES_CIPHERTEXT_BYTES) {
           throw new Error('Encrypted browser delegate seed has an invalid length');
         }
-        const record: PersistedDelegation = {
+        const delegation: PersistedDelegation = {
           username,
           userId: certificate.userId,
           rootPublicKey: rootPublicKeyEncoded,
@@ -109,7 +130,9 @@ export async function saveBrowserDelegation(
           nonce: encodeBase64Url(nonce),
           ciphertext: encodeBase64Url(ciphertext),
         };
-        await writeRecords(db, wrappingKey, record);
+        await db.write([VAULT_STORE], (transaction) => {
+          transaction.store(VAULT_STORE).put(ACTIVE_VAULT, { wrappingKey, delegation });
+        });
       } finally {
         ciphertext.fill(0);
       }
@@ -130,29 +153,14 @@ export async function saveBrowserDelegation(
   }
 }
 
-/** One snapshot of both records, so a caller never sees a half-written vault. */
-async function readVaultRecords(): Promise<readonly [unknown, unknown]> {
-  return await withDelegationDb(async (db) => {
-    const transaction = db.transaction(STORE_NAME, 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const keyRequest = store.get(WRAPPING_KEY_ID);
-    const delegationRequest = store.get(ACTIVE_DELEGATION_ID);
-    return await Promise.all([
-      runRequest<unknown>(keyRequest),
-      runRequest<unknown>(delegationRequest),
-    ]);
-  });
-}
-
 /**
- * Whether this profile holds a complete delegation record at all, for any
- * account. It says nothing about validity — `loadBrowserDelegation` decides
- * that — only whether a session refresh could possibly be resumed here: without
- * a stored delegation, a refreshed access token has nothing to attach to.
+ * Whether this profile holds a well-formed vault at all, for any account. It
+ * says nothing about validity — `loadBrowserDelegation` decides that — only
+ * whether a session refresh could possibly be resumed here: without a stored
+ * delegation, a refreshed access token has nothing to attach to.
  */
 export async function hasBrowserDelegation(): Promise<boolean> {
-  const [keyValue, delegationValue] = await readVaultRecords();
-  return keyValue !== undefined && delegationValue !== undefined;
+  return (await withDelegationDb(readVault)) !== null;
 }
 
 export function loadBrowserDelegation(
@@ -172,27 +180,22 @@ async function loadDelegation<T>(
   unlock: UnlockDelegation<T>,
 ): Promise<T | null> {
   if (expectedUserId.length === 0) return null;
-  const [keyValue, delegationValue] = await readVaultRecords();
-  if (keyValue === undefined && delegationValue === undefined) return null;
+  // A malformed vault reads as absent and stays until a later save replaces
+  // it. Do not clear it from here: another tab may install a complete
+  // replacement between this read and a second, unconditional transaction.
+  const vault = await withDelegationDb(readVault);
+  if (vault === null) return null;
+  const record = vault.delegation;
+  // The vault is origin-wide. A stale tab from the previous account must not
+  // delete the credential a newer tab installed for the current account.
+  if (record.userId !== expectedUserId) return null;
   await loadE2eWasmModule();
-  if (keyValue === undefined || delegationValue === undefined) {
-    // A later save atomically overwrites either orphan. Do not run a second,
-    // unconditional transaction here: another tab may install a complete
-    // replacement between this snapshot and that cleanup.
-    return null;
-  }
 
-  let observedIdentity: BrowserDelegationIdentity | null = null;
+  const observedIdentity: BrowserDelegationIdentity = {
+    userId: record.userId,
+    delegationId: record.certificate.delegationId,
+  };
   try {
-    const record = parsePersistedDelegation(delegationValue);
-    observedIdentity = {
-      userId: record.userId,
-      delegationId: record.certificate.delegationId,
-    };
-    // The vault is origin-wide. A stale tab from the previous account must not
-    // delete the credential a newer tab installed for the current account.
-    if (record.userId !== expectedUserId) return null;
-    requireWrappingKey(keyValue);
     const rootPublicKey = decodeUserAuthorizationBytes(
       record.rootPublicKey,
       USER_AUTHORIZATION_PUBLIC_KEY_BYTES,
@@ -215,7 +218,7 @@ async function loadDelegation<T>(
         const delegateSeed = new Uint8Array(
           await crypto.subtle.decrypt(
             { name: 'AES-GCM', iv: nonce, additionalData: aad, tagLength: 128 },
-            keyValue,
+            vault.wrappingKey,
             ciphertext,
           ),
         );
@@ -237,7 +240,7 @@ async function loadDelegation<T>(
       rootPublicKey.fill(0);
     }
   } catch (error) {
-    await clearBrowserDelegation(observedIdentity ?? undefined).catch(() => undefined);
+    await clearBrowserDelegation(observedIdentity).catch(() => undefined);
     throw error;
   }
 }
@@ -296,37 +299,60 @@ function unlockSigner(
 /**
  * Delete the vault atomically, optionally only while it still contains the
  * credential the caller observed. The comparison prevents a stale tab from
- * erasing a replacement installed by a concurrent authentication attempt.
+ * erasing a replacement installed by a concurrent authentication attempt. A
+ * malformed vault is no one's credential, so it is cleared either way.
  */
 export async function clearBrowserDelegation(
   expected?: BrowserDelegationIdentity,
 ): Promise<boolean> {
-  return await withDelegationDb(async (db) => {
-    return await new Promise<boolean>((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readwrite');
-      const store = transaction.objectStore(STORE_NAME);
-      let cleared = false;
-      const delegationRequest = store.get(ACTIVE_DELEGATION_ID);
-      delegationRequest.onsuccess = () => {
-        if (
-          expected !== undefined &&
-          !storedDelegationMatchesOrIsMalformed(delegationRequest.result, expected)
-        ) {
-          return;
-        }
-        store.delete(WRAPPING_KEY_ID);
-        store.delete(ACTIVE_DELEGATION_ID);
-        cleared = true;
-      };
-      delegationRequest.onerror = () =>
-        reject(delegationRequest.error ?? new Error('Browser delegation vault request failed'));
-      transaction.oncomplete = () => resolve(cleared);
-      transaction.onerror = () =>
-        reject(transaction.error ?? new Error('Browser delegation vault transaction failed'));
-      transaction.onabort = () =>
-        reject(transaction.error ?? new Error('Browser delegation vault transaction aborted'));
-    });
-  });
+  return await withDelegationDb((db) =>
+    db.write([VAULT_STORE], async (transaction) => {
+      const store = transaction.store(VAULT_STORE);
+      const vault = await store.get(ACTIVE_VAULT);
+      if (
+        expected !== undefined &&
+        vault !== null &&
+        (vault.delegation.userId !== expected.userId ||
+          vault.delegation.certificate.delegationId !== expected.delegationId)
+      ) {
+        return false;
+      }
+      store.delete(ACTIVE_VAULT);
+      return true;
+    }),
+  );
+}
+
+function readVault(db: Database<VaultSchema>): Promise<PersistedVault | null> {
+  return db.read([VAULT_STORE], (transaction) => transaction.store(VAULT_STORE).get(ACTIVE_VAULT));
+}
+
+/**
+ * Opens the vault, bounded: an open that has not succeeded by the deadline is
+ * given up, and the connection it would have produced is closed on arrival.
+ * One failed attempt is retried before the error reaches the caller.
+ */
+async function withDelegationDb<A>(use: (db: Database<VaultSchema>) => Promise<A>): Promise<A> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let db: Database<VaultSchema>;
+    try {
+      db = await openDatabase(delegationVault, {
+        signal: AbortSignal.timeout(DB_OPEN_TIMEOUT_MS),
+      });
+    } catch (error) {
+      lastError = error;
+      continue;
+    }
+    try {
+      return await use(db);
+    } finally {
+      db.close();
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Unable to open browser delegation vault');
 }
 
 async function createWrappingKey(): Promise<CryptoKey> {
@@ -336,29 +362,42 @@ async function createWrappingKey(): Promise<CryptoKey> {
   ]);
 }
 
-function requireWrappingKey(value: unknown): asserts value is CryptoKey {
-  if (
-    typeof value !== 'object' ||
-    value === null ||
-    !('type' in value) ||
-    value.type !== 'secret' ||
-    !('extractable' in value) ||
-    value.extractable !== false ||
-    !('algorithm' in value) ||
-    typeof value.algorithm !== 'object' ||
-    value.algorithm === null ||
-    !('name' in value.algorithm) ||
-    value.algorithm.name !== 'AES-GCM' ||
-    !('length' in value.algorithm) ||
-    value.algorithm.length !== 256 ||
-    !('usages' in value) ||
-    !Array.isArray(value.usages) ||
-    value.usages.length !== 2 ||
-    !value.usages.includes('encrypt') ||
-    !value.usages.includes('decrypt')
-  ) {
-    throw new Error('Browser delegation wrapping key is invalid');
+function parseVault(value: Cloned): PersistedVault | null {
+  if (!isRecord(value) || !hasExactKeys(value, ['wrappingKey', 'delegation'])) return null;
+  if (!isWrappingKey(value.wrappingKey)) return null;
+  try {
+    return {
+      wrappingKey: value.wrappingKey,
+      delegation: parsePersistedDelegation(value.delegation),
+    };
+  } catch (cause) {
+    // The delegation parsers refuse a malformed record by throwing an `Error`.
+    if (!(cause instanceof Error)) throw cause;
+    return null;
   }
+}
+
+function isWrappingKey(value: unknown): value is CryptoKey {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'type' in value &&
+    value.type === 'secret' &&
+    'extractable' in value &&
+    value.extractable === false &&
+    'algorithm' in value &&
+    typeof value.algorithm === 'object' &&
+    value.algorithm !== null &&
+    'name' in value.algorithm &&
+    value.algorithm.name === 'AES-GCM' &&
+    'length' in value.algorithm &&
+    value.algorithm.length === 256 &&
+    'usages' in value &&
+    Array.isArray(value.usages) &&
+    value.usages.length === 2 &&
+    value.usages.includes('encrypt') &&
+    value.usages.includes('decrypt')
+  );
 }
 
 function parsePersistedDelegation(value: unknown): PersistedDelegation {
@@ -391,21 +430,6 @@ function parsePersistedDelegation(value: unknown): PersistedDelegation {
   };
 }
 
-function storedDelegationMatchesOrIsMalformed(
-  value: unknown,
-  expected: BrowserDelegationIdentity,
-): boolean {
-  if (value === undefined) return true;
-  try {
-    const record = parsePersistedDelegation(value);
-    return (
-      record.userId === expected.userId && record.certificate.delegationId === expected.delegationId
-    );
-  } catch {
-    return true;
-  }
-}
-
 function verifyDelegateSeed(
   certificate: UserDelegationCertificate,
   delegateSeed: Uint8Array,
@@ -436,104 +460,4 @@ function delegationAad(
       certificate: serializeUserDelegationCertificate(certificate),
     }),
   );
-}
-
-async function withDelegationDb<A>(use: (db: IDBDatabase) => Promise<A>): Promise<A> {
-  const db = await openDelegationDb();
-  try {
-    return await use(db);
-  } finally {
-    db.close();
-  }
-}
-
-async function openDelegationDb(): Promise<IDBDatabase> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      return await ownDelegationDbOpenRequest(indexedDB.open(DB_NAME, DB_VERSION));
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw toError(lastError, 'Unable to open browser delegation vault');
-}
-
-/** Close an IndexedDB connection that succeeds after the bounded owner timed out. */
-export function ownDelegationDbOpenRequest(request: IDBOpenDBRequest): Promise<IDBDatabase> {
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    let settled = false;
-    let abandoned = false;
-    const timeout = setTimeout(() => {
-      if (settled) return;
-      abandoned = true;
-      reject(new Error('Browser delegation vault open timed out'));
-    }, DB_OPEN_TIMEOUT_MS);
-
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(STORE_NAME)) {
-        request.result.createObjectStore(STORE_NAME);
-      }
-    };
-    request.onsuccess = () => {
-      if (abandoned) {
-        request.result.close();
-        return;
-      }
-      settled = true;
-      clearTimeout(timeout);
-      resolve(request.result);
-    };
-    request.onerror = () => {
-      if (abandoned) return;
-      settled = true;
-      clearTimeout(timeout);
-      reject(request.error ?? new Error('Unable to open browser delegation vault'));
-    };
-    request.onblocked = () => {
-      if (abandoned || settled) return;
-      settled = true;
-      abandoned = true;
-      clearTimeout(timeout);
-      reject(new Error('Browser delegation vault upgrade was blocked'));
-    };
-  });
-}
-
-async function readRecord(db: IDBDatabase, key: string): Promise<unknown> {
-  return await runRequest(db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(key));
-}
-
-async function writeRecords(
-  db: IDBDatabase,
-  wrappingKey: CryptoKey,
-  delegation: PersistedDelegation,
-): Promise<void> {
-  const transaction = db.transaction(STORE_NAME, 'readwrite');
-  const store = transaction.objectStore(STORE_NAME);
-  store.put(wrappingKey, WRAPPING_KEY_ID);
-  store.put(delegation, ACTIVE_DELEGATION_ID);
-  await transactionComplete(transaction);
-}
-
-function runRequest<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () =>
-      reject(request.error ?? new Error('Browser delegation vault request failed'));
-  });
-}
-
-function transactionComplete(transaction: IDBTransaction): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () =>
-      reject(transaction.error ?? new Error('Browser delegation vault transaction failed'));
-    transaction.onabort = () =>
-      reject(transaction.error ?? new Error('Browser delegation vault transaction aborted'));
-  });
-}
-
-function toError(error: unknown, fallback: string): Error {
-  return error instanceof Error ? error : new Error(fallback);
 }

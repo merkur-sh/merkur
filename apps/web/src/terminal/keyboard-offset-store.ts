@@ -5,18 +5,37 @@
  * the same person holds the phone differently and aims differently, so pooling
  * them would average two real biases into one wrong one.
  */
+import { localValue } from '@merkur/browser-storage';
 import {
   createKeyboardOffsetModel,
   isKeyboardOffsetSnapshot,
+  type KeyboardOffsetSnapshot,
   type KeyboardTouchModel,
   type KeyboardTouchTrace,
   keyboardOrientation,
   type ResolvedKeyboardGeometry,
 } from '@merkur/keyboard';
+import { isRecord } from '@merkur/shared';
 
 export type KeyboardOrientation = 'portrait' | 'landscape';
 
-const STORAGE_KEY = 'merkur.terminal.typingOffsets';
+interface StoredOffsets {
+  readonly portrait: KeyboardOffsetSnapshot;
+  readonly landscape: KeyboardOffsetSnapshot;
+}
+
+/**
+ * Both postures or neither: every save writes the pair. A pre-grip-field
+ * snapshot has no field block and fails the guard, which is the intended hard
+ * cutover: it is discarded, not migrated, and relearning costs a few hundred taps.
+ */
+const storedOffsets = localValue('merkur.terminal.typingOffsets', (value): StoredOffsets | null =>
+  isRecord(value) &&
+  isKeyboardOffsetSnapshot(value.portrait) &&
+  isKeyboardOffsetSnapshot(value.landscape)
+    ? { portrait: value.portrait, landscape: value.landscape }
+    : null,
+);
 /**
  * Rebuilding the touch model allocates two Float64Arrays and re-enters the
  * engine, so it happens on a cadence rather than per keystroke. Twenty-five taps
@@ -127,49 +146,27 @@ export function resetKeyboardOffsets(): void {
     clearTimeout(persistHandle);
     persistHandle = null;
   }
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Private-mode storage failures must not break typing.
-  }
+  storedOffsets.remove();
   for (const listener of listeners) listener();
 }
 
 function ensureLoaded(): void {
   if (loaded) return;
   loaded = true;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw === null) return;
-    const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) return;
-    // A pre-grip-field snapshot has no field block and fails the guard, which
-    // is the intended hard cutover: it is discarded, not migrated.
-    if (isKeyboardOffsetSnapshot(parsed.portrait)) models.portrait.restore(parsed.portrait);
-    if (isKeyboardOffsetSnapshot(parsed.landscape)) models.landscape.restore(parsed.landscape);
-  } catch {
-    // A corrupt snapshot is disposable; relearning costs a few hundred taps.
-  }
+  const stored = storedOffsets.read();
+  if (stored === null) return;
+  models.portrait.restore(stored.portrait);
+  models.landscape.restore(stored.landscape);
 }
 
 function schedulePersist(): void {
   if (persistHandle !== null) return;
   persistHandle = setTimeout(() => {
     persistHandle = null;
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          portrait: models.portrait.snapshot(),
-          landscape: models.landscape.snapshot(),
-        }),
-      );
-    } catch {
-      // Quota or private mode; the in-memory model is still valid.
-    }
+    // Quota or private mode loses only the copy; the in-memory model is still valid.
+    storedOffsets.write({
+      portrait: models.portrait.snapshot(),
+      landscape: models.landscape.snapshot(),
+    });
   }, PERSIST_DELAY_MS);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }

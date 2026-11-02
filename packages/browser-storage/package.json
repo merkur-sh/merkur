@@ -1,0 +1,16 @@
+{
+  "name": "@merkur/browser-storage",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "6.2.6"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target browser --format esm"
+  }
+}

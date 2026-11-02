@@ -2522,6 +2522,7 @@ MODULES = {
         "src/api.ts": [
             "//apps/web:node_modules/@elysia/eden",
             "//apps/web:node_modules/effect",
+            "//packages/browser-storage:src/index.ts.module",
             "//packages/shared:src/api-schema.ts.module",
             "//packages/shared:src/index.ts.module",
             "//packages/shared:src/schema-check.ts.module",
@@ -2589,6 +2590,7 @@ MODULES = {
         ],
         "src/app/createAppController.ts": [
             "//apps/web:node_modules/solid-js",
+            "//packages/browser-storage:src/index.ts.module",
             "//packages/logger:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
@@ -2850,6 +2852,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/auth/delegation-vault.ts": [
+            "//packages/browser-storage:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
@@ -2899,6 +2902,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/auth/revocation-outbox.ts": [
+            "//packages/browser-storage:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
@@ -3314,28 +3318,9 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/lib/device-list-cache.ts": [
+            "//packages/browser-storage:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
-            ":tsconfig.json.module",
-        ],
-        "src/lib/display-resume-schema.test.ts": [
-            ":package.json.module",
-            ":src/lib/display-resume-schema.ts.module",
-            ":tsconfig.json.module",
-        ],
-        "src/lib/display-resume-schema.ts": [
-            "//packages/shared:src/index.ts.module",
-            ":package.json.module",
-            ":tsconfig.json.module",
-        ],
-        "src/lib/display-resume-store.test.ts": [
-            ":package.json.module",
-            ":src/lib/display-resume-store.ts.module",
-            ":tsconfig.json.module",
-        ],
-        "src/lib/display-resume-store.ts": [
-            ":package.json.module",
-            ":src/lib/display-resume-schema.ts.module",
             ":tsconfig.json.module",
         ],
         "src/lib/display-serial.test.ts": [
@@ -3350,15 +3335,6 @@ MODULES = {
         "src/lib/e2e-wasm-module.ts": [
             "//packages/e2e-wasm:pkg_files",
             "//packages/shared:src/e2e-wasm-runtime.ts.module",
-            ":package.json.module",
-            ":tsconfig.json.module",
-        ],
-        "src/lib/edge-path-schema.test.ts": [
-            ":package.json.module",
-            ":src/lib/edge-path-schema.ts.module",
-            ":tsconfig.json.module",
-        ],
-        "src/lib/edge-path-schema.ts": [
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -3457,6 +3433,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/lib/transport-autotuner.ts": [
+            "//packages/browser-storage:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
@@ -3467,16 +3444,6 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/lib/wake-lock-acquisition.ts": [
-            ":package.json.module",
-            ":tsconfig.json.module",
-        ],
-        "src/lib/wt-path-schema.test.ts": [
-            ":package.json.module",
-            ":src/lib/wt-path-schema.ts.module",
-            ":tsconfig.json.module",
-        ],
-        "src/lib/wt-path-schema.ts": [
-            "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -4312,6 +4279,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/terminal/appearance.ts": [
+            "//packages/browser-storage:src/index.ts.module",
             ":package.json.module",
             ":src/terminal/fonts.ts.module",
             ":src/terminal/themes.ts.module",
@@ -4382,6 +4350,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/terminal/display-receiver-profile-cache.ts": [
+            "//packages/browser-storage:src/index.ts.module",
             ":package.json.module",
             ":src/terminal/display-receiver-profile.ts.module",
             ":tsconfig.json.module",
@@ -4479,6 +4448,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/terminal/keyboard-diagnostics-store.ts": [
+            "//packages/browser-storage:src/index.ts.module",
             ":package.json.module",
             ":src/terminal/keyboard-diagnostics.ts.module",
             ":src/terminal/keyboard-offset-store.ts.module",
@@ -4497,7 +4467,9 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/terminal/keyboard-offset-store.ts": [
+            "//packages/browser-storage:src/index.ts.module",
             "//packages/keyboard:src/index.ts.module",
+            "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -4544,6 +4516,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/terminal/notifications.ts": [
+            "//packages/browser-storage:src/index.ts.module",
             ":package.json.module",
             ":src/api.ts.module",
             ":tsconfig.json.module",
@@ -4848,6 +4821,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/terminal/virtual-keyboard.ts": [
+            "//packages/browser-storage:src/index.ts.module",
             "//packages/keyboard:src/index.ts.module",
             "//packages/keyboard:src/layouts/terminal-us.ts.module",
             "//packages/shared:src/index.ts.module",
@@ -5219,15 +5193,9 @@ MODULES = {
             ":src/lib/authenticated-transport.ts.module",
             ":src/lib/device-list-cache.test.ts.module",
             ":src/lib/device-list-cache.ts.module",
-            ":src/lib/display-resume-schema.test.ts.module",
-            ":src/lib/display-resume-schema.ts.module",
-            ":src/lib/display-resume-store.test.ts.module",
-            ":src/lib/display-resume-store.ts.module",
             ":src/lib/display-serial.test.ts.module",
             ":src/lib/display-serial.ts.module",
             ":src/lib/e2e-wasm-module.ts.module",
-            ":src/lib/edge-path-schema.test.ts.module",
-            ":src/lib/edge-path-schema.ts.module",
             ":src/lib/focus-trap.test.ts.module",
             ":src/lib/focus-trap.ts.module",
             ":src/lib/fuzzy.test.ts.module",
@@ -5251,8 +5219,6 @@ MODULES = {
             ":src/lib/transport-autotuner.ts.module",
             ":src/lib/wake-lock-acquisition.test.ts.module",
             ":src/lib/wake-lock-acquisition.ts.module",
-            ":src/lib/wt-path-schema.test.ts.module",
-            ":src/lib/wt-path-schema.ts.module",
             ":src/main.tsx.module",
             ":src/notification-route.test.ts.module",
             ":src/notification-route.ts.module",
@@ -5589,6 +5555,43 @@ MODULES = {
         ],
         "src/session-authorization.ts": [
             "//packages/shared:src/e2e-wasm-runtime.ts.module",
+            ":package.json.module",
+            ":tsconfig.json.module",
+        ],
+        "tsconfig.json": [
+            "//:tsconfig.base.json.module",
+        ],
+    },
+    "packages/browser-storage": {
+        "package.json": [],
+        "src/database.test.ts": [
+            "//packages/browser-storage:node_modules/fake-indexeddb",
+            ":package.json.module",
+            ":src/database.ts.module",
+            ":tsconfig.json.module",
+        ],
+        "src/database.ts": [
+            ":package.json.module",
+            ":tsconfig.json.module",
+        ],
+        "src/index.ts": [
+            ":package.json.module",
+            ":src/database.ts.module",
+            ":src/parse.ts.module",
+            ":src/web-storage.ts.module",
+            ":tsconfig.json.module",
+        ],
+        "src/parse.ts": [
+            ":package.json.module",
+            ":tsconfig.json.module",
+        ],
+        "src/web-storage.test.ts": [
+            ":package.json.module",
+            ":src/parse.ts.module",
+            ":src/web-storage.ts.module",
+            ":tsconfig.json.module",
+        ],
+        "src/web-storage.ts": [
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -8376,6 +8379,9 @@ TYPE_INPUTS = {
         "packages/auth/tsconfig.json": [
             "tsconfig.base.json",
         ],
+        "packages/browser-storage/tsconfig.json": [
+            "tsconfig.base.json",
+        ],
         "packages/config/tsconfig.json": [
             "tsconfig.base.json",
         ],
@@ -9362,15 +9368,9 @@ TYPE_INPUTS = {
             "src/lib/authenticated-transport.ts",
             "src/lib/device-list-cache.test.ts",
             "src/lib/device-list-cache.ts",
-            "src/lib/display-resume-schema.test.ts",
-            "src/lib/display-resume-schema.ts",
-            "src/lib/display-resume-store.test.ts",
-            "src/lib/display-resume-store.ts",
             "src/lib/display-serial.test.ts",
             "src/lib/display-serial.ts",
             "src/lib/e2e-wasm-module.ts",
-            "src/lib/edge-path-schema.test.ts",
-            "src/lib/edge-path-schema.ts",
             "src/lib/focus-trap.test.ts",
             "src/lib/focus-trap.ts",
             "src/lib/fuzzy.test.ts",
@@ -9394,8 +9394,6 @@ TYPE_INPUTS = {
             "src/lib/transport-autotuner.ts",
             "src/lib/wake-lock-acquisition.test.ts",
             "src/lib/wake-lock-acquisition.ts",
-            "src/lib/wt-path-schema.test.ts",
-            "src/lib/wt-path-schema.ts",
             "src/main.tsx",
             "src/notification-route.test.ts",
             "src/notification-route.ts",
@@ -9835,6 +9833,39 @@ TYPE_INPUTS = {
             "src/index.ts",
             "src/opaque.ts",
             "src/session-authorization.ts",
+        ],
+    },
+    "packages/browser-storage": {
+        "apps/web/tsconfig.json": [
+            "package.json",
+            "src/database.ts",
+            "src/index.ts",
+            "src/parse.ts",
+            "src/web-storage.ts",
+        ],
+        "packages/browser-storage/tsconfig.json": [
+            "package.json",
+            "src/database.test.ts",
+            "src/database.ts",
+            "src/index.ts",
+            "src/parse.ts",
+            "src/web-storage.test.ts",
+            "src/web-storage.ts",
+            "tsconfig.json",
+        ],
+        "scripts/tsconfig.json": [
+            "package.json",
+            "src/database.ts",
+            "src/index.ts",
+            "src/parse.ts",
+            "src/web-storage.ts",
+        ],
+        "tests/tsconfig.json": [
+            "package.json",
+            "src/database.ts",
+            "src/index.ts",
+            "src/parse.ts",
+            "src/web-storage.ts",
         ],
     },
     "packages/config": {
@@ -10722,7 +10753,6 @@ TYPE_INPUTS = {
             "bench-web-display-perf-ring-drain.ts",
             "bench-web-display-periodic-paths.ts",
             "bench-web-display-refresh-estimator.ts",
-            "bench-web-display-resume-store.ts",
             "bench-web-input-keybinds.ts",
             "bench-web-input-keystroke.test.ts",
             "bench-web-input-keystroke.ts",
@@ -11165,6 +11195,7 @@ TYPE_PROJECTS = {
         "//apps/web:term_wasm_files",
         "//apps/web:type_inputs/apps/web/tsconfig.json",
         "//packages/auth:type_inputs/apps/web/tsconfig.json",
+        "//packages/browser-storage:type_inputs/apps/web/tsconfig.json",
         "//packages/config:type_inputs/apps/web/tsconfig.json",
         "//packages/daemon-control-protocol:type_inputs/apps/web/tsconfig.json",
         "//packages/e2e-wasm:pkg_files",
@@ -11182,6 +11213,10 @@ TYPE_PROJECTS = {
         "//packages/auth:type_inputs/packages/auth/tsconfig.json",
         "//packages/e2e-wasm:pkg_files",
         "//packages/shared:type_inputs/packages/auth/tsconfig.json",
+    ],
+    "packages/browser-storage/tsconfig.json": [
+        "//:type_inputs/packages/browser-storage/tsconfig.json",
+        "//packages/browser-storage:type_inputs/packages/browser-storage/tsconfig.json",
     ],
     "packages/config/tsconfig.json": [
         "//:type_inputs/packages/config/tsconfig.json",
@@ -11232,6 +11267,7 @@ TYPE_PROJECTS = {
         "//apps/web:term_wasm_files",
         "//apps/web:type_inputs/scripts/tsconfig.json",
         "//packages/auth:type_inputs/scripts/tsconfig.json",
+        "//packages/browser-storage:type_inputs/scripts/tsconfig.json",
         "//packages/config:type_inputs/scripts/tsconfig.json",
         "//packages/daemon-control-protocol:type_inputs/scripts/tsconfig.json",
         "//packages/e2e-wasm:pkg_files",
@@ -11253,6 +11289,7 @@ TYPE_PROJECTS = {
         "//apps/web:term_wasm_files",
         "//apps/web:type_inputs/tests/tsconfig.json",
         "//packages/auth:type_inputs/tests/tsconfig.json",
+        "//packages/browser-storage:type_inputs/tests/tsconfig.json",
         "//packages/config:type_inputs/tests/tsconfig.json",
         "//packages/daemon-control-protocol:type_inputs/tests/tsconfig.json",
         "//packages/e2e-wasm:pkg_files",

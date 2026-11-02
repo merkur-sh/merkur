@@ -831,7 +831,6 @@
     "no-conditional-empty-object-spread": 2,
     "no-known-value-widening": 2,
     "no-runtime-typeof": 6,
-    "no-swallowed-error": 4,
     "no-unknown-parameters": 4,
     "require-safety-comment-for-type-assertion": 2
   },
@@ -916,8 +915,7 @@
   "apps/web/src/auth/delegation-vault.ts": {
     "no-runtime-typeof": 7,
     "no-swallowed-error": 2,
-    "no-unknown-parameters": 4,
-    "no-unknown-returns": 1
+    "no-unknown-parameters": 2
   },
   "apps/web/src/auth/revocation-outbox.test.ts": {
     "no-known-value-widening": 1,
@@ -1028,33 +1026,10 @@
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/web/src/lib/device-list-cache.ts": {
-    "comment-defensive": 2,
-    "no-runtime-typeof": 2,
-    "no-swallowed-error": 3
-  },
-  "apps/web/src/lib/display-resume-schema.ts": {
-    "no-runtime-typeof": 1,
-    "no-unknown-parameters": 1,
-    "no-unsafe-dictionary-type": 1,
-    "require-safety-comment-for-type-assertion": 3
-  },
-  "apps/web/src/lib/display-resume-store.test.ts": {
-    "no-compat-names": 2,
-    "no-known-value-widening": 3,
-    "no-runtime-typeof": 2,
-    "no-unknown-returns": 1
-  },
-  "apps/web/src/lib/display-resume-store.ts": {
-    "no-swallowed-error": 4
+    "no-runtime-typeof": 2
   },
   "apps/web/src/lib/e2e-wasm-module.ts": {
     "no-unknown-parameters": 1
-  },
-  "apps/web/src/lib/edge-path-schema.ts": {
-    "no-runtime-typeof": 5,
-    "no-unknown-parameters": 1,
-    "no-unsafe-dictionary-type": 1,
-    "require-safety-comment-for-type-assertion": 1
   },
   "apps/web/src/lib/fuzzy.test.ts": {
     "no-array-filter-map": 1
@@ -1089,18 +1064,7 @@
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/lib/transport-autotuner.ts": {
-    "no-runtime-typeof": 1,
-    "no-swallowed-error": 1,
-    "require-safety-comment-for-type-assertion": 1
-  },
-  "apps/web/src/lib/wt-path-schema.test.ts": {
-    "no-compat-names": 1
-  },
-  "apps/web/src/lib/wt-path-schema.ts": {
-    "no-runtime-typeof": 7,
-    "no-unknown-parameters": 3,
-    "no-unsafe-dictionary-type": 1,
-    "require-safety-comment-for-type-assertion": 2
+    "no-runtime-typeof": 1
   },
   "apps/web/src/perf/bootstrap-spans.test.ts": {
     "no-weak-assertion": 2,
@@ -1356,18 +1320,12 @@
   },
   "apps/web/src/terminal/keyboard-diagnostics-store.ts": {
     "no-runtime-typeof": 6,
-    "no-swallowed-error": 3,
     "no-unknown-parameters": 1,
     "no-unsafe-dictionary-type": 2,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/terminal/keyboard-diagnostics.test.ts": {
     "no-weak-assertion": 1
-  },
-  "apps/web/src/terminal/keyboard-offset-store.ts": {
-    "no-runtime-typeof": 1,
-    "no-swallowed-error": 3,
-    "no-unsafe-dictionary-type": 1
   },
   "apps/web/src/terminal/keyboard-settings-sync.test.ts": {
     "no-module-mocking": 1,
@@ -1447,7 +1405,6 @@
   "apps/web/src/terminal/virtual-keyboard.ts": {
     "no-known-value-widening": 1,
     "no-runtime-typeof": 8,
-    "no-swallowed-error": 1,
     "no-unknown-parameters": 4,
     "no-unsafe-dictionary-type": 2,
     "require-safety-comment-for-type-assertion": 5

@@ -527,8 +527,9 @@ list; a request for the current machine keeps its session.
 
 Device selection starts transport in the same turn that mounts the terminal. The next animation
 frame controls presentation of the terminal view, without gating either worker's startup.
-The transport worker starts cached edge dialing and session-auth preparation together; preparation
-overlaps the delegation vault read with crypto runtime initialization. Runtime readiness gates
+The transport worker starts session-auth preparation as it starts; preparation overlaps the
+delegation vault read with crypto runtime initialization, and the edge is dialed once issuance
+names it. Runtime readiness gates
 key generation, and delegation readiness gates the session proof. Canceled attempts cannot present
 an old terminal view or retain a late delegation result.
 

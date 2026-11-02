@@ -207,7 +207,7 @@ describe('browser login delegation recovery', () => {
       expect(unlocked?.certificate.delegationId).toBe(account.session.delegationId);
       unlocked?.delegateSeed.fill(0);
       unlocked?.rootPublicKey.fill(0);
-      expect(records.has('active-delegation')).toBe(true);
+      expect(records.has('active')).toBe(true);
     } finally {
       decryptSpy.mockRestore();
       loginSpy.mockRestore();
@@ -518,7 +518,7 @@ describe('password reset', () => {
       expect(stored?.certificate.rootEpoch).toBe(2);
       stored?.delegateSeed.fill(0);
       stored?.rootPublicKey.fill(0);
-      expect(records.has('active-delegation')).toBe(true);
+      expect(records.has('active')).toBe(true);
     } finally {
       seedSpy.mockRestore();
       registrationSpy.mockRestore();

@@ -1,3 +1,5 @@
+import { localValue } from '@merkur/browser-storage';
+
 import {
   deletePushSubscription,
   getPushVapidPublicKey,
@@ -5,7 +7,10 @@ import {
   savePushSubscription,
 } from '../api';
 
-const STORAGE_KEY = 'merkur:terminal-notifications-enabled';
+/** Whether this device asked for push. The subscription itself is the browser's and the server's. */
+const notificationsEnabled = localValue('merkur:terminal-notifications-enabled', (value) =>
+  value === true ? true : null,
+);
 
 export type TerminalNotificationState =
   | 'unsupported'
@@ -18,7 +23,7 @@ export function loadTerminalNotificationState(): TerminalNotificationState {
   if (!supportsTerminalNotifications()) return 'unsupported';
   if (!isInstalledPwa()) return 'not-installed';
   if (Notification.permission === 'denied') return 'denied';
-  return localStorage.getItem(STORAGE_KEY) === 'true' ? 'enabled' : 'off';
+  return notificationsEnabled.read() === true ? 'enabled' : 'off';
 }
 
 /** Rebind an existing browser subscription to the account's current delegation. */
@@ -46,17 +51,17 @@ export async function enableTerminalNotifications(
       ? await Notification.requestPermission()
       : Notification.permission;
   if (permission === 'denied') {
-    localStorage.removeItem(STORAGE_KEY);
+    notificationsEnabled.remove();
     return 'denied';
   }
   if (permission !== 'granted') {
-    localStorage.removeItem(STORAGE_KEY);
+    notificationsEnabled.remove();
     return 'off';
   }
 
   const vapid = await getPushVapidPublicKey(accessToken);
   if (vapid === null) {
-    localStorage.removeItem(STORAGE_KEY);
+    notificationsEnabled.remove();
     return 'off';
   }
 
@@ -77,7 +82,7 @@ export async function enableTerminalNotifications(
     }));
 
   await savePushSubscription(accessToken, serializePushSubscription(subscription));
-  localStorage.setItem(STORAGE_KEY, 'true');
+  notificationsEnabled.write(true);
   return 'enabled';
 }
 
@@ -99,7 +104,7 @@ export async function disableTerminalNotifications(
     }
   }
 
-  localStorage.removeItem(STORAGE_KEY);
+  notificationsEnabled.remove();
   return Notification.permission === 'denied' ? 'denied' : 'off';
 }
 

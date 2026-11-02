@@ -1,3 +1,4 @@
+import { sessionValue } from '@merkur/browser-storage';
 import { createLogger } from '@merkur/logger';
 import {
   type Device,
@@ -138,7 +139,11 @@ import { createTerminalSessionEpochHandoff } from './terminal-session-epoch-hand
 export type { TelemetryConsentState } from './telemetry-consent-controller';
 
 const logger = createLogger('web');
-const LAST_DEVICE_ID_KEY = 'merkur:last-device-id';
+/** The machine this tab last had open, so a reload reopens it. */
+const lastOpenedDevice = sessionValue('merkur:last-device-id', (value) => {
+  const id = String(value);
+  return value === id && id.length > 0 ? id : null;
+});
 /**
  * Handled `merkur open` ids remembered per session. A resource bound equal to
  * the daemon's `OPEN_URL_PENDING_MAX`: a repeat can only be a request still
@@ -553,7 +558,7 @@ export function createAppController(): AppController {
         : null,
     open: openNotifiedDevice,
     unavailable(device) {
-      sessionStorage.removeItem(LAST_DEVICE_ID_KEY);
+      lastOpenedDevice.remove();
       teardown();
       setSelectedDevice(device);
       nav.enterShell();
@@ -1135,7 +1140,7 @@ export function createAppController(): AppController {
    * that skeleton instead of the screen the user was looking at.
    */
   function clearSignedInState(): void {
-    sessionStorage.removeItem(LAST_DEVICE_ID_KEY);
+    lastOpenedDevice.remove();
     browserSessions.reset();
     boxAccess.reset();
     setSelectedDevice(null);
@@ -1189,7 +1194,7 @@ export function createAppController(): AppController {
 
   async function onBack(): Promise<void> {
     notificationDestination.cancel();
-    sessionStorage.removeItem(LAST_DEVICE_ID_KEY);
+    lastOpenedDevice.remove();
     teardown();
     // Reveal the still-mounted list immediately. Live data and a fresh link
     // command can update in place without leaving a blank frame behind.
@@ -1322,7 +1327,7 @@ export function createAppController(): AppController {
     nav.setConnection('signaling');
     renderStatus();
 
-    sessionStorage.setItem(LAST_DEVICE_ID_KEY, device.id);
+    lastOpenedDevice.write(device.id);
 
     let next: TerminalSession;
     handledOpenUrlRequests.length = 0;
@@ -1713,8 +1718,8 @@ export function createAppController(): AppController {
     const token = accessToken();
     if (token === null) return;
     if (!(await deviceList.removeDevice(token, device.id))) return;
-    if (sessionStorage.getItem(LAST_DEVICE_ID_KEY) === device.id) {
-      sessionStorage.removeItem(LAST_DEVICE_ID_KEY);
+    if (lastOpenedDevice.read() === device.id) {
+      lastOpenedDevice.remove();
     }
     if (selectedDevice()?.id === device.id) setSelectedDevice(null);
   }
@@ -1731,7 +1736,7 @@ export function createAppController(): AppController {
       return;
     }
 
-    const lastDeviceId = sessionStorage.getItem(LAST_DEVICE_ID_KEY);
+    const lastDeviceId = lastOpenedDevice.read();
     if (lastDeviceId === null) {
       return;
     }
@@ -1745,7 +1750,7 @@ export function createAppController(): AppController {
       if (
         nav.revision() !== navigationRevision ||
         notificationDestination.hasPending() ||
-        sessionStorage.getItem(LAST_DEVICE_ID_KEY) !== lastDevice.id ||
+        lastOpenedDevice.read() !== lastDevice.id ||
         session() !== null ||
         connectionAttempts.hasActive()
       )
@@ -1767,7 +1772,7 @@ export function createAppController(): AppController {
   function beginNotifiedDevice(deviceId: string): void {
     if (connectionAttempts.isActiveFor(deviceId)) return;
     if (selectedDevice()?.id === deviceId && session() !== null) return;
-    sessionStorage.removeItem(LAST_DEVICE_ID_KEY);
+    lastOpenedDevice.remove();
     if (nav.phase() !== 'shell' || deviceList.deviceListStatus() === 'live') return;
     teardown();
     setSelectedDevice(null);

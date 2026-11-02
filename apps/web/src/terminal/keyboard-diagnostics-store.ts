@@ -13,6 +13,7 @@
  * retyping a neighbour in a tap's place is the one label for that tap that is
  * not the decoder's own guess.
  */
+import { guarded, localValue } from '@merkur/browser-storage';
 import type {
   KeyboardKeyDefinition,
   KeyboardTouchTrace,
@@ -25,7 +26,8 @@ import {
 } from './keyboard-diagnostics';
 import { recordKeyboardOffsetCorrection } from './keyboard-offset-store';
 
-const STORAGE_KEY = 'merkur.terminal.typingDiagnostics';
+/** A corrupt or unreadable snapshot is disposable: the statistics start from empty. */
+const storedDiagnostics = localValue('merkur.terminal.typingDiagnostics', guarded(isSnapshot));
 /** Writing on every keystroke would put JSON serialisation on the typing path. */
 const PERSIST_DELAY_MS = 4_000;
 
@@ -78,35 +80,22 @@ export function resetKeyboardDiagnostics(): void {
     clearTimeout(persistHandle);
     persistHandle = null;
   }
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Private-mode storage failures must not break typing.
-  }
+  storedDiagnostics.remove();
 }
 
 function ensureLoaded(): void {
   if (loaded) return;
   loaded = true;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw === null) return;
-    const parsed: unknown = JSON.parse(raw);
-    if (isSnapshot(parsed)) diagnostics.restore(parsed);
-  } catch {
-    // A corrupt or unreadable snapshot is disposable; start from empty.
-  }
+  const stored = storedDiagnostics.read();
+  if (stored !== null) diagnostics.restore(stored);
 }
 
 function schedulePersist(): void {
   if (persistHandle !== null) return;
   persistHandle = setTimeout(() => {
     persistHandle = null;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(diagnostics.snapshot()));
-    } catch {
-      // Quota or private mode; the in-memory statistics are still valid.
-    }
+    // Quota or private mode loses only the copy; the in-memory statistics are still valid.
+    storedDiagnostics.write(diagnostics.snapshot());
   }, PERSIST_DELAY_MS);
 }
 

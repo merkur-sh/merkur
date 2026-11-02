@@ -1,35 +1,25 @@
+import { defineDatabase, keyedStore, withDatabase } from '@merkur/browser-storage';
+
 import { DISPLAY_RECEIVER_PROFILE_BYTES } from './display-receiver-profile';
 
-const DATABASE = 'merkur-display-performance';
 const STORE = 'receiver-profiles';
 const KEY = `${process.env.MERKUR_TERM_WASM_HASH ?? 'dev'}:${navigator.userAgent}`;
 
-function openDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DATABASE, 1);
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(STORE)) {
-        request.result.createObjectStore(STORE);
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('receiver profile database failed'));
-  });
-}
+const receiverProfiles = defineDatabase('merkur-display-performance', 1, {
+  [STORE]: keyedStore<string, ArrayBuffer>((value) =>
+    value instanceof ArrayBuffer && value.byteLength === DISPLAY_RECEIVER_PROFILE_BYTES
+      ? value
+      : null,
+  ),
+});
 
 export async function restoreDisplayReceiverProfile(destination: SharedArrayBuffer): Promise<void> {
-  if (destination.byteLength !== DISPLAY_RECEIVER_PROFILE_BYTES || !('indexedDB' in globalThis)) {
-    return;
-  }
+  if (destination.byteLength !== DISPLAY_RECEIVER_PROFILE_BYTES) return;
   try {
-    const database = await openDatabase();
-    const value = await new Promise<unknown>((resolve, reject) => {
-      const request = database.transaction(STORE, 'readonly').objectStore(STORE).get(KEY);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error ?? new Error('receiver profile read failed'));
-    });
-    database.close();
-    if (!(value instanceof ArrayBuffer) || value.byteLength !== destination.byteLength) return;
+    const value = await withDatabase(receiverProfiles, (database) =>
+      database.read([STORE], (transaction) => transaction.store(STORE).get(KEY)),
+    );
+    if (value === null) return;
     const source = new Int32Array(value);
     const target = new Int32Array(destination);
     // Cold restore loses to any live publication. Compare/exchange owns the
@@ -54,10 +44,10 @@ export async function restoreDisplayReceiverProfile(destination: SharedArrayBuff
 }
 
 export async function persistDisplayReceiverProfile(source: SharedArrayBuffer): Promise<void> {
-  if (source.byteLength !== DISPLAY_RECEIVER_PROFILE_BYTES || !('indexedDB' in globalThis)) return;
+  if (source.byteLength !== DISPLAY_RECEIVER_PROFILE_BYTES) return;
   try {
     const words = new Int32Array(source);
-    let snapshot: Int32Array | null = null;
+    let snapshot: Int32Array<ArrayBuffer> | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const before = Atomics.load(words, 0);
       if ((before & 1) !== 0) continue;
@@ -70,16 +60,10 @@ export async function persistDisplayReceiverProfile(source: SharedArrayBuffer): 
       }
     }
     if (snapshot === null) return;
-    const database = await openDatabase();
-    await new Promise<void>((resolve, reject) => {
-      const request = database
-        .transaction(STORE, 'readwrite')
-        .objectStore(STORE)
-        .put(snapshot.buffer, KEY);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error ?? new Error('receiver profile write failed'));
-    });
-    database.close();
+    const profile = snapshot.buffer;
+    await withDatabase(receiverProfiles, (database) =>
+      database.write([STORE], (transaction) => transaction.store(STORE).put(KEY, profile)),
+    );
   } catch {
     // Performance evidence is opportunistic and never blocks display.
   }

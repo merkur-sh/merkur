@@ -6,6 +6,7 @@
   "type": "module",
   "dependencies": {
     "@elysia/eden": "catalog:",
+    "@merkur/browser-storage": "workspace:*",
     "@merkur/config": "workspace:*",
     "@merkur/keyboard": "workspace:*",
     "@merkur/logger": "workspace:*",

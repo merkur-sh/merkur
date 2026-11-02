@@ -572,7 +572,7 @@ describe('account keyboard settings sync', () => {
     const failing = {
       getItem: () => null,
       setItem: () => {
-        throw new Error('QuotaExceededError');
+        throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
       },
       removeItem: () => {},
     };

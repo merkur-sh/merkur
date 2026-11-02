@@ -1,3 +1,4 @@
+import { guarded, localValue } from '@merkur/browser-storage';
 import { type Device, isDevice, isDeviceEventsEpoch, isRecord } from '@merkur/shared';
 
 // Last-known device list, persisted so a cold/resumed mobile launch can paint
@@ -7,7 +8,6 @@ import { type Device, isDevice, isDeviceEventsEpoch, isRecord } from '@merkur/sh
 // without its epoch cannot be told apart from the same number on a counter
 // that restarted — and `userId` is what keeps one account's list, and its
 // cursor, from ever answering for another.
-const DEVICE_LIST_CACHE_KEY = 'merkur:device-list:v1';
 const CACHE_KEYS = ['userId', 'epoch', 'seq', 'devices'] as const;
 
 export interface CachedDeviceList {
@@ -17,39 +17,21 @@ export interface CachedDeviceList {
   readonly devices: readonly Device[];
 }
 
+// Anything that is not exactly the current shape is purged on read, so a cache
+// written by a build with a different vocabulary cleans itself up.
+const deviceListCache = localValue('merkur:device-list:v1', guarded(isCachedDeviceList));
+
 export function loadCachedDeviceList(): CachedDeviceList | null {
-  try {
-    const raw = localStorage.getItem(DEVICE_LIST_CACHE_KEY);
-    if (raw === null) {
-      return null;
-    }
-    const parsed: unknown = JSON.parse(raw);
-    if (!isCachedDeviceList(parsed)) {
-      // Anything that is not exactly the current shape is purged, so a cache
-      // written by a build with a different vocabulary self-cleans on read.
-      localStorage.removeItem(DEVICE_LIST_CACHE_KEY);
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
+  return deviceListCache.read();
 }
 
+/** Private mode or a full quota leaves the next launch without a cache, and nothing else. */
 export function saveCachedDeviceList(cache: CachedDeviceList): void {
-  try {
-    localStorage.setItem(DEVICE_LIST_CACHE_KEY, JSON.stringify(cache));
-  } catch {
-    // Private mode / quota — the cache is best-effort.
-  }
+  deviceListCache.write(cache);
 }
 
 export function clearCachedDeviceList(): void {
-  try {
-    localStorage.removeItem(DEVICE_LIST_CACHE_KEY);
-  } catch {
-    // Best-effort.
-  }
+  deviceListCache.remove();
 }
 
 function isCachedDeviceList(value: unknown): value is CachedDeviceList {

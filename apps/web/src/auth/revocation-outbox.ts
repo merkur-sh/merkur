@@ -1,3 +1,4 @@
+import { localValue } from '@merkur/browser-storage';
 import { hasExactKeys, isRecord } from '@merkur/shared';
 import {
   parseDelegationRevocationStatement,
@@ -6,21 +7,32 @@ import {
 
 import { logoutAccountSession, type RevocationAuthorization } from './account-api';
 
-const LOGOUT_TOMBSTONE_KEY = 'merkur:pending-browser-logout';
-
 export type LogoutRetryResult = 'none' | 'delivered' | 'pending';
 
+const logoutTombstone = localValue('merkur:pending-browser-logout', (value) => {
+  try {
+    return parseAuthorization(value);
+  } catch {
+    return null;
+  }
+});
+
+/**
+ * Throws when the tombstone cannot be stored: a logout whose revocation could
+ * be lost must not be reported as queued.
+ */
 export function storeLogoutTombstone(authorization: RevocationAuthorization): void {
-  const canonical = parseAuthorization(authorization);
-  localStorage.setItem(LOGOUT_TOMBSTONE_KEY, JSON.stringify(canonical));
+  if (!logoutTombstone.write(parseAuthorization(authorization))) {
+    throw new Error('Unable to store the pending logout');
+  }
 }
 
 export function clearLogoutTombstone(): void {
-  localStorage.removeItem(LOGOUT_TOMBSTONE_KEY);
+  logoutTombstone.remove();
 }
 
 export async function retryPendingLogout(signal?: AbortSignal): Promise<LogoutRetryResult> {
-  const pending = loadLogoutTombstone();
+  const pending = logoutTombstone.read();
   if (pending === null) return 'none';
   try {
     await logoutAccountSession(pending, signal);
@@ -28,22 +40,6 @@ export async function retryPendingLogout(signal?: AbortSignal): Promise<LogoutRe
     return 'delivered';
   } catch {
     return 'pending';
-  }
-}
-
-function loadLogoutTombstone(): RevocationAuthorization | null {
-  let raw: string | null;
-  try {
-    raw = localStorage.getItem(LOGOUT_TOMBSTONE_KEY);
-  } catch {
-    return null;
-  }
-  if (raw === null) return null;
-  try {
-    return parseAuthorization(JSON.parse(raw));
-  } catch {
-    clearLogoutTombstone();
-    return null;
   }
 }
 

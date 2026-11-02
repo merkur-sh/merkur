@@ -677,16 +677,6 @@ const BENCHMARKS: readonly WorkloadSpec[] = [
   },
   {
     service: 'web',
-    name: 'display-resume-store-browser',
-    fidelity: 'production',
-    kind: 'benchmark',
-    command: ['bun', 'run', 'scripts/bench-web-display-resume-store.ts'],
-    timeoutMs: 300_000,
-    quickEnv: { BENCH_SAMPLES: '5', BENCH_WARMUPS: '1' },
-    requireMetrics: true,
-  },
-  {
-    service: 'web',
     name: 'terminal-latency-report',
     fidelity: 'production',
     kind: 'benchmark',

@@ -1,8 +1,10 @@
+import { type Json, localValue } from '@merkur/browser-storage';
 import {
   BYTES_PER_KIB,
   BYTES_PER_MIB,
   clamp01,
   clampInt,
+  isRecord,
   TRANSPORT_POLICY,
   TRANSPORT_PROFILE,
 } from '@merkur/shared';
@@ -62,15 +64,15 @@ export interface TransportAutotuner {
 }
 
 export function createTransportAutotuner(contextId: string): TransportAutotuner {
-  const storageKey = `${STORAGE_PREFIX}:${contextId}`;
-  const state = loadState(storageKey);
+  const stored = localValue(`${STORAGE_PREFIX}:${contextId}`, parseState);
+  const state = stored.read() ?? initialState();
 
   return {
     observeAndMaybeSample(rttMs: number, pathType: 'direct' | 'relay' | 'unknown'): TransportHint {
       const reward = scoreReward(rttMs, pathType);
       updateArm(state, state.activeArm, reward);
       state.activeArm = chooseArm(state);
-      saveState(storageKey, state);
+      stored.write(state);
       return getActiveHint(state);
     },
   };
@@ -91,44 +93,31 @@ function scoreReward(rttMs: number, pathType: 'direct' | 'relay' | 'unknown'): n
   return clamp01(latencyScore + pathBonus);
 }
 
-function loadState(storageKey: string): TunerState {
-  const fallback: TunerState = {
+function initialState(): TunerState {
+  return {
     counts: ARMS.map(() => 0),
     values: ARMS.map(() => 0),
     activeArm: 0,
   };
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (raw === null) {
-      return fallback;
-    }
-    const parsed = JSON.parse(raw) as Partial<TunerState>;
-    if (
-      !Array.isArray(parsed.counts) ||
-      !Array.isArray(parsed.values) ||
-      typeof parsed.activeArm !== 'number'
-    ) {
-      return fallback;
-    }
-    if (parsed.counts.length !== ARMS.length || parsed.values.length !== ARMS.length) {
-      return fallback;
-    }
-    return {
-      counts: parsed.counts.map((value) => Math.max(0, Math.round(Number(value) || 0))),
-      values: parsed.values.map((value) => clamp01(Number(value) || 0)),
-      activeArm: clampInt(parsed.activeArm, 0, ARMS.length - 1),
-    };
-  } catch {
-    return fallback;
-  }
 }
 
-function saveState(storageKey: string, state: TunerState): void {
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify(state));
-  } catch {
-    // ignore storage failures
+function parseState(value: Json): TunerState | null {
+  if (!isRecord(value)) return null;
+  const { counts, values, activeArm } = value;
+  if (
+    !Array.isArray(counts) ||
+    !Array.isArray(values) ||
+    typeof activeArm !== 'number' ||
+    counts.length !== ARMS.length ||
+    values.length !== ARMS.length
+  ) {
+    return null;
   }
+  return {
+    counts: counts.map((count) => Math.max(0, Math.round(Number(count) || 0))),
+    values: values.map((reward) => clamp01(Number(reward) || 0)),
+    activeArm: clampInt(activeArm, 0, ARMS.length - 1),
+  };
 }
 
 function updateArm(state: TunerState, arm: number, reward: number): void {

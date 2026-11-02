@@ -12,6 +12,7 @@ PACKAGES = [
     "//apps/web",
     "//packages/alacritty-terminal-patch",
     "//packages/auth",
+    "//packages/browser-storage",
     "//packages/config",
     "//packages/daemon-control-protocol",
     "//packages/display-fixture",
@@ -78,6 +79,7 @@ SYMLINKS = {
 # Each workspace package's directory, by the name a checkout's `node_modules` links it under.
 WORKSPACE_LINKS = {
     "@merkur/auth": "packages/auth",
+    "@merkur/browser-storage": "packages/browser-storage",
     "@merkur/config": "packages/config",
     "@merkur/daemon": "apps/daemon",
     "@merkur/daemon-control-protocol": "packages/daemon-control-protocol",
@@ -156,6 +158,9 @@ THIRD_PARTY_DEPENDENCIES = {
         "@serenity-kit/opaque",
         "nanoid",
     ],
+    "packages/browser-storage": [
+        "fake-indexeddb",
+    ],
     "packages/config": [
         "effect",
     ],
@@ -200,6 +205,7 @@ WORKSPACE_DEPENDENCIES = {
         "@merkur/quicksilver",
     ],
     "apps/web": [
+        "@merkur/browser-storage",
         "@merkur/config",
         "@merkur/keyboard",
         "@merkur/logger",

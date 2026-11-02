@@ -732,12 +732,11 @@ delegate proof, and Noise state; recoverable close preserves only daemon-matched
 state, and terminal close discards it.
 
 Initial terminal startup overlaps independent work: transport begins before the next visual frame,
-cached edge dialing overlaps crypto Wasm initialization, and delegation loading overlaps both
-initialization and session issuance. Authentication still gates terminal traffic; direct discovery
+and delegation loading overlaps crypto Wasm initialization and session issuance. Authentication still gates terminal traffic; direct discovery
 runs after edge establishment. Page-owned admission prevents failed direct probes from being
 repeated across sessions: Chromium shares its handshake throttle with later relay connections,
-so background discovery can otherwise delay the next startup. A first visit without cached edge
-coordinates still waits for issuance before dialing. These are removed serial dependencies, not
+so background discovery can otherwise delay the next startup. Edge dialing waits for issuance,
+which names the edge. These are removed serial dependencies, not
 a fixed millisecond saving; compare complete browser startup traces to measure the result.
 
 The startup browser gate also types on the first animation frame that observes the connected

@@ -2,6 +2,7 @@
   "compilerOptions": {
     "paths": {
       "@merkur/auth": ["./packages/auth/src/index.ts"],
+      "@merkur/browser-storage": ["./packages/browser-storage/src/index.ts"],
       "@merkur/user-agent": ["./packages/user-agent/src/index.ts"],
       "@merkur/daemon-control-protocol": ["./packages/daemon-control-protocol/src/index.ts"],
       "@merkur/logger": ["./packages/logger/src/index.ts"],
