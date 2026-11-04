@@ -67,6 +67,15 @@ const EMAIL_CODE_WINDOW_MS = 3_600_000;
  */
 const RESET_GUESS_LIMIT = 5;
 const RESET_GUESS_WINDOW_MS = 86_400_000;
+/**
+ * Wrong sign-up codes one address absorbs per day, across every flow opened
+ * for it, for the same reason as the reset budget: per-flow counting alone
+ * would let a stranger guess twenty-five codes an hour and create an account
+ * on a mailbox they never read. The price is that someone can hold one
+ * address's sign-up for a day.
+ */
+const REGISTER_GUESS_LIMIT = 5;
+const REGISTER_GUESS_WINDOW_MS = 86_400_000;
 
 interface AuthRoutesOptions {
   readonly authorizeRequest: (request: Request) => Promise<AuthenticatedBrowser | null>;
@@ -192,6 +201,19 @@ export function authRoutesPlugin({
           key: `auth:reset:guess:${userId}`,
           limit: RESET_GUESS_LIMIT,
           windowMs: RESET_GUESS_WINDOW_MS,
+        },
+      ]);
+    });
+  }
+
+  function registerGuessLimit(address: string) {
+    return Effect.gen(function* () {
+      const service = yield* RateLimitServiceTag;
+      return yield* enforceRateLimitFailClosed(service, [
+        {
+          key: `auth:register:guess:${address}`,
+          limit: REGISTER_GUESS_LIMIT,
+          windowMs: REGISTER_GUESS_WINDOW_MS,
         },
       ]);
     });
@@ -392,12 +414,18 @@ export function authRoutesPlugin({
           // finish that creates an account counts against the hourly limit.
           const creation = yield* registrationLimit(request, server);
           const service = yield* AuthServiceTag;
-          return yield* service
-            .finishRegistration({
-              ...body,
-              client: parseBrowserClient(request.headers, body.installed),
-            })
+          const finished = yield* service
+            .finishRegistration(
+              {
+                ...body,
+                client: parseBrowserClient(request.headers, body.installed),
+              },
+              registerGuessLimit,
+            )
             .pipe(Effect.tapError(() => refundRateLimitReservations(creation)));
+          // A correct code was no guess, so it does not spend the address's budget.
+          if (finished.admitted !== null) yield* refundRateLimitReservations(finished.admitted);
+          return finished.session;
         });
         const result = await runRouteEffect(
           runServerProgram,

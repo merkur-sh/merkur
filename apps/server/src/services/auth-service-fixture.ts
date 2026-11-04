@@ -169,6 +169,7 @@ export async function finishRegistration(
   delegateByte: number,
   delegationId: string,
   emailCode: string | null = null,
+  admit: (address: string) => Effect.Effect<unknown, unknown> = () => Effect.void,
 ) {
   const start = started.server.registration;
   let registrationRecord = registrationRecords.get(started);
@@ -190,19 +191,22 @@ export async function finishRegistration(
     start.delegationIssuedAt,
     start.delegationExpiresAt,
   );
-  const session = await Effect.runPromise(
-    service.finishRegistration({
-      flowId: start.flowId,
-      emailCode,
-      registrationRecord,
-      rootPublicKey: ROOT_PUBLIC_KEY,
-      rootEnvelope: envelope(0x22),
-      delegationCertificate: certificate,
-      client: TEST_CLIENT,
-    }),
+  const { session, admitted } = await Effect.runPromise(
+    service.finishRegistration(
+      {
+        flowId: start.flowId,
+        emailCode,
+        registrationRecord,
+        rootPublicKey: ROOT_PUBLIC_KEY,
+        rootEnvelope: envelope(0x22),
+        delegationCertificate: certificate,
+        client: TEST_CLIENT,
+      },
+      admit,
+    ),
   );
   expectSessionResponse(session);
-  return { userId: start.userId, delegate, certificate, session };
+  return { userId: start.userId, delegate, certificate, session, admitted };
 }
 
 export async function loginWithNewDelegation(

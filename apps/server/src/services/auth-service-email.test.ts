@@ -115,6 +115,35 @@ describe('email identity', () => {
     expect(await db.selectFrom('users').select('id').execute()).toEqual([]);
   });
 
+  test('every code guess is admitted for the normalized address before it is counted', async () => {
+    await emailService();
+    const started = await startClientAndServerAuth(OLD_PASSWORD, '  Someone@Example.COM ');
+    await requestCode(started);
+    const code = lastCode();
+    const admitted: string[] = [];
+    const record = (address: string) =>
+      Effect.sync(() => {
+        admitted.push(address);
+        return `slot-${admitted.length}`;
+      });
+    const refuse = () => Effect.fail({ code: 'rate_limited' as const });
+
+    // A refused admission spends no guess at this flow's five.
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await expect(
+        finishRegistration(started, 0x22, `delegation-refused-${attempt}`, code, refuse),
+      ).rejects.toMatchObject({ code: 'rate_limited' });
+    }
+    await expect(
+      finishRegistration(started, 0x22, 'delegation-wrong', wrongCode(code), record),
+    ).rejects.toMatchObject({ code: 'invalid_email_code' });
+    const registered = await finishRegistration(started, 0x22, 'delegation-right', code, record);
+
+    expect(admitted).toEqual([ADDRESS, ADDRESS]);
+    // The correct code's reservation comes back, so the route can refund it.
+    expect(registered.admitted).toBe('slot-2');
+  });
+
   test('a resend replaces the code under a new idempotency key and keeps the attempt count', async () => {
     await emailService();
     const started = await startClientAndServerAuth(OLD_PASSWORD, ADDRESS);

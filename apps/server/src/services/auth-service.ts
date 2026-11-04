@@ -175,6 +175,15 @@ export interface PasswordResetVerified<A> {
   readonly admitted: A;
 }
 
+export interface RegistrationFinished<A> {
+  readonly session: AuthSessionResult;
+  /**
+   * What the caller's admission returned for the mailed-code guess, so a
+   * correct code can hand it back; `null` in username identity.
+   */
+  readonly admitted: A | null;
+}
+
 export interface PasswordResetStartResult {
   readonly userId: string;
   readonly registrationResponse: string;
@@ -254,16 +263,24 @@ export interface AuthService {
     flowId: string,
     admit: (recipient: string) => Effect.Effect<unknown, E, R>,
   ): Effect.Effect<void, AuthFailure | E, R>;
-  finishRegistration(input: {
-    readonly flowId: string;
-    /** The mailed code in email identity; `null` in username identity. */
-    readonly emailCode: string | null;
-    readonly registrationRecord: string;
-    readonly rootPublicKey: string;
-    readonly rootEnvelope: RootEnvelope;
-    readonly delegationCertificate: UserDelegationCertificate;
-    readonly client: BrowserClient;
-  }): Effect.Effect<AuthSessionResult, AuthFailure>;
+  /**
+   * In email identity, `admit` runs for the flow's normalized address before
+   * the mailed code is checked, so guesses can be budgeted per address across
+   * flows; its result comes back as `admitted` (`null` in username identity).
+   */
+  finishRegistration<A, E, R>(
+    input: {
+      readonly flowId: string;
+      /** The mailed code in email identity; `null` in username identity. */
+      readonly emailCode: string | null;
+      readonly registrationRecord: string;
+      readonly rootPublicKey: string;
+      readonly rootEnvelope: RootEnvelope;
+      readonly delegationCertificate: UserDelegationCertificate;
+      readonly client: BrowserClient;
+    },
+    admit: (address: string) => Effect.Effect<A, E, R>,
+  ): Effect.Effect<RegistrationFinished<A>, AuthFailure | E, R>;
   finishLogin(input: {
     readonly flowId: string;
     readonly finishLoginRequest: string;
@@ -543,13 +560,18 @@ export function createAuthService(
         : identity.mail.sendSignUpCode({ to: flow.username, code, idempotencyKey });
     }),
 
-    finishRegistration: Effect.fnUntraced(function* (
+    finishRegistration: Effect.fnUntraced(function* <A, E, R>(
       input: Parameters<AuthService['finishRegistration']>[0],
+      admit: (address: string) => Effect.Effect<A, E, R>,
     ) {
+      let admitted: A | null = null;
       if (config.identity.kind === 'email') {
         if (input.emailCode === null || !EMAIL_CODE_PATTERN.test(input.emailCode)) {
           return yield* authFailure('invalid_request', 'A six-digit code is required');
         }
+        const pending = yield* flowStore.peekStart(input.flowId);
+        if (pending === null) return yield* invalidFlow();
+        admitted = yield* admit(pending.username);
         const check = yield* flowStore.checkEmailCode(
           input.flowId,
           emailCodeMac(config.tokenHmacSecret, EMAIL_CODE_DOMAIN, input.flowId, input.emailCode),
@@ -638,7 +660,7 @@ export function createAuthService(
         }),
       );
       yield* wakeNotifications;
-      return session;
+      return { session, admitted };
     }),
 
     finishLogin: Effect.fnUntraced(function* (input: Parameters<AuthService['finishLogin']>[0]) {

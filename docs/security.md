@@ -760,6 +760,11 @@ that, continuous guessing succeeds less than once in five hundred account-years,
 mails the owner. Someone who spends the budget keeps that account's reset form locked; signing in
 with the password is unaffected.
 
+A sign-up code is budgeted the same way, per normalized address: five wrong codes per address per
+24 hours across every flow (`REGISTER_GUESS_LIMIT`), consumed before the code is compared and handed
+back on a match, so no one creates an account on a mailbox they cannot read. Someone who spends the
+budget holds that address's sign-up for a day.
+
 Hosted-box creation is gated per account: `POST /api/boxes` refuses with `box_access_required`
 unless the account's `box_access` row is `approved`. No account can approve one: the server has no
 operator route or operator role, so approval, like suspending an account through

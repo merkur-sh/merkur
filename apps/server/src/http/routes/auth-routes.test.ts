@@ -420,16 +420,7 @@ describe('auth routes', () => {
     const created: RateLimitReservation[] = [];
     const creating: AuthService = {
       ...unexpectedAuthService(),
-      finishRegistration: () =>
-        Effect.succeed({
-          accessToken: 'access-token',
-          userId: 'user-1',
-          delegationId: 'delegation-1',
-          delegationExpiresAt: 2_592_001_000,
-          serverTimeMs: 1_000,
-          refreshCookieHeader: 'merkur_refresh=issued; HttpOnly; Path=/',
-          deletionCancelled: false,
-        }),
+      finishRegistration: () => Effect.succeed({ session: issuedSession(), admitted: null }),
     };
     const success = await createApp(creating, countingRateLimit(created)).handle(
       request('/api/auth/register/finish', registrationFinishBody()),
@@ -1080,6 +1071,18 @@ function registrationFinishBody() {
  * and records what the route hands back. The default double below omits both,
  * which degrades to counting attempts — safe, just stricter.
  */
+function issuedSession() {
+  return {
+    accessToken: 'access-token',
+    userId: 'user-1',
+    delegationId: 'delegation-1',
+    delegationExpiresAt: 2_592_001_000,
+    serverTimeMs: 1_000,
+    refreshCookieHeader: 'merkur_refresh=issued; HttpOnly; Path=/',
+    deletionCancelled: false,
+  };
+}
+
 function countingRateLimit(refunded: RateLimitReservation[]): RateLimitService {
   return {
     consume: () => Effect.succeed({ allowed: true, windowId: 7 }),
