@@ -47,9 +47,19 @@ WantedBy=default.target
 
 describe('CLI and daemon service dispatch', () => {
   test('launchd lets the daemon finish its owned child cleanup', () => {
-    const plist = buildLaunchdPlist(['/home/user/merkur', 'daemon']);
+    const plist = buildLaunchdPlist(['/home/user/merkur', 'daemon'], '/home/user/.merkur/logs');
     expect(plist).toContain('<key>ExitTimeOut</key>\n  <integer>0</integer>');
     expect(plist).toContain('<key>KeepAlive</key>\n  <true/>');
+  });
+  test('launchd writes the service output inside the owner-only install root', () => {
+    const plist = buildLaunchdPlist(['/home/user/merkur', 'daemon'], '/home/user/.merkur/logs');
+    expect(plist).toContain(
+      '<key>StandardOutPath</key>\n  <string>/home/user/.merkur/logs/daemon.log</string>',
+    );
+    expect(plist).toContain(
+      '<key>StandardErrorPath</key>\n  <string>/home/user/.merkur/logs/daemon.err.log</string>',
+    );
+    expect(plist).not.toContain('/tmp/');
   });
   test('source CLI arguments leave the subcommand to their caller', () => {
     const program = resolveProgramArguments();

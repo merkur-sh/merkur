@@ -57,16 +57,21 @@ function runLaunchdInstallEffect(
   return Effect.gen(function* () {
     const plistPath = launchAgentPath();
     const plistDirectory = path.dirname(plistPath);
+    const logDirectory = launchdLogDirectoryPath();
     const uid = resolveLaunchctlUserId();
     const launchDomain = `gui/${uid}`;
     const serviceTarget = `${launchDomain}/${LABEL}`;
 
     yield* Effect.tryPromise({
-      try: () => mkdir(plistDirectory, { recursive: true }),
+      try: async () => {
+        await mkdir(plistDirectory, { recursive: true });
+        // launchd opens the log paths as this user and creates no directory for them.
+        await mkdir(logDirectory, { recursive: true, mode: 0o700 });
+      },
       catch: normalizeUnknownError,
     });
     yield* Effect.tryPromise({
-      try: () => writeFile(plistPath, buildLaunchdPlist(programArguments), 'utf8'),
+      try: () => writeFile(plistPath, buildLaunchdPlist(programArguments, logDirectory), 'utf8'),
       catch: normalizeUnknownError,
     });
 
@@ -225,7 +230,19 @@ export function buildDaemonServiceProgramArguments(executablePath: string): read
   return [path.resolve(executablePath), 'daemon'];
 }
 
-export function buildLaunchdPlist(programArguments: readonly string[]): string {
+/**
+ * ~/.merkur/logs: the service's stdout and stderr, inside the owner-only install root. A fixed
+ * name in the shared `/tmp` would be readable by every local user and could be planted, as a
+ * file or a symlink, before launchd first opens it.
+ */
+function launchdLogDirectoryPath(): string {
+  return path.join(merkurInstallRootPath(), 'logs');
+}
+
+export function buildLaunchdPlist(
+  programArguments: readonly string[],
+  logDirectory: string,
+): string {
   const programArgumentsXml = programArguments
     .map((argument) => `    <string>${escapeXml(argument)}</string>`)
     .join('\n');
@@ -247,9 +264,9 @@ ${programArgumentsXml}
   <key>ExitTimeOut</key>
   <integer>0</integer>
   <key>StandardOutPath</key>
-  <string>/tmp/merkur-daemon.log</string>
+  <string>${escapeXml(path.join(logDirectory, 'daemon.log'))}</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/merkur-daemon.err.log</string>
+  <string>${escapeXml(path.join(logDirectory, 'daemon.err.log'))}</string>
 </dict>
 </plist>
 `;
