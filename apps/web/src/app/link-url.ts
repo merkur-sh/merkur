@@ -15,7 +15,16 @@ export function takeDaemonLinkCode(
   history: Pick<History, 'replaceState'>,
 ): string | null {
   if (location.pathname !== DAEMON_LINK_PATH) return null;
-  const code = decodeURIComponent(location.hash.slice(1)).trim();
+  const fragment = location.hash.slice(1);
   history.replaceState(null, '', '/');
+  let code: string;
+  try {
+    code = decodeURIComponent(fragment).trim();
+  } catch (error) {
+    // A malformed escape is no code; throwing here would stop the app booting
+    // for as long as such an address is opened.
+    if (error instanceof URIError) return null;
+    throw error;
+  }
   return code.length > 0 ? code : null;
 }

@@ -37,4 +37,10 @@ describe('daemon link address', () => {
     expect(takeDaemonLinkCode({ pathname: '/link', hash: '' }, recorded)).toBeNull();
     expect(recorded.replaced).toEqual(['/']);
   });
+
+  test('a malformed escape is no code, and the address is still cleared', () => {
+    const recorded = history();
+    expect(takeDaemonLinkCode({ pathname: '/link', hash: '#%E0' }, recorded)).toBeNull();
+    expect(recorded.replaced).toEqual(['/']);
+  });
 });
