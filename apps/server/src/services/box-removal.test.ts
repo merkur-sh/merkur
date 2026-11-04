@@ -9,9 +9,10 @@ import { withDatabaseTransaction } from '../db/transaction';
 import type { DatabaseSchema } from '../db/types';
 import { BoxHostError, type BoxHostService, BoxHostServiceTag } from './box-host-service';
 import {
+  BoxNameHeldError,
   drainBoxRemovalsEffect,
   queueBoxRemovals,
-  requireNoPendingBoxRemoval,
+  requireBoxNameFree,
 } from './box-removal';
 
 let db: Kysely<DatabaseSchema>;
@@ -91,17 +92,56 @@ describe('box removal queue', () => {
 
   test('a name is refused to a new box only while its removal is owed', async () => {
     await queue(['box-a'], 1);
-    const check = (boxId: string) =>
-      Effect.runPromise(
-        requireNoPendingBoxRemoval(boxId).pipe(Effect.provideService(DatabaseService, db)),
-      );
-
-    await expect(check('box-a')).rejects.toMatchObject({
+    await expect(checkName('box-a')).rejects.toMatchObject({
       _tag: 'BoxRemovalPendingError',
       boxId: 'box-a',
     });
-    await expect(check('box-other')).resolves.toBeUndefined();
+    await expect(checkName('box-other')).resolves.toBeUndefined();
     await drain();
-    await expect(check('box-a')).resolves.toBeUndefined();
+    await expect(checkName('box-a')).resolves.toBeUndefined();
+  });
+
+  test('a name any device row still carries is refused to a new box', async () => {
+    await db
+      .insertInto('users')
+      .values({
+        id: 'user-1',
+        username: 'box-owner',
+        opaque_registration_record: 'A'.repeat(256),
+        root_public_key: 'A'.repeat(3456),
+        root_key_commitment: 'A'.repeat(86),
+        root_epoch: 1,
+        root_envelope_nonce: 'A'.repeat(16),
+        root_envelope_ciphertext: 'A'.repeat(64),
+        created_at: 1,
+      })
+      .execute();
+    await db
+      .insertInto('daemons')
+      .values({
+        id: 'daemon-stale',
+        user_id: 'user-1',
+        name: 'Stale',
+        platform: 'linux',
+        daemon_identity_public_key: 'key',
+        daemon_identity_p256_public_key: 'p256',
+        identity_seal_backend: 'software',
+        daemon_identity_key_commitment: 'commitment',
+        daemon_binding_json: '{}',
+        last_seen: 1,
+        version: null,
+        box_id: 'box-a',
+      })
+      .execute();
+
+    await expect(checkName('box-a')).rejects.toEqual(new BoxNameHeldError({ boxId: 'box-a' }));
+    await db.deleteFrom('daemons').execute();
+    await expect(checkName('box-a')).resolves.toBeUndefined();
   });
 });
+
+function checkName(boxId: string): Promise<void> {
+  return Effect.runPromise(
+    requireBoxNameFree(boxId).pipe(Effect.provideService(DatabaseService, db)),
+  );
+}

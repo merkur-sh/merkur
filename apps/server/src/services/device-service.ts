@@ -38,9 +38,9 @@ interface VerifyDaemonControlResult extends VerifyDaemonResult {
 
 /**
  * The box behind a device, or why none can be acted on. `ambiguousBoxId` is set
- * when more than one of the account's devices carries that box: a stale row from
- * an out-of-band deletion and a live box can share it, and acting on the wrong
- * one once destroyed a running container.
+ * when any other device, in this account or another, carries that box: a stale
+ * row from an out-of-band deletion and a live box can share it, and acting on
+ * the wrong one once destroyed a running container.
  */
 export interface DeviceBox {
   readonly boxId: string | null;

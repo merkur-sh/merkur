@@ -20,7 +20,11 @@ import {
   BoxHostServiceTag,
   BoxHostUnconfiguredError,
 } from '../../services/box-host-service';
-import { BoxRemovalPendingError, requireNoPendingBoxRemoval } from '../../services/box-removal';
+import {
+  BoxNameHeldError,
+  BoxRemovalPendingError,
+  requireBoxNameFree,
+} from '../../services/box-removal';
 import { BrowserPresenceServiceTag } from '../../services/browser-session-presence';
 import { DeviceEventsServiceTag } from '../../services/device-events-service';
 import { DeviceServiceTag } from '../../services/device-service';
@@ -186,7 +190,7 @@ export function deviceRoutesPlugin({
               // the box host nothing.
               const boxAccess = yield* BoxAccessServiceTag;
               yield* boxAccess.requireApproved(userId);
-              yield* requireNoPendingBoxRemoval(body.boxId);
+              yield* requireBoxNameFree(body.boxId);
               const deviceService = yield* DeviceServiceTag;
               const boxHost = yield* BoxHostServiceTag;
               // The box's daemon links itself with this token, then waits for
@@ -203,7 +207,9 @@ export function deviceRoutesPlugin({
               mapError: (error: unknown) =>
                 error instanceof BoxRemovalPendingError
                   ? status(STATUS_CONFLICT, { error: 'box_removal_pending' })
-                  : mapBoxAccessError(error),
+                  : error instanceof BoxNameHeldError
+                    ? status(STATUS_CONFLICT, { error: 'box_name_taken' })
+                    : mapBoxAccessError(error),
             },
           ),
       )

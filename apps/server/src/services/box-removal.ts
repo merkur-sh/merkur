@@ -39,25 +39,42 @@ export class BoxRemovalPendingError extends Data.TaggedError('BoxRemovalPendingE
   readonly boxId: string;
 }> {}
 
+/** A device row, in any account, still names a box of this name. */
+export class BoxNameHeldError extends Data.TaggedError('BoxNameHeldError')<{
+  readonly boxId: string;
+}> {}
+
 /**
- * Refuses a name whose previous box is still queued: creating a box under it
- * would hand the queued removal a container it was never meant for.
+ * Refuses a name a new box must not take. One whose previous box is still
+ * queued: creating a box under it would hand the queued removal a container it
+ * was never meant for. And one any device row still names, in any account: a
+ * row left behind when its box went (an unlink the host finished and the server
+ * did not) would otherwise share its name with the next account's box, and a
+ * box ID two rows share cannot be started or unlinked by either account.
  */
-export function requireNoPendingBoxRemoval(
+export function requireBoxNameFree(
   boxId: string,
-): Effect.Effect<void, InfrastructureError | BoxRemovalPendingError, DatabaseService> {
+): Effect.Effect<
+  void,
+  InfrastructureError | BoxRemovalPendingError | BoxNameHeldError,
+  DatabaseService
+> {
   return Effect.gen(function* () {
     const db = yield* DatabaseService;
-    const pending = yield* Effect.tryPromise({
+    const [pending, held] = yield* Effect.tryPromise({
       try: () =>
-        db
-          .selectFrom('box_removals')
-          .select('box_id')
-          .where('box_id', '=', boxId)
-          .executeTakeFirst(),
+        Promise.all([
+          db
+            .selectFrom('box_removals')
+            .select('box_id')
+            .where('box_id', '=', boxId)
+            .executeTakeFirst(),
+          db.selectFrom('daemons').select('id').where('box_id', '=', boxId).executeTakeFirst(),
+        ]),
       catch: infrastructureError('box-removal', 'read-pending'),
     });
     if (pending !== undefined) return yield* new BoxRemovalPendingError({ boxId });
+    if (held !== undefined) return yield* new BoxNameHeldError({ boxId });
   });
 }
 

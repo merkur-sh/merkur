@@ -138,6 +138,44 @@ describe('device routes', () => {
     await db.deleteFrom('box_removals').execute();
     expect((await create('calm-harbor')).status).toBe(200);
     expect(created).toEqual(['bright-river', 'calm-harbor']);
+
+    // A row another account kept after its box went still holds the name, so
+    // no later box ever shares its ID.
+    await db
+      .insertInto('users')
+      .values({
+        id: 'user-2',
+        username: 'other-account',
+        opaque_registration_record: 'A'.repeat(256),
+        root_public_key: 'A'.repeat(3456),
+        root_key_commitment: 'A'.repeat(86),
+        root_epoch: 1,
+        root_envelope_nonce: 'A'.repeat(16),
+        root_envelope_ciphertext: 'A'.repeat(64),
+        created_at: 1,
+      })
+      .execute();
+    await db
+      .insertInto('daemons')
+      .values({
+        id: 'daemon-stale',
+        user_id: 'user-2',
+        name: 'Stale',
+        platform: 'linux',
+        daemon_identity_public_key: 'key',
+        daemon_identity_p256_public_key: 'p256',
+        identity_seal_backend: 'software',
+        daemon_identity_key_commitment: 'commitment',
+        daemon_binding_json: '{}',
+        last_seen: 1,
+        version: null,
+        box_id: 'quiet-meadow',
+      })
+      .execute();
+    const held = await create('quiet-meadow');
+    expect(held.status).toBe(409);
+    expect(await held.json()).toEqual({ error: 'box_name_taken' });
+    expect(created).toEqual(['bright-river', 'calm-harbor']);
   });
 
   test('creates a bearer link token from an exact empty request body', async () => {

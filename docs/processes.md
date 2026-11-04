@@ -461,7 +461,9 @@ Account erasure, password reset and retention expiry record the account's boxes 
 `box_removals` in the same transaction that drops the rows that named them, and a maintenance loop (`BOX_REMOVAL_INTERVAL`, one minute) destroys
 each queued box and removes its entry when the host confirms. A box the host refuses stays
 queued for the next pass. `POST /api/boxes` answers `box_removal_pending` for a name still in
-the queue, so a new box cannot take a name whose removal is owed.
+the queue, so a new box cannot take a name whose removal is owed, and `box_name_taken` for a
+name any device row in any account still carries, so a row left behind when its box went (an
+unlink the host finished and the server did not) never shares its ID with a later box.
 
 Starting or unlinking a box requires its box ID to identify exactly one linked daemon globally;
 sharing that ID within or across accounts makes it unsafe for either account to act on.
