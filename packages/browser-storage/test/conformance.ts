@@ -393,13 +393,16 @@ const SCENARIOS: readonly Scenario[] = [
     needs: ['indexedDB'],
     async run() {
       const database = notesDatabase(unique('inactive'));
-      // `TransactionInactiveError` while the commit is under way,
-      // `InvalidStateError` once it has finished: which one depends on how
-      // far the engine got, never on anything the body can control.
+      // The body waits on a read of the same store, which every engine queues
+      // behind this write, so the write has auto-committed before the late
+      // request: a timer is no such edge (`fake-indexeddb` finishes on
+      // `setImmediate` hops a loaded event loop runs after a 0 ms timeout).
+      // The engine names the refusal `TransactionInactiveError` or
+      // `InvalidStateError`.
       const name = await rejection(
         database.write(['notes'], async (transaction) => {
           transaction.store('notes').put('before', { text: 'committed' });
-          await new Promise((resolve) => setTimeout(resolve, 0));
+          await database.read(['notes'], (tx) => tx.store('notes').get('before'));
           transaction.store('notes').put('after', { text: 'too late' });
         }),
       );
@@ -407,10 +410,6 @@ const SCENARIOS: readonly Scenario[] = [
         name === 'TransactionInactiveError' || name === 'InvalidStateError',
         `the late request is refused as inactive or finished: got ${name}`,
       );
-      // Whether the earlier write landed is not the body's to decide: Chromium
-      // and WebKit had not finished it when the timer fired, so the refusal
-      // aborted the whole transaction, while `fake-indexeddb` had committed it.
-      // Only the late write is certain to be lost.
       same(
         await database.read(['notes'], (tx) => tx.store('notes').get('after')),
         null,
