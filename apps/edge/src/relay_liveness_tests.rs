@@ -275,9 +275,10 @@ async fn a_bulk_leg_that_loses_its_tail_and_probes_is_held_and_finishes_its_tran
         .await
         .unwrap();
     assert!(received == payload, "the transfer arrived intact");
-    eventually("the relay's FIN acknowledged and its budget released", || {
-        budget.available_permits() == SPLICE_FINITE_BYTES_GLOBAL
-    })
+    eventually(
+        "the relay's FIN acknowledged and its budget released",
+        || budget.available() == SPLICE_FINITE_BYTES_GLOBAL,
+    )
     .await;
     assert!(leg.close_reason().is_none());
     assert!(destination.0.quic_connection().close_reason().is_none());
@@ -338,7 +339,7 @@ async fn a_packet_on_one_browser_leg_reopens_its_backed_off_siblings_at_once() {
         .unwrap();
     assert!(received == payload);
     eventually("the bulk transfer's FIN acknowledged", || {
-        budget.available_permits() == SPLICE_FINITE_BYTES_GLOBAL
+        budget.available() == SPLICE_FINITE_BYTES_GLOBAL
     })
     .await;
     let own_wait = own_probe.saturating_duration_since(healed);

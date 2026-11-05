@@ -14,6 +14,7 @@ mod attach_ticket;
 mod cert;
 mod egress_budget;
 mod endpoint_secret;
+mod fair_bytes;
 mod metrics;
 #[cfg(all(test, target_os = "macos"))]
 mod profile_support;

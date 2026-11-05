@@ -1,6 +1,8 @@
 use super::tests::{attach_test_peer, read_test_lifecycle};
 use super::*;
-use crate::splice::{MAX_FINITE_STREAM_BYTES, SPLICE_FINITE_BYTES_PER_DIRECTION};
+use crate::splice::{
+    MAX_FINITE_STREAM_BYTES, SPLICE_FINITE_BYTES_GLOBAL, SPLICE_FINITE_BYTES_PER_DIRECTION,
+};
 use wtransport::endpoint::endpoint_side::Client;
 use wtransport::tls::Sha256Digest;
 use wtransport::{ClientConfig, Connection, RecvStream, SendStream};
@@ -212,9 +214,35 @@ impl Fixture {
     }
 
     async fn pairing(&self, label: &str) -> [Peer; 2] {
-        let mut source = attach_test_peer(&self.client, &self.url, label, Role::Daemon).await;
+        self.pairing_as(
+            label,
+            crate::attach_ticket::TEST_ACCOUNT_ID,
+            crate::attach_ticket::TEST_DAEMON_ID,
+        )
+        .await
+    }
+
+    /// [`Self::other_session`] for `daemon` of `account`.
+    async fn tenant_session(
+        &self,
+        label: &str,
+        account: &str,
+        daemon: &str,
+    ) -> ([Peer; 2], Peer, Peer) {
+        let interactive = self.pairing_as(label, account, daemon).await;
+        let [source, destination] = self
+            .pairing_as(&format!("{label}#bulk"), account, daemon)
+            .await;
+        (interactive, source, destination)
+    }
+
+    async fn pairing_as(&self, label: &str, account: &str, daemon: &str) -> [Peer; 2] {
+        let peer = |role| {
+            super::tests::attach_test_peer_as(&self.client, &self.url, label, role, account, daemon)
+        };
+        let mut source = peer(Role::Daemon).await;
         read_test_lifecycle(&mut source.2).await;
-        let mut destination = attach_test_peer(&self.client, &self.url, label, Role::Browser).await;
+        let mut destination = peer(Role::Browser).await;
         read_test_lifecycle(&mut destination.2).await;
         read_test_lifecycle(&mut source.2).await;
         read_test_lifecycle(&mut destination.2).await;
@@ -418,40 +446,35 @@ async fn finite_transfer_never_moves_to_a_replacement_destination() {
 async fn finite_budget_charges_the_complete_queue_and_refunds_cancelled_admission() {
     use std::future::{Future, poll_fn};
     use std::task::Poll;
-    use tokio::sync::Semaphore;
-    let charged = 1024 + 13;
-    let budgets = [
-        Arc::new(Semaphore::new(charged)),
-        Arc::new(Semaphore::new(charged)),
-    ];
-    let owner = ReliableRecordBudget::acquire_finite(&budgets, 1024)
-        .await
-        .unwrap();
-    assert_eq!(budgets[0].available_permits(), 0);
-    assert_eq!(budgets[1].available_permits(), 0);
+    let charged = RecordBudgets::transfer_len(1024).unwrap();
+    assert_eq!(charged, 1024 + 13);
+    let budgets = RecordBudgets::for_test(charged, charged);
+    let owner = budgets.acquire(charged, None).await.unwrap();
+    assert_eq!(budgets.direction.available_permits(), 0);
+    assert_eq!(budgets.global.available(), 0);
     drop(owner);
-    assert_eq!(budgets[0].available_permits(), charged);
-    assert_eq!(budgets[1].available_permits(), charged);
-    let global = budgets[1]
-        .clone()
-        .acquire_many_owned(charged as u32)
+    assert_eq!(budgets.direction.available_permits(), charged);
+    assert_eq!(budgets.global.available(), charged);
+    let global = budgets
+        .global
+        .charge(test_tenant(), charged, None)
         .await
         .unwrap();
-    let mut pending = Box::pin(ReliableRecordBudget::acquire_finite(&budgets, 1024));
+    let mut pending = Box::pin(budgets.acquire(charged, None));
     poll_fn(|cx| {
         assert!(pending.as_mut().poll(cx).is_pending());
         Poll::Ready(())
     })
     .await;
-    assert_eq!(budgets[0].available_permits(), 0);
+    assert_eq!(budgets.direction.available_permits(), 0);
     drop(pending);
-    assert_eq!(budgets[0].available_permits(), charged);
+    assert_eq!(budgets.direction.available_permits(), charged);
     drop(global);
-    assert!(
-        ReliableRecordBudget::acquire_finite(&budgets, MAX_FINITE_STREAM_BYTES + 1)
-            .await
-            .is_none()
+    assert_eq!(
+        RecordBudgets::transfer_len(MAX_FINITE_STREAM_BYTES + 1),
+        None
     );
+    assert_eq!(RecordBudgets::transfer_len(0), None);
 }
 
 #[test]
@@ -660,8 +683,7 @@ async fn a_durable_record_waiting_for_budget_parks_only_its_own_credit() {
         // Other sessions' records hold the whole durable budget.
         let budget = fixture.registry.global_reliable_budget();
         let held = budget
-            .clone()
-            .acquire_many_owned(budget.available_permits() as u32)
+            .charge(test_tenant(), budget.available(), None)
             .await
             .unwrap();
         let body = 1024 * 1024;
@@ -748,8 +770,8 @@ async fn a_transfer_waiting_for_budget_never_holds_the_transfer_it_waits_on() {
         let fixture = Fixture::new().await;
         // Leave the edge's finite budget room for exactly one transfer.
         let budget = fixture.registry.global_finite_budget();
-        let hold = budget.available_permits() - (1024 * 1024 + 13);
-        let _held = budget.acquire_many_owned(hold as u32).await.unwrap();
+        let hold = budget.available() - (1024 * 1024 + 13);
+        let _held = budget.charge(test_tenant(), hold, None).await.unwrap();
         first_frees_what_second_waits_on(&fixture).await;
     })
     .await
@@ -908,12 +930,12 @@ async fn eventually(what: &str, mut condition: impl FnMut() -> bool) {
 async fn a_transfer_its_browser_stopped_reading_keeps_its_budget_until_it_reads_again() {
     let fixture = Fixture::quiet().await;
     let budget = fixture.registry.global_finite_budget();
-    let idle = budget.available_permits();
+    let idle = budget.available();
     let total = 4 * 1024 * 1024;
     let payload: Vec<u8> = (0..total).map(|i| (i % 251) as u8).collect();
     let (mut send, mut recv) = fixture.start(total).await;
     let charged = total + 13;
-    assert_eq!(idle - budget.available_permits(), charged);
+    assert_eq!(idle - budget.available(), charged);
     let writer = {
         let payload = payload.clone();
         tokio::spawn(async move {
@@ -923,7 +945,7 @@ async fn a_transfer_its_browser_stopped_reading_keeps_its_budget_until_it_reads_
     };
     freeze_reader().await;
     assert_eq!(
-        idle - budget.available_permits(),
+        idle - budget.available(),
         charged,
         "a transfer both of whose pairings stayed up lost its budget"
     );
@@ -937,7 +959,7 @@ async fn a_transfer_its_browser_stopped_reading_keeps_its_budget_until_it_reads_
     assert!(received == payload, "the thawed transfer arrives intact");
     writer.await.unwrap();
     eventually("the delivered transfer's budget returning", || {
-        budget.available_permits() == idle
+        budget.available() == idle
     })
     .await;
 }
@@ -946,7 +968,7 @@ async fn a_transfer_its_browser_stopped_reading_keeps_its_budget_until_it_reads_
 async fn a_frozen_browser_holds_only_its_sessions_share_while_another_session_moves() {
     let fixture = Fixture::quiet().await;
     let budget = fixture.registry.global_finite_budget();
-    let idle = budget.available_permits();
+    let idle = budget.available();
     // The frozen browser's daemon offers whole transfers until its session's
     // share of the relay's finite budget is spent.
     let share = SPLICE_FINITE_BYTES_PER_DIRECTION / (MAX_FINITE_STREAM_BYTES + 13);
@@ -958,12 +980,12 @@ async fn a_frozen_browser_holds_only_its_sessions_share_while_another_session_mo
     }
     let charged = share * (MAX_FINITE_STREAM_BYTES + 13);
     eventually("the frozen session spending its share", || {
-        idle - budget.available_permits() == charged
+        idle - budget.available() == charged
     })
     .await;
     freeze_reader().await;
     assert_eq!(
-        idle - budget.available_permits(),
+        idle - budget.available(),
         charged,
         "the frozen session kept exactly its share, no more and no less"
     );
@@ -995,7 +1017,7 @@ async fn a_frozen_browser_holds_only_its_sessions_share_while_another_session_mo
     );
     eventually(
         "the other session's delivered transfer returning its budget",
-        || idle - budget.available_permits() == charged,
+        || idle - budget.available() == charged,
     )
     .await;
     drop(frozen);
@@ -1008,13 +1030,12 @@ async fn a_frozen_transfers_source_reset_releases_both_budgets_to_a_waiting_sess
     // Other sessions hold all but one whole transfer's room.
     let room = MAX_FINITE_STREAM_BYTES + 13;
     let held = budget
-        .clone()
-        .acquire_many_owned((budget.available_permits() - room) as u32)
+        .charge(test_tenant(), budget.available() - room, None)
         .await
         .unwrap();
     let (mut frozen, _never_read) = fixture.start(MAX_FINITE_STREAM_BYTES).await;
     frozen.write_all(&[0x5a; 64 * 1024]).await.unwrap();
-    assert_eq!(budget.available_permits(), 0);
+    assert_eq!(budget.available(), 0);
 
     let (_interactive, other_source, other_destination) = fixture.other_session("other").await;
     let mut waiting = other_source.0.open_uni().await.unwrap().await.unwrap();
@@ -1043,4 +1064,83 @@ async fn a_frozen_transfers_source_reset_releases_both_budgets_to_a_waiting_sess
         [0x61; 1024]
     );
     drop(held);
+}
+
+/// One account declaring whole transfers it never sends cannot keep another
+/// account's transfer out: the relay closes the connection holding the heavy
+/// account's largest reservation, and the bytes it gives back admit the other.
+#[tokio::test]
+async fn an_account_reserving_the_finite_budget_gives_it_back_to_another_account() {
+    let fixture = Fixture::quiet().await;
+    let budget = fixture.registry.global_finite_budget();
+    let transfer = MAX_FINITE_STREAM_BYTES + 13;
+    let per_session = SPLICE_FINITE_BYTES_PER_DIRECTION / transfer;
+    let reservations = SPLICE_FINITE_BYTES_GLOBAL / transfer;
+    let declare = |source: &Peer| {
+        let connection = source.0.clone();
+        async move {
+            let mut send = connection.open_uni().await.unwrap().await.unwrap();
+            send.write_all(&[FINITE_STREAM_FLAG | 0x57]).await.unwrap();
+            send.write_all(&(MAX_FINITE_STREAM_BYTES as u32).to_be_bytes())
+                .await
+                .unwrap();
+            send
+        }
+    };
+
+    let mut heavy = Vec::new();
+    let mut declared = Vec::new();
+    for index in 0..reservations.div_ceil(per_session) {
+        let session = fixture
+            .tenant_session(
+                &format!("heavy-{index}"),
+                crate::attach_ticket::TEST_ACCOUNT_ID,
+                crate::attach_ticket::TEST_DAEMON_ID,
+            )
+            .await;
+        for _ in 0..per_session.min(reservations - declared.len()) {
+            declared.push(declare(&session.1).await);
+        }
+        heavy.push(session);
+    }
+    eventually("the heavy account reserving all the budget it can", || {
+        budget.available() == SPLICE_FINITE_BYTES_GLOBAL - reservations * transfer
+    })
+    .await;
+    assert!(
+        budget.available() < transfer,
+        "room for no whole transfer is left"
+    );
+
+    let (_interactive, light_source, light_destination) = fixture
+        .tenant_session("light", "light-account", "light-daemon")
+        .await;
+    let _light = declare(&light_source).await;
+    let mut admitted =
+        tokio::time::timeout(Duration::from_secs(10), light_destination.0.accept_uni())
+            .await
+            .expect("the light account's transfer was admitted")
+            .unwrap();
+    admitted.read_exact(&mut [0; 13]).await.unwrap();
+    let reclaimed = heavy
+        .iter()
+        .filter(|(_, source, _)| {
+            source
+                .0
+                .quic_connection()
+                .close_reason()
+                .is_some_and(|reason| {
+                    matches!(
+                        reason,
+                        wtransport::quinn::ConnectionError::ApplicationClosed(close)
+                            if close.reason.as_ref() == b"budget-reclaimed"
+                    )
+                })
+        })
+        .count();
+    assert_eq!(
+        reclaimed, 1,
+        "exactly one heavy connection gave its bytes back"
+    );
+    drop(declared);
 }

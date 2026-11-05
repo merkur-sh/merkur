@@ -128,8 +128,20 @@ fewer once it has the new label. That session is the tenant's oldest half-paired
 oldest paired one if none is half-paired, and all of its lanes end together. Its peers are
 closed with the counterpart-detached code, so neither redials. Otherwise the attachment is
 refused. A full candidate pool works the same way: a bridge of the tenant holding the most
-ends at once, and a candidate that would only take an equal share is refused. Each account can
-therefore keep any other from no more than an equal share, however many sessions it opens.
+ends at once, and a candidate that would only take an equal share is refused.
+
+The process-wide reliable and finite byte budgets are shared the same way
+(`src/fair_bytes.rs`). A record or transfer reserves its whole declared length when its header
+arrives and holds it until it lands. No transfer can then stall halfway, and no two
+half-charged transfers can wait on each other. When a reservation does not fit and its tenant
+would still hold less than the tenant holding the most, the edge closes that tenant's
+connection with the largest reservation (`budget-reclaimed`). The reservation waits for those
+bytes to come back. A tenant that would only draw level waits for bytes to land like any other
+reservation. Reserving a length and never sending it therefore costs only the reserving
+account.
+
+Each account can therefore hold any other to no less than an equal share of every pool,
+however many sessions it opens.
 
 ### Before the ticket
 
@@ -202,9 +214,9 @@ budgets are logical record credits, not a process RSS cap.
 | Finite stream size | 16 MiB |
 | Advertised unidirectional stream credit per peer | 40 (5 lanes + 32 finite + 3 HTTP/3 control) |
 | Reliable bytes in flight, per session per direction | 16 MiB |
-| Reliable bytes in flight, process-wide | 256 MiB |
+| Reliable bytes in flight, process-wide | 256 MiB, shared by tenant |
 | Finite bytes in flight, per session per direction | 64 MiB |
-| Finite bytes in flight, process-wide | 256 MiB |
+| Finite bytes in flight, process-wide | 256 MiB, shared by tenant |
 | Reliable operation deadline once a record is in progress | 30 s |
 | QUIC keep-alive and idle timeout | 4 s and 30 s |
 | Splice sessions in the registry | 4096 labels, shared by tenant |

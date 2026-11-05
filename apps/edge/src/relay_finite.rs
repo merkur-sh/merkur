@@ -20,7 +20,7 @@ use wtransport::{RecvStream, SendStream, VarInt};
 
 use super::{RELIABLE_READ_MAX_BYTES, RELIABLE_READ_MAX_CHUNKS};
 use crate::splice::{
-    MAX_FINITE_STREAM_BYTES, ReliableOpenRequest, ReliableRecordBudget, Role, RoutedReliableLane,
+    MAX_FINITE_STREAM_BYTES, RecordBudgets, ReliableOpenRequest, Role, RoutedReliableLane,
 };
 
 /// Four relay read batches cover the relay's copy and credit-return pipeline.
@@ -171,9 +171,8 @@ pub(super) async fn forward(lane: RoutedReliableLane, prefix: [u8; 1], daemon_bu
         mut recv,
         source_connection,
         _lane_permit,
-        direction_budget: _,
-        global_budget: _,
-        finite_budgets,
+        reliable_budgets: _,
+        finite_budgets: budgets,
         mut destinations,
     } = lane;
 
@@ -196,21 +195,20 @@ pub(super) async fn forward(lane: RoutedReliableLane, prefix: [u8; 1], daemon_bu
         let mut length = [0; 4];
         recv.read_exact(&mut length).await.ok()?;
         let bytes = u32::from_be_bytes(length) as usize;
-        if bytes == 0 || bytes > MAX_FINITE_STREAM_BYTES {
-            return None;
-        }
+        let charged = RecordBudgets::transfer_len(bytes)?;
 
         // Reserve the whole transfer before reading any body, including bytes
         // that may move into QUIC's send queue. Reads still own at most one batch;
         // no whole-object buffer is allocated. Keep credit through final delivery.
-        // Budget another transfer holds frees only as that transfer finishes.
-        let _bytes = match ReliableRecordBudget::try_acquire_finite(&finite_budgets, bytes) {
+        // Budget another transfer holds frees only as that transfer finishes, or,
+        // held by a heavier tenant, when the relay takes it back.
+        let _bytes = match budgets.try_acquire(charged, Some(&source_connection)) {
             Some(budget) => budget,
             None => {
                 credit.park(true);
                 upstream(
                     &mut recv,
-                    ReliableRecordBudget::acquire_finite(&finite_budgets, bytes),
+                    budgets.acquire(charged, Some(&source_connection)),
                 )
                 .await??
             }

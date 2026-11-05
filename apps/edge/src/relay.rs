@@ -48,7 +48,7 @@ use crate::splice::{
     AcceptedReliableLane, AttachError, AttachmentLifecycle, BrowserPath, ContentionRequests,
     FINITE_STREAM_FLAG, ForwardResidence, Frame, Lane, MAX_FINITE_STREAMS_PER_PEER,
     MAX_PREFACE_LEN, MAX_RELIABLE_LANES_PER_PEER, PREFACE_VERSION, RELIABLE_CHANNEL_PREFIX_BYTES,
-    RELIABLE_RECORD_HEADER_BYTES, ReliableOpenedStream, ReliableRecordBudget, RetireReason, Role,
+    RELIABLE_RECORD_HEADER_BYTES, RecordBudgets, ReliableOpenedStream, RetireReason, Role,
     RoutedReliableLane, RoutingAttachment, RoutingPreface, SpliceContention, SpliceControlEvent,
     SpliceDeliveryQuote, SpliceDeliveryQuoteEvent, SpliceRegistry, canonical_peer_address,
     reliable_body_len_from_header,
@@ -1977,8 +1977,7 @@ async fn forward_reliable_lane(
         mut recv,
         source_connection,
         _lane_permit,
-        direction_budget,
-        global_budget,
+        reliable_budgets: budgets,
         finite_budgets: _,
         mut destinations,
     } = lane;
@@ -2111,18 +2110,17 @@ async fn forward_reliable_lane(
             .map_err(|_| ReliableLaneError::SourceTimeout)??;
             let body_len = head.body_len();
             let mut remaining = head.remaining();
-            // Record budget other lanes hold frees only as their records land.
-            let _budget = match ReliableRecordBudget::try_acquire(
-                &direction_budget,
-                &global_budget,
-                body_len,
-            ) {
+            // Record budget other lanes hold frees only as their records land,
+            // or, held by a heavier tenant, when the relay takes it back.
+            let record_len =
+                RecordBudgets::record_len(body_len).ok_or(ReliableLaneError::BudgetClosed)?;
+            let _budget = match budgets.try_acquire(record_len, Some(&source_connection)) {
                 Some(budget) => budget,
                 None => {
                     credit.park(true);
                     let budget = tokio::time::timeout_at(
                         deadline,
-                        ReliableRecordBudget::acquire(&direction_budget, &global_budget, body_len),
+                        budgets.acquire(record_len, Some(&source_connection)),
                     )
                     .await;
                     credit.park(false);
@@ -2372,8 +2370,7 @@ async fn drain_reliable_body(
 async fn copy_reliable_lane_until_stopped<R, W, F, O>(
     source: &mut R,
     destination: &mut W,
-    direction_budget: &Arc<tokio::sync::Semaphore>,
-    global_budget: &Arc<tokio::sync::Semaphore>,
+    budgets: &RecordBudgets,
     stopped: F,
 ) -> Result<(), ReliableLaneError>
 where
@@ -2385,7 +2382,7 @@ where
     tokio::select! {
         biased;
         _ = &mut stopped => Err(ReliableLaneError::DestinationStopped),
-        result = copy_reliable_lane(source, destination, direction_budget, global_budget) => result,
+        result = copy_reliable_lane(source, destination, budgets) => result,
     }
 }
 
@@ -2397,8 +2394,7 @@ where
 async fn copy_reliable_lane<R, W>(
     source: &mut R,
     destination: &mut W,
-    direction_budget: &Arc<tokio::sync::Semaphore>,
-    global_budget: &Arc<tokio::sync::Semaphore>,
+    budgets: &RecordBudgets,
 ) -> Result<(), ReliableLaneError>
 where
     R: AsyncRead + Unpin,
@@ -2436,7 +2432,10 @@ where
                 .map_err(|_| ReliableLaneError::HeaderRead)?;
             let body_len =
                 reliable_body_len_from_header(&header).ok_or(ReliableLaneError::InvalidLength)?;
-            let _budget = ReliableRecordBudget::acquire(direction_budget, global_budget, body_len)
+            let record_len =
+                RecordBudgets::record_len(body_len).ok_or(ReliableLaneError::InvalidLength)?;
+            let _budget = budgets
+                .acquire(record_len, None)
                 .await
                 .ok_or(ReliableLaneError::BudgetClosed)?;
 
@@ -2596,6 +2595,31 @@ mod tests {
         RecvStream,
         Option<(SendStream, RecvStream)>,
     ) {
+        attach_test_peer_as(
+            endpoint,
+            url,
+            session_id,
+            role,
+            crate::attach_ticket::TEST_ACCOUNT_ID,
+            crate::attach_ticket::TEST_DAEMON_ID,
+        )
+        .await
+    }
+
+    /// [`attach_test_peer`] for `daemon_id` of `account_id`.
+    pub(super) async fn attach_test_peer_as(
+        endpoint: &Endpoint<Client>,
+        url: &str,
+        session_id: &str,
+        role: Role,
+        account_id: &str,
+        daemon_id: &str,
+    ) -> (
+        wtransport::Connection,
+        SendStream,
+        RecvStream,
+        Option<(SendStream, RecvStream)>,
+    ) {
         let connection = endpoint.connect(url).await.expect("test peer connects");
         let (mut send, recv) = connection
             .open_bi()
@@ -2608,8 +2632,13 @@ mod tests {
             role,
             version: PREFACE_VERSION,
             attachment: test_attachment(role),
-            daemon_id: crate::attach_ticket::TEST_DAEMON_ID.to_string(),
-            ticket: crate::attach_ticket::test_ticket(role.into(), session_id),
+            daemon_id: daemon_id.to_string(),
+            ticket: crate::attach_ticket::test_ticket_for(
+                account_id,
+                daemon_id,
+                role.into(),
+                session_id,
+            ),
         })
         .expect("serialize preface");
         send.write_all(&(json.len() as u32).to_be_bytes())
@@ -2695,16 +2724,9 @@ mod tests {
         let capacity = wire.len().max(64);
         let (mut source_writer, mut source_reader) = tokio::io::duplex(capacity);
         let (mut destination_writer, mut destination_reader) = tokio::io::duplex(capacity);
-        let direction = Arc::new(tokio::sync::Semaphore::new(direction_bytes));
-        let global = Arc::new(tokio::sync::Semaphore::new(global_bytes));
+        let budgets = RecordBudgets::for_test(direction_bytes, global_bytes);
         let copy = tokio::spawn(async move {
-            copy_reliable_lane(
-                &mut source_reader,
-                &mut destination_writer,
-                &direction,
-                &global,
-            )
-            .await
+            copy_reliable_lane(&mut source_reader, &mut destination_writer, &budgets).await
         });
 
         source_writer.write_all(&wire).await.expect("source write");
@@ -3464,20 +3486,12 @@ mod tests {
         let mut wire = vec![0x33];
         wire.extend_from_slice(&5u32.to_be_bytes());
         wire.extend_from_slice(b"abc");
-        let direction = Arc::new(tokio::sync::Semaphore::new(9));
-        let global = Arc::new(tokio::sync::Semaphore::new(9));
+        let budgets = RecordBudgets::for_test(9, 9);
         let (mut source_writer, mut source_reader) = tokio::io::duplex(64);
         let (mut destination_writer, mut destination_reader) = tokio::io::duplex(64);
-        let copy_direction = direction.clone();
-        let copy_global = global.clone();
+        let copy_budgets = budgets.clone();
         let copy = tokio::spawn(async move {
-            copy_reliable_lane(
-                &mut source_reader,
-                &mut destination_writer,
-                &copy_direction,
-                &copy_global,
-            )
-            .await
+            copy_reliable_lane(&mut source_reader, &mut destination_writer, &copy_budgets).await
         });
         source_writer.write_all(&wire).await.expect("source write");
         source_writer.shutdown().await.expect("source finish");
@@ -3492,8 +3506,8 @@ mod tests {
             .await
             .expect("destination read");
         assert_eq!(forwarded, wire);
-        assert_eq!(direction.available_permits(), 9);
-        assert_eq!(global.available_permits(), 9);
+        assert_eq!(budgets.direction.available_permits(), 9);
+        assert_eq!(budgets.global.available(), 9);
     }
 
     #[tokio::test]
@@ -3509,15 +3523,13 @@ mod tests {
     async fn idle_destination_stop_ends_the_persistent_lane() {
         let (mut source_writer, mut source_reader) = tokio::io::duplex(64);
         let (mut destination_writer, mut destination_reader) = tokio::io::duplex(64);
-        let direction = Arc::new(tokio::sync::Semaphore::new(16));
-        let global = Arc::new(tokio::sync::Semaphore::new(16));
+        let budgets = RecordBudgets::for_test(16, 16);
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
         let copy = tokio::spawn(async move {
             copy_reliable_lane_until_stopped(
                 &mut source_reader,
                 &mut destination_writer,
-                &direction,
-                &global,
+                &budgets,
                 async move {
                     let _ = stop_rx.await;
                 },

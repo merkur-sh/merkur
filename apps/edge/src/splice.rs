@@ -34,6 +34,7 @@ use crate::admission::{Admission, FairPool, Place};
 use crate::attach_ticket::Tenant;
 #[cfg(test)]
 use crate::attach_ticket::test_tenant;
+use crate::fair_bytes::{Charge, FairBytes};
 #[cfg(test)]
 use bytes::Bytes;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -281,9 +282,8 @@ pub struct RoutedReliableLane {
     pub(crate) recv: RecvStream,
     pub(crate) source_connection: Arc<Connection>,
     pub(crate) _lane_permit: OwnedSemaphorePermit,
-    pub(crate) direction_budget: Arc<Semaphore>,
-    pub(crate) global_budget: Arc<Semaphore>,
-    pub(crate) finite_budgets: [Arc<Semaphore>; 2],
+    pub(crate) reliable_budgets: RecordBudgets,
+    pub(crate) finite_budgets: RecordBudgets,
     pub(crate) destinations: watch::Receiver<Option<ReliableDestination>>,
 }
 
@@ -291,9 +291,8 @@ impl RoutedReliableLane {
     fn new(
         lane: AcceptedReliableLane,
         source_attachment_id: AttachmentId,
-        direction_budget: Arc<Semaphore>,
-        global_budget: Arc<Semaphore>,
-        finite_budgets: [Arc<Semaphore>; 2],
+        reliable_budgets: RecordBudgets,
+        finite_budgets: RecordBudgets,
         destinations: watch::Receiver<Option<ReliableDestination>>,
     ) -> Self {
         Self {
@@ -301,8 +300,7 @@ impl RoutedReliableLane {
             source_attachment_id,
             source_connection: lane.source_connection,
             _lane_permit: lane._lane_permit,
-            direction_budget,
-            global_budget,
+            reliable_budgets,
             finite_budgets,
             destinations,
         }
@@ -345,83 +343,79 @@ impl ReliableDestination {
     }
 }
 
-/// Drop-owned accounting for one record currently moving through the relay.
-pub struct ReliableRecordBudget {
-    _direction: OwnedSemaphorePermit,
-    _global: OwnedSemaphorePermit,
+/// The budgets one lane's records or transfers draw on: its session's share in
+/// the destination direction, and the process-wide budget shared by tenant.
+#[derive(Clone)]
+pub(crate) struct RecordBudgets {
+    pub(crate) direction: Arc<Semaphore>,
+    pub(crate) global: FairBytes,
+    pub(crate) tenant: Tenant,
 }
 
-impl ReliableRecordBudget {
-    pub(crate) async fn acquire(
-        direction_budget: &Arc<Semaphore>,
-        global_budget: &Arc<Semaphore>,
-        body_len: usize,
-    ) -> Option<Self> {
-        if body_len > MAX_RELIABLE_BODY {
-            return None;
+/// Drop-owned accounting for one record or transfer moving through the relay.
+pub struct ReliableRecordBudget {
+    _direction: OwnedSemaphorePermit,
+    _global: Charge,
+}
+
+impl RecordBudgets {
+    /// Budgets of their own, charged to the test tenant.
+    #[cfg(test)]
+    pub(crate) fn for_test(direction: usize, global: usize) -> Self {
+        Self {
+            direction: Arc::new(Semaphore::new(direction)),
+            global: FairBytes::with_capacity(global),
+            tenant: test_tenant(),
         }
-        let record_len = RELIABLE_RECORD_HEADER_BYTES.checked_add(body_len)?;
-        Self::acquire_bytes(direction_budget, global_budget, record_len).await
     }
 
-    pub(crate) async fn acquire_finite(
-        budgets: &[Arc<Semaphore>; 2],
-        bytes: usize,
-    ) -> Option<Self> {
-        if bytes == 0 || bytes > MAX_FINITE_STREAM_BYTES {
-            return None;
-        }
-        // Reserve the complete possible queue, not just the current read batch.
-        // Includes attachment + lifecycle + length; held through delivery/RESET.
-        Self::acquire_bytes(&budgets[0], &budgets[1], bytes + 13).await
+    /// The bytes a durable record holds: its header and body.
+    pub(crate) fn record_len(body_len: usize) -> Option<usize> {
+        (body_len <= MAX_RELIABLE_BODY).then_some(RELIABLE_RECORD_HEADER_BYTES + body_len)
     }
 
-    /// `acquire_finite` without waiting: `None` when either budget, or the
-    /// size, cannot admit the transfer now.
-    pub(crate) fn try_acquire_finite(budgets: &[Arc<Semaphore>; 2], bytes: usize) -> Option<Self> {
-        if bytes == 0 || bytes > MAX_FINITE_STREAM_BYTES {
-            return None;
-        }
-        let permits = u32::try_from(bytes + 13).ok()?;
-        Some(ReliableRecordBudget {
-            _direction: budgets[0].clone().try_acquire_many_owned(permits).ok()?,
-            _global: budgets[1].clone().try_acquire_many_owned(permits).ok()?,
-        })
+    /// The bytes a finite transfer holds: the complete possible queue, not just
+    /// the current read batch, with the attachment, lifecycle and length the
+    /// relay adds. Held through delivery or RESET.
+    pub(crate) fn transfer_len(bytes: usize) -> Option<usize> {
+        (bytes != 0 && bytes <= MAX_FINITE_STREAM_BYTES).then_some(bytes + 13)
     }
 
-    /// `acquire` without waiting: `None` when either budget, or the size,
-    /// cannot admit the record now.
+    /// `bytes` from both budgets now, or `None` when either cannot admit them.
+    /// `owner` is the connection a fair-share reclaim closes.
     pub(crate) fn try_acquire(
-        direction_budget: &Arc<Semaphore>,
-        global_budget: &Arc<Semaphore>,
-        body_len: usize,
-    ) -> Option<Self> {
-        if body_len > MAX_RELIABLE_BODY {
-            return None;
-        }
-        let permits = u32::try_from(RELIABLE_RECORD_HEADER_BYTES.checked_add(body_len)?).ok()?;
+        &self,
+        bytes: usize,
+        owner: Option<&Arc<Connection>>,
+    ) -> Option<ReliableRecordBudget> {
+        let permits = u32::try_from(bytes).ok()?;
+        let direction = self
+            .direction
+            .clone()
+            .try_acquire_many_owned(permits)
+            .ok()?;
+        let global = self.global.try_charge(self.tenant, bytes, owner)?;
         Some(ReliableRecordBudget {
-            _direction: direction_budget.clone().try_acquire_many_owned(permits).ok()?,
-            _global: global_budget.clone().try_acquire_many_owned(permits).ok()?,
+            _direction: direction,
+            _global: global,
         })
     }
 
-    async fn acquire_bytes(
-        direction_budget: &Arc<Semaphore>,
-        global_budget: &Arc<Semaphore>,
+    /// `bytes` from both budgets once they fit. A lighter tenant waiting on
+    /// the global budget takes bytes back from the heaviest one.
+    pub(crate) async fn acquire(
+        &self,
         bytes: usize,
-    ) -> Option<Self> {
+        owner: Option<&Arc<Connection>>,
+    ) -> Option<ReliableRecordBudget> {
         let permits = u32::try_from(bytes).ok()?;
-        let direction = direction_budget
+        let direction = self
+            .direction
             .clone()
             .acquire_many_owned(permits)
             .await
             .ok()?;
-        let global = global_budget
-            .clone()
-            .acquire_many_owned(permits)
-            .await
-            .ok()?;
+        let global = self.global.charge(self.tenant, bytes, owner).await?;
         Some(ReliableRecordBudget {
             _direction: direction,
             _global: global,
@@ -975,8 +969,9 @@ pub struct SpliceRegistry {
     max_sessions: usize,
     unpaired_ttl: Duration,
     reliable_bytes_per_direction: usize,
-    global_reliable_bytes: Arc<Semaphore>,
-    global_finite_bytes: Arc<Semaphore>,
+    /// Durable record and finite transfer bytes in flight, shared by tenant.
+    global_reliable_bytes: FairBytes,
+    global_finite_bytes: FairBytes,
     global_session_tasks: Arc<Semaphore>,
     /// Proof bridges in flight, shared between tenants.
     candidate_bridges: FairPool<Tenant>,
@@ -1008,8 +1003,8 @@ impl SpliceRegistry {
             max_sessions: MAX_SPLICE_SESSIONS,
             unpaired_ttl: UNPAIRED_SESSION_TTL,
             reliable_bytes_per_direction: SPLICE_RELIABLE_BYTES_PER_DIRECTION,
-            global_reliable_bytes: Arc::new(Semaphore::new(SPLICE_RELIABLE_BYTES_GLOBAL)),
-            global_finite_bytes: Arc::new(Semaphore::new(SPLICE_FINITE_BYTES_GLOBAL)),
+            global_reliable_bytes: FairBytes::with_capacity(SPLICE_RELIABLE_BYTES_GLOBAL),
+            global_finite_bytes: FairBytes::with_capacity(SPLICE_FINITE_BYTES_GLOBAL),
             global_session_tasks: Arc::new(Semaphore::new(MAX_SPLICE_SESSION_TASKS)),
             candidate_bridges: FairPool::with_capacity(CANDIDATE_BRIDGES),
         }
@@ -1497,15 +1492,19 @@ impl SpliceRegistry {
         Some(RoutedReliableLane::new(
             lane,
             attachment_id,
-            slot.reliable_budget_for(peer_role).clone(),
-            self.global_reliable_bytes.clone(),
-            [
-                match peer_role {
+            RecordBudgets {
+                direction: slot.reliable_budget_for(peer_role).clone(),
+                global: self.global_reliable_bytes.clone(),
+                tenant: slot.tenant,
+            },
+            RecordBudgets {
+                direction: match peer_role {
                     Role::Browser => slot.finite_bytes_for_browser.clone(),
                     Role::Daemon => slot.finite_bytes_for_daemon.clone(),
                 },
-                self.global_finite_bytes.clone(),
-            ],
+                global: self.global_finite_bytes.clone(),
+                tenant: slot.tenant,
+            },
             slot.destination_for(peer_role).subscribe(),
         ))
     }
@@ -1600,8 +1599,8 @@ impl SpliceRegistry {
 
     /// The finite byte budget every session's transfers draw on.
     #[cfg(test)]
-    pub(crate) fn global_finite_budget(&self) -> Arc<Semaphore> {
-        Arc::clone(&self.global_finite_bytes)
+    pub(crate) fn global_finite_budget(&self) -> FairBytes {
+        self.global_finite_bytes.clone()
     }
 
     /// Accepted-session admissions no session task holds.
@@ -1624,8 +1623,8 @@ impl SpliceRegistry {
 
     /// The durable record budget every session's lanes draw on.
     #[cfg(test)]
-    pub(crate) fn global_reliable_budget(&self) -> Arc<Semaphore> {
-        Arc::clone(&self.global_reliable_bytes)
+    pub(crate) fn global_reliable_budget(&self) -> FairBytes {
+        self.global_reliable_bytes.clone()
     }
 
     #[cfg(test)]
@@ -1645,8 +1644,8 @@ impl SpliceRegistry {
             max_sessions,
             unpaired_ttl,
             reliable_bytes_per_direction,
-            global_reliable_bytes: Arc::new(Semaphore::new(global_reliable_bytes)),
-            global_finite_bytes: Arc::new(Semaphore::new(SPLICE_FINITE_BYTES_GLOBAL)),
+            global_reliable_bytes: FairBytes::with_capacity(global_reliable_bytes),
+            global_finite_bytes: FairBytes::with_capacity(SPLICE_FINITE_BYTES_GLOBAL),
             global_session_tasks: Arc::new(Semaphore::new(MAX_SPLICE_SESSION_TASKS)),
             candidate_bridges: FairPool::with_capacity(CANDIDATE_BRIDGES),
         }
@@ -2879,18 +2878,19 @@ mod tests {
 
     #[tokio::test]
     async fn record_budget_is_held_until_record_copy_finishes() {
-        let direction = Arc::new(Semaphore::new(8));
-        let global = Arc::new(Semaphore::new(8));
-        let first = ReliableRecordBudget::acquire(&direction, &global, 4)
+        let budgets = RecordBudgets::for_test(8, 8);
+        let first = budgets
+            .acquire(RecordBudgets::record_len(4).unwrap(), None)
             .await
             .expect("first record budget");
-        assert_eq!(direction.available_permits(), 0);
-        assert_eq!(global.available_permits(), 0);
+        assert_eq!(budgets.direction.available_permits(), 0);
+        assert_eq!(budgets.global.available(), 0);
 
-        let waiting_direction = direction.clone();
-        let waiting_global = global.clone();
+        let waiting = budgets.clone();
         let waiter = tokio::spawn(async move {
-            ReliableRecordBudget::acquire(&waiting_direction, &waiting_global, 0).await
+            waiting
+                .acquire(RecordBudgets::record_len(0).unwrap(), None)
+                .await
         });
         tokio::task::yield_now().await;
         assert!(!waiter.is_finished());
@@ -2901,30 +2901,34 @@ mod tests {
             .expect("budget waiter did not resume")
             .expect("budget waiter task")
             .expect("second record budget");
-        assert_eq!(direction.available_permits(), 4);
-        assert_eq!(global.available_permits(), 4);
+        assert_eq!(budgets.direction.available_permits(), 4);
+        assert_eq!(budgets.global.available(), 4);
         drop(second);
-        assert_eq!(direction.available_permits(), 8);
-        assert_eq!(global.available_permits(), 8);
+        assert_eq!(budgets.direction.available_permits(), 8);
+        assert_eq!(budgets.global.available(), 8);
     }
 
     #[tokio::test]
     async fn record_budgets_are_directional_and_global() {
-        let global = Arc::new(Semaphore::new(12));
-        let to_browser = Arc::new(Semaphore::new(8));
-        let to_daemon = Arc::new(Semaphore::new(8));
+        let to_browser = RecordBudgets::for_test(8, 12);
+        let to_daemon = RecordBudgets {
+            direction: Arc::new(Semaphore::new(8)),
+            ..to_browser.clone()
+        };
 
-        let browser_record = ReliableRecordBudget::acquire(&to_browser, &global, 4)
+        let browser_record = to_browser
+            .acquire(RecordBudgets::record_len(4).unwrap(), None)
             .await
             .expect("browser record");
-        assert_eq!(to_browser.available_permits(), 0);
-        assert_eq!(to_daemon.available_permits(), 8);
-        assert_eq!(global.available_permits(), 4);
+        assert_eq!(to_browser.direction.available_permits(), 0);
+        assert_eq!(to_daemon.direction.available_permits(), 8);
+        assert_eq!(to_browser.global.available(), 4);
 
-        let daemon_wait_direction = to_daemon.clone();
-        let daemon_wait_global = global.clone();
+        let waiting = to_daemon.clone();
         let waiter = tokio::spawn(async move {
-            ReliableRecordBudget::acquire(&daemon_wait_direction, &daemon_wait_global, 1).await
+            waiting
+                .acquire(RecordBudgets::record_len(1).unwrap(), None)
+                .await
         });
         tokio::task::yield_now().await;
         assert!(!waiter.is_finished(), "global budget was bypassed");
@@ -2935,9 +2939,9 @@ mod tests {
             .expect("global waiter did not resume")
             .expect("global waiter task")
             .expect("daemon record");
-        assert_eq!(to_daemon.available_permits(), 3);
+        assert_eq!(to_daemon.direction.available_permits(), 3);
         drop(daemon_record);
-        assert_eq!(global.available_permits(), 12);
+        assert_eq!(to_browser.global.available(), 12);
     }
     #[test]
     fn session_task_admission_exhausts_and_recovers_across_registry_clones() {

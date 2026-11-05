@@ -84,8 +84,10 @@ its own holds fewer. A flood can therefore fill only that pool, and costs a clie
 trip only while it lasts ([edge README](../apps/edge/README.md#before-the-ticket)).
 
 Every ticket also names its account as an opaque tenant (an HMAC of the account id), and the
-edge shares its session labels and candidate bridges by tenant. In a full registry, the tenant
-holding the most gives up its oldest session to a tenant that holds fewer. One account
+edge shares its session labels, candidate bridges, and process-wide reliable and finite byte
+budgets by tenant. In a full registry, the tenant holding the most gives up its oldest session
+to a tenant that holds fewer. A full byte budget closes the heaviest tenant's connection with
+the largest reservation, so bytes declared and never sent block only their own account. One account
 therefore cannot keep another below an equal share, however many sessions its own linked
 machine opens. What still bounds a determined attacker is how many accounts they can create
 ([edge README](../apps/edge/README.md#sharing-between-accounts)).
