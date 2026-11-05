@@ -83,6 +83,13 @@ proven connection takes the place of an unproven one, or of the network holding 
 its own holds fewer. A flood can therefore fill only that pool, and costs a client one round
 trip only while it lasts ([edge README](../apps/edge/README.md#before-the-ticket)).
 
+Every ticket also names its account as an opaque tenant (an HMAC of the account id), and the
+edge shares its session labels and candidate bridges by tenant. In a full registry, the tenant
+holding the most gives up its oldest session to a tenant that holds fewer. One account
+therefore cannot keep another below an equal share, however many sessions its own linked
+machine opens. What still bounds a determined attacker is how many accounts they can create
+([edge README](../apps/edge/README.md#sharing-between-accounts)).
+
 Control registration holds the database write lock while checking that the authenticated daemon
 binding still matches the linked row, claiming its Redis lease and recording its exact ownership
 in `daemon_control_owners`. Unlinking cascades that record into

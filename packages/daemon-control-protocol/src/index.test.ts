@@ -136,7 +136,7 @@ describe('daemon control protocol v1', () => {
         'ticket',
         'secret',
         4_000,
-        'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
         null,
         true,
@@ -152,7 +152,7 @@ describe('daemon control protocol v1', () => {
         'ticket',
         'secret',
         4_000,
-        'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
         'v2.0.0',
         false,
@@ -165,7 +165,7 @@ describe('daemon control protocol v1', () => {
         'ticket',
         'secret',
         4_000,
-        'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
       ),
       createDaemonControlRevocationMessage(4),
@@ -234,7 +234,7 @@ describe('daemon control protocol v1', () => {
   });
 
   test('accepts only distinct canonical edges with one or two distinct hashes', () => {
-    const lease = createDaemonControlLeaseMessage(3, 'ticket', 'secret', 4_000, 'A'.repeat(35), []);
+    const lease = createDaemonControlLeaseMessage(3, 'ticket', 'secret', 4_000, 'A'.repeat(56), []);
     expect(parseDaemonControlServerMessage(lease)).toEqual(lease);
     const [edge] = EDGES;
     for (const edges of [
@@ -261,11 +261,11 @@ describe('daemon control protocol v1', () => {
       'ticket',
       'secret',
       4_000,
-      'A'.repeat(35),
+      'A'.repeat(56),
       EDGES,
     );
     expect(parseDaemonControlServerMessage(lease)).toEqual(lease);
-    for (const edgeAttachTicket of ['', 'A'.repeat(34), 'A'.repeat(36), `${'A'.repeat(34)}=`]) {
+    for (const edgeAttachTicket of ['', 'A'.repeat(55), 'A'.repeat(57), `${'A'.repeat(55)}=`]) {
       expect(parseDaemonControlServerMessage({ ...lease, edgeAttachTicket })).toBeNull();
     }
     const { edgeAttachTicket: _omitted, ...unticketed } = lease;
@@ -299,7 +299,7 @@ describe('daemon control protocol v1', () => {
       'ticket',
       'secret',
       4_000,
-      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       EDGES,
       null,
       true,

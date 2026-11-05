@@ -20,7 +20,7 @@ const CURRENT_RESPONSE = {
   sessionId: 'session-1',
   edgeWtUrl: 'https://edge.example:4433/',
   edgeCertHashes: [CURRENT_CERT_HASH],
-  edgeAttachTicket: Buffer.alloc(26, 5).toString('base64url'),
+  edgeAttachTicket: Buffer.alloc(42, 5).toString('base64url'),
 } as const;
 
 describe('current session response contract', () => {
@@ -95,9 +95,9 @@ describe('current session response contract', () => {
     expect(parseSessionRequestResponse(unticketed)).toBeNull();
     for (const edgeAttachTicket of [
       '',
-      Buffer.alloc(25, 5).toString('base64url'),
-      Buffer.alloc(27, 5).toString('base64url'),
-      `${Buffer.alloc(26, 5).toString('base64url')}=`,
+      Buffer.alloc(41, 5).toString('base64url'),
+      Buffer.alloc(43, 5).toString('base64url'),
+      `${Buffer.alloc(42, 5).toString('base64url')}=`,
     ]) {
       expect(parseSessionRequestResponse({ ...CURRENT_RESPONSE, edgeAttachTicket })).toBeNull();
     }

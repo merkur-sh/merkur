@@ -338,7 +338,7 @@ function response(sessionId: string, expiresAtMs: number): SessionIssuanceRespon
     sessionId,
     edgeWtUrl: 'https://edge.example/',
     edgeCertHashes: [Buffer.alloc(32, 7).toString('base64')],
-    edgeAttachTicket: Buffer.alloc(26, 1).toString('base64url'),
+    edgeAttachTicket: Buffer.alloc(42, 1).toString('base64url'),
     clientNonce: Buffer.alloc(32, 9).toString('base64url'),
     encapsulationKey: Buffer.alloc(1_568, 10).toString('base64url'),
   };

@@ -73,7 +73,7 @@ function response(sessionId: string, expiresAtMs = 100_000): SessionIssuanceResp
     sessionId,
     edgeWtUrl: 'https://edge.example/',
     edgeCertHashes: [VALID_CERT_HASH],
-    edgeAttachTicket: Buffer.alloc(26, 1).toString('base64url'),
+    edgeAttachTicket: Buffer.alloc(42, 1).toString('base64url'),
     clientNonce: CLIENT_NONCE,
     encapsulationKey: ENCAPSULATION_KEY,
   };

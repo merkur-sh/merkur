@@ -20,6 +20,12 @@
 //!   rebind are in-band between browser and daemon, so an expiring browser ticket
 //!   would refuse legitimate lane redials long after the server last spoke.
 //!
+//! Both roles also name the **tenant**, the account the attachment is charged
+//! to. The edge shares its splice slots and byte budgets between tenants, so
+//! no account can hold another below an equal share however many sessions it
+//! opens. The tenant is opaque: the first 16 bytes of an HMAC of the account
+//! id under the deployment key, so the edge never learns account identifiers.
+//!
 //! The wire format has a second implementation in TypeScript
 //! (`apps/server/src/services/edge-attach-ticket.ts`), which issues. Both suites
 //! pin the same vector, because nothing at runtime detects drift.
@@ -27,14 +33,14 @@
 //! Layout, base64url without padding on the wire:
 //!
 //! ```text
-//!   version(1) | role(1) | expiry_unix_secs(8, big-endian) | tag(16)
+//!   version(1) | role(1) | expiry_unix_secs(8, big-endian) | tenant(16) | tag(16)
 //! ```
 //!
 //! `tag` is HMAC-SHA256 truncated to 16 bytes over the label, version, role,
-//! expiry, and the length-prefixed daemon id and base session id (empty for a
-//! daemon ticket). The session id is the base routing label: the interactive
-//! lane uses it bare, the other lanes append `#signaling` or `#bulk`, and one
-//! browser ticket covers all three.
+//! expiry, tenant, and the length-prefixed daemon id and base session id (empty
+//! for a daemon ticket). The session id is the base routing label: the
+//! interactive lane uses it bare, the other lanes append `#signaling` or
+//! `#bulk`, and one browser ticket covers all three.
 
 use base64::Engine;
 use ring::hmac;
@@ -52,14 +58,22 @@ const TICKET_VERSION: u8 = 1;
 const ROLE_BROWSER: u8 = 1;
 const ROLE_DAEMON: u8 = 2;
 const TAG_LEN: usize = 16;
-/// version(1) + role(1) + expiry(8) + tag(16)
-pub const TICKET_LEN: usize = 1 + 1 + 8 + TAG_LEN;
+pub const TENANT_LEN: usize = 16;
+const HEADER_LEN: usize = 1 + 1 + 8;
+/// version(1) + role(1) + expiry(8) + tenant(16) + tag(16)
+pub const TICKET_LEN: usize = HEADER_LEN + TENANT_LEN + TAG_LEN;
 /// Length of the 64-byte deployment key, matching how every other Merkur
 /// deployment secret is sized.
 pub const KEY_LEN: usize = 64;
 
 /// Domain separation from every other use of HMAC in the deployment.
 const TAG_LABEL: &[u8] = b"merkur-edge-attach-ticket-v1";
+const TENANT_LABEL: &[u8] = b"merkur-edge-tenant";
+
+/// The account an attachment is charged to, as the edge sees it: opaque, equal
+/// for every ticket the server issues to one account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Tenant([u8; TENANT_LEN]);
 
 /// Longest a daemon ticket may remain valid once minted.
 ///
@@ -112,10 +126,37 @@ impl AttachTicketKey {
         Ok(Self::new(&secret))
     }
 
+    /// The tenant the server names for `account_id`.
+    #[cfg_attr(
+        not(test),
+        expect(
+            clippy::allow_attributes,
+            reason = "`#[path]` compiles this file into three binaries and `tenant` is dead only \
+                      in `merkur-edge`, so no expectation holds in all of them"
+        )
+    )]
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "the edge verifies tickets; the server issues them"
+        )
+    )]
+    pub fn tenant(&self, account_id: &str) -> Tenant {
+        let mut context = hmac::Context::with_key(&self.key);
+        context.update(TENANT_LABEL);
+        context.update(account_id.as_bytes());
+        let full = context.sign();
+        let mut tenant = [0u8; TENANT_LEN];
+        tenant.copy_from_slice(&full.as_ref()[..TENANT_LEN]);
+        Tenant(tenant)
+    }
+
     fn tag(
         &self,
         role: u8,
         expiry: u64,
+        tenant: &Tenant,
         daemon_id: &str,
         session_id: &str,
     ) -> Result<[u8; TAG_LEN], TicketError> {
@@ -126,6 +167,7 @@ impl AttachTicketKey {
         context.update(TAG_LABEL);
         context.update(&[TICKET_VERSION, role]);
         context.update(&expiry.to_be_bytes());
+        context.update(&tenant.0);
         context.update(&daemon_len.to_be_bytes());
         context.update(daemon_id.as_bytes());
         context.update(&session_len.to_be_bytes());
@@ -154,6 +196,7 @@ impl AttachTicketKey {
     pub fn issue(
         &self,
         role: TicketRole,
+        account_id: &str,
         daemon_id: &str,
         session_id: &str,
         expiry_unix_secs: u64,
@@ -162,16 +205,19 @@ impl AttachTicketKey {
             TicketRole::Browser => (ROLE_BROWSER, base_session_id(session_id), 0),
             TicketRole::Daemon => (ROLE_DAEMON, "", expiry_unix_secs),
         };
-        let tag = self.tag(role_byte, expiry, daemon_id, session)?;
+        let tenant = self.tenant(account_id);
+        let tag = self.tag(role_byte, expiry, &tenant, daemon_id, session)?;
         let mut ticket = [0u8; TICKET_LEN];
         ticket[0] = TICKET_VERSION;
         ticket[1] = role_byte;
-        ticket[2..10].copy_from_slice(&expiry.to_be_bytes());
-        ticket[10..].copy_from_slice(&tag);
+        ticket[2..HEADER_LEN].copy_from_slice(&expiry.to_be_bytes());
+        ticket[HEADER_LEN..HEADER_LEN + TENANT_LEN].copy_from_slice(&tenant.0);
+        ticket[HEADER_LEN + TENANT_LEN..].copy_from_slice(&tag);
         Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(ticket))
     }
 
-    /// Verify the ticket a routing preface carries.
+    /// Verify the ticket a routing preface carries, returning the tenant the
+    /// attachment is charged to.
     ///
     /// Order follows the STUN verifier: the tag is checked before the expiry, so
     /// a forged ticket and an expired one take the same path.
@@ -182,33 +228,41 @@ impl AttachTicketKey {
         routing_session_id: &str,
         ticket: &str,
         now_unix_secs: u64,
-    ) -> Result<(), TicketError> {
+    ) -> Result<Tenant, TicketError> {
         let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .decode(ticket.as_bytes())
             .map_err(|_| TicketError::Encoding)?;
         if decoded.len() != TICKET_LEN {
             return Err(TicketError::WrongLength);
         }
-        if decoded[0] != TICKET_VERSION {
+        let Some((&[version, role_byte], rest)) = decoded.split_first_chunk::<2>() else {
+            return Err(TicketError::WrongLength);
+        };
+        let Some((expiry, rest)) = rest.split_first_chunk::<8>() else {
+            return Err(TicketError::WrongLength);
+        };
+        let Some((tenant, tag)) = rest.split_first_chunk::<TENANT_LEN>() else {
+            return Err(TicketError::WrongLength);
+        };
+        if version != TICKET_VERSION {
             return Err(TicketError::UnknownVersion);
         }
         let (expected_role, session) = match role {
             TicketRole::Browser => (ROLE_BROWSER, base_session_id(routing_session_id)),
             TicketRole::Daemon => (ROLE_DAEMON, ""),
         };
-        if decoded[1] != expected_role {
+        if role_byte != expected_role {
             return Err(TicketError::WrongRole);
         }
-        let mut expiry_bytes = [0u8; 8];
-        expiry_bytes.copy_from_slice(&decoded[2..10]);
-        let expiry = u64::from_be_bytes(expiry_bytes);
-        let expected = self.tag(expected_role, expiry, daemon_id, session)?;
-        if !constant_time_eq(&expected, &decoded[10..]) {
+        let expiry = u64::from_be_bytes(*expiry);
+        let tenant = Tenant(*tenant);
+        let expected = self.tag(expected_role, expiry, &tenant, daemon_id, session)?;
+        if !constant_time_eq(&expected, tag) {
             return Err(TicketError::BadTag);
         }
         match role {
             TicketRole::Browser if expiry != 0 => Err(TicketError::UnexpectedExpiry),
-            TicketRole::Browser => Ok(()),
+            TicketRole::Browser => Ok(tenant),
             TicketRole::Daemon => {
                 if expiry.saturating_add(CLOCK_SKEW_TOLERANCE_SECS) < now_unix_secs {
                     return Err(TicketError::Expired);
@@ -220,7 +274,7 @@ impl AttachTicketKey {
                 {
                     return Err(TicketError::LifetimeTooLong);
                 }
-                Ok(())
+                Ok(tenant)
             }
         }
     }
@@ -247,22 +301,46 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 #[cfg(test)]
 pub const TEST_DAEMON_ID: &str = "test-daemon";
 
+/// The account every relay test attachment is charged to.
+#[cfg(test)]
+pub const TEST_ACCOUNT_ID: &str = "test-account";
+
 /// The deployment key relay tests run their accept loops with.
 #[cfg(test)]
 pub fn test_key() -> std::sync::Arc<AttachTicketKey> {
     std::sync::Arc::new(AttachTicketKey::new(&[9u8; KEY_LEN]))
 }
 
-/// A ticket `test_key` admits for `role` on `session_id`, for `TEST_DAEMON_ID`.
+/// The tenant `test_ticket` charges, for tests that attach to the registry
+/// directly.
+#[cfg(test)]
+pub fn test_tenant() -> Tenant {
+    test_key().tenant(TEST_ACCOUNT_ID)
+}
+
+/// A ticket `test_key` admits for `role` on `session_id`, for `TEST_DAEMON_ID`
+/// of `TEST_ACCOUNT_ID`.
 #[cfg(test)]
 pub fn test_ticket(role: TicketRole, session_id: &str) -> String {
+    test_ticket_for(TEST_ACCOUNT_ID, TEST_DAEMON_ID, role, session_id)
+}
+
+/// A ticket `test_key` admits for `role` on `session_id`, for `daemon_id` of
+/// `account_id`.
+#[cfg(test)]
+pub fn test_ticket_for(
+    account_id: &str,
+    daemon_id: &str,
+    role: TicketRole,
+    session_id: &str,
+) -> String {
     let expiry = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("clock after the epoch")
         .as_secs()
         + 90;
     test_key()
-        .issue(role, TEST_DAEMON_ID, session_id, expiry)
+        .issue(role, account_id, daemon_id, session_id, expiry)
         .expect("test ticket")
 }
 
@@ -281,14 +359,61 @@ mod tests {
     fn conformance_vector() {
         let key = key();
         assert_eq!(
-            key.issue(TicketRole::Browser, "daemon-1", "session-1#bulk", 0)
-                .unwrap(),
-            "AQEAAAAAAAAAAKjJ6FRstzs_T-7SD4qU60I"
+            key.issue(
+                TicketRole::Browser,
+                "account-1",
+                "daemon-1",
+                "session-1#bulk",
+                0
+            )
+            .unwrap(),
+            "AQEAAAAAAAAAAOKVgb4PtGhqTO1v5xkqMU9wmdJv6YvIntrCbyT7ouK2"
         );
         assert_eq!(
-            key.issue(TicketRole::Daemon, "daemon-1", "", 1_790_000_090)
-                .unwrap(),
-            "AQIAAAAAarE72rtPDdT1Fc4HX_bsiZ172Gk"
+            key.issue(
+                TicketRole::Daemon,
+                "account-1",
+                "daemon-1",
+                "",
+                1_790_000_090
+            )
+            .unwrap(),
+            "AQIAAAAAarE72uKVgb4PtGhqTO1v5xkqMU_kLSZi3SgA0mujNhWJ0mox"
+        );
+    }
+
+    #[test]
+    fn a_ticket_names_its_account_as_an_opaque_tenant() {
+        let key = key();
+        let tenant = key.tenant("account-1");
+        assert_ne!(tenant, key.tenant("account-2"));
+        assert_ne!(
+            tenant,
+            AttachTicketKey::new(&[8u8; KEY_LEN]).tenant("account-1")
+        );
+        let browser = key
+            .issue(TicketRole::Browser, "account-1", "daemon-1", "s", 0)
+            .unwrap();
+        let daemon = key
+            .issue(TicketRole::Daemon, "account-1", "daemon-1", "", NOW + 90)
+            .unwrap();
+        assert_eq!(
+            key.verify(TicketRole::Browser, "daemon-1", "s", &browser, NOW),
+            Ok(tenant)
+        );
+        assert_eq!(
+            key.verify(TicketRole::Daemon, "daemon-1", "s", &daemon, NOW),
+            Ok(tenant)
+        );
+        // A ticket re-charged to another tenant no longer verifies.
+        let mut bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(&browser)
+            .unwrap();
+        bytes[HEADER_LEN] ^= 1;
+        let recharged = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&bytes);
+        assert_eq!(
+            key.verify(TicketRole::Browser, "daemon-1", "s", &recharged, NOW),
+            Err(TicketError::BadTag)
         );
     }
 
@@ -296,12 +421,12 @@ mod tests {
     fn one_browser_ticket_covers_every_lane_of_its_session() {
         let key = key();
         let ticket = key
-            .issue(TicketRole::Browser, "daemon-1", "session-1", 0)
+            .issue(TicketRole::Browser, "account-1", "daemon-1", "session-1", 0)
             .unwrap();
         for label in ["session-1", "session-1#signaling", "session-1#bulk"] {
             assert_eq!(
                 key.verify(TicketRole::Browser, "daemon-1", label, &ticket, NOW),
-                Ok(())
+                Ok(key.tenant("account-1"))
             );
         }
         assert_eq!(
@@ -318,12 +443,12 @@ mod tests {
     fn a_daemon_ticket_names_its_daemon_and_expires() {
         let key = key();
         let ticket = key
-            .issue(TicketRole::Daemon, "daemon-1", "", NOW + 90)
+            .issue(TicketRole::Daemon, "account-1", "daemon-1", "", NOW + 90)
             .unwrap();
         for label in ["any-session", "other#bulk"] {
             assert_eq!(
                 key.verify(TicketRole::Daemon, "daemon-1", label, &ticket, NOW),
-                Ok(())
+                Ok(key.tenant("account-1"))
             );
         }
         assert_eq!(
@@ -335,7 +460,13 @@ mod tests {
             Err(TicketError::Expired)
         );
         let eternal = key
-            .issue(TicketRole::Daemon, "daemon-1", "", NOW + 24 * 60 * 60)
+            .issue(
+                TicketRole::Daemon,
+                "account-1",
+                "daemon-1",
+                "",
+                NOW + 24 * 60 * 60,
+            )
             .unwrap();
         assert_eq!(
             key.verify(TicketRole::Daemon, "daemon-1", "s", &eternal, NOW),
@@ -346,9 +477,11 @@ mod tests {
     #[test]
     fn a_ticket_cannot_change_role() {
         let key = key();
-        let browser = key.issue(TicketRole::Browser, "daemon-1", "s", 0).unwrap();
+        let browser = key
+            .issue(TicketRole::Browser, "account-1", "daemon-1", "s", 0)
+            .unwrap();
         let daemon = key
-            .issue(TicketRole::Daemon, "daemon-1", "", NOW + 90)
+            .issue(TicketRole::Daemon, "account-1", "daemon-1", "", NOW + 90)
             .unwrap();
         assert_eq!(
             key.verify(TicketRole::Daemon, "daemon-1", "s", &browser, NOW),
@@ -365,7 +498,7 @@ mod tests {
         let key = key();
         let other = AttachTicketKey::new(&[8u8; KEY_LEN]);
         let foreign = other
-            .issue(TicketRole::Browser, "daemon-1", "s", 0)
+            .issue(TicketRole::Browser, "account-1", "daemon-1", "s", 0)
             .unwrap();
         assert_eq!(
             key.verify(TicketRole::Browser, "daemon-1", "s", &foreign, NOW),
@@ -380,7 +513,10 @@ mod tests {
             Err(TicketError::Encoding)
         );
         let mut bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .decode(key.issue(TicketRole::Browser, "daemon-1", "s", 0).unwrap())
+            .decode(
+                key.issue(TicketRole::Browser, "account-1", "daemon-1", "s", 0)
+                    .unwrap(),
+            )
             .unwrap();
         bytes[0] = 2;
         let wrong_version = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&bytes);

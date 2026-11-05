@@ -56,7 +56,7 @@ const requestResult: RequestSessionResult = {
   sessionId: 'session-id',
   edgeWtUrl: 'https://edge.example.test',
   edgeCertHashes: ['AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='],
-  edgeAttachTicket: 'A'.repeat(35),
+  edgeAttachTicket: 'A'.repeat(56),
 };
 
 const SESSION_AUTH_FIELDS = {

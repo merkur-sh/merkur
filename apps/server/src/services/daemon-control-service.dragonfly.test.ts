@@ -89,7 +89,7 @@ if (dragonflyUrl === undefined) {
                       lifetimeMs: 90_000,
                     }),
                   },
-                  edgeAttach: { forDaemon: () => 'A'.repeat(35), forBrowser: () => 'A'.repeat(35) },
+                  edgeAttach: { forDaemon: () => 'A'.repeat(56), forBrowser: () => 'A'.repeat(56) },
                   edges: Effect.succeed([
                     { edgeWtUrl: 'https://edge.test:4433/', certHashes: [CERT_HASH] },
                   ]),

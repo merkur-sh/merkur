@@ -44,6 +44,7 @@ async fn signaling_only_refuses_primary_data_after_preface() {
         let ticket = crate::attach_ticket::test_key()
             .issue(
                 crate::attach_ticket::TicketRole::Browser,
+                crate::attach_ticket::TEST_ACCOUNT_ID,
                 crate::attach_ticket::TEST_DAEMON_ID,
                 "budget",
                 0,
@@ -125,6 +126,7 @@ async fn stopped_ignores_connections_and_rollover_reopens() {
         ticket: crate::attach_ticket::test_key()
             .issue(
                 crate::attach_ticket::TicketRole::Browser,
+                crate::attach_ticket::TEST_ACCOUNT_ID,
                 crate::attach_ticket::TEST_DAEMON_ID,
                 "budget",
                 0,
@@ -338,7 +340,12 @@ async fn budget_attach_and_bind_races_use_the_typed_close() {
             let (preface, control, _inbound) = read_routing_preface(&edge).await.unwrap();
             if bind {
                 let handle = registry
-                    .attach(&preface.session_id, preface.role, &preface.daemon_id)
+                    .attach(
+                        &preface.session_id,
+                        preface.role,
+                        &preface.daemon_id,
+                        test_tenant(),
+                    )
                     .unwrap();
                 registry.apply_egress_state(BudgetState::SignalingOnly);
                 registry.bind_transport(
@@ -349,8 +356,17 @@ async fn budget_attach_and_bind_races_use_the_typed_close() {
                 );
             } else {
                 registry.apply_egress_state(BudgetState::SignalingOnly);
-                run_spliced_session(edge.clone(), registry, preface, control, None, None, None)
-                    .await;
+                run_spliced_session(
+                    edge.clone(),
+                    registry,
+                    preface,
+                    test_tenant(),
+                    control,
+                    None,
+                    None,
+                    None,
+                )
+                .await;
             }
             // Keep the endpoint alive until the peer acknowledges the close.
             server.wait_idle().await;
@@ -465,7 +481,7 @@ async fn failed_candidate_controls_detach_promoted_browser()
     let session = "failed-controls#signaling";
     let daemon_id = crate::attach_ticket::TEST_DAEMON_ID;
     let daemon = registry
-        .attach(session, Role::Daemon, daemon_id)
+        .attach(session, Role::Daemon, daemon_id, test_tenant())
         .map_err(|error| format!("{error:?}"))?;
     let (mut control, _inbound) = edge.open_bi().await?.await?;
     write_splice_control(
@@ -492,6 +508,7 @@ async fn failed_candidate_controls_detach_promoted_browser()
         &registry,
         session,
         daemon_id,
+        test_tenant(),
         daemon.attachment_id,
         response,
     );
@@ -520,12 +537,16 @@ async fn failed_candidate_controls_detach_promoted_browser()
     assert!(!daemon.datagram_route.route(crate::splice::Frame::datagram(
         bytes::Bytes::from_static(b"ownerless")
     )));
-    let attached =
-        candidate::complete_promotion(&registry, session, daemon_id, daemon.attachment_id, async {
-            Ok(())
-        })
-        .await
-        .map_err(|()| "promotion failed")?;
+    let attached = candidate::complete_promotion(
+        &registry,
+        session,
+        daemon_id,
+        test_tenant(),
+        daemon.attachment_id,
+        async { Ok(()) },
+    )
+    .await
+    .map_err(|()| "promotion failed")?;
     assert!(
         matches!(*daemon.lifecycle_rx.borrow(), Some(AttachmentLifecycle::CounterpartAttached { attachment_id }) if attachment_id == attached.attachment_id)
     );

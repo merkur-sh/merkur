@@ -13,19 +13,25 @@
  * attach within one lifetime. A browser ticket binds a session and the daemon
  * it was issued for and never expires: renewal and rebind happen in-band, and
  * the ticket is useless without a live daemon ticket for the same daemon.
+ *
+ * Both name the tenant, the account the edge charges the attachment to when it
+ * shares its capacity between accounts: an HMAC of the account id under the
+ * deployment key, so the edge never learns account identifiers.
  */
 
 const TICKET_VERSION = 1;
 const ROLE_BROWSER = 1;
 const ROLE_DAEMON = 2;
 const TAG_BYTES = 16;
+const TENANT_BYTES = 16;
 const HEADER_BYTES = 1 + 1 + 8;
-/** version(1) + role(1) + expiry(8) + tag(16) */
-const TICKET_BYTES = HEADER_BYTES + TAG_BYTES;
+/** version(1) + role(1) + expiry(8) + tenant(16) + tag(16) */
+const TICKET_BYTES = HEADER_BYTES + TENANT_BYTES + TAG_BYTES;
 /** Decoded length of every ticket, for callers validating one they persisted. */
 export const EDGE_ATTACH_TICKET_BYTES = TICKET_BYTES;
 /** Must match `apps/edge/src/attach_ticket.rs`. */
 const TAG_LABEL = Buffer.from('merkur-edge-attach-ticket-v1', 'utf8');
+const TENANT_LABEL = Buffer.from('merkur-edge-tenant', 'utf8');
 /** The length prefix the tag uses for each identifier. */
 const MAX_FIELD_BYTES = 0xffff;
 
@@ -43,9 +49,9 @@ export const EDGE_ATTACH_TICKET_LIFETIME_MS = 90 * 1000;
 
 export interface EdgeAttachTicketIssuer {
   /** The ticket a daemon presents on every edge dial until the next lease. */
-  readonly forDaemon: (daemonId: string, nowMs: number) => string;
+  readonly forDaemon: (userId: string, daemonId: string, nowMs: number) => string;
   /** The ticket a browser presents on every lane of one session. */
-  readonly forBrowser: (daemonId: string, sessionId: string) => string;
+  readonly forBrowser: (userId: string, daemonId: string, sessionId: string) => string;
 }
 
 /**
@@ -55,16 +61,17 @@ export interface EdgeAttachTicketIssuer {
 export function createEdgeAttachTicketIssuer(key: Uint8Array): EdgeAttachTicketIssuer {
   const keyBuffer = Buffer.from(key);
   return {
-    forDaemon: (daemonId, nowMs) =>
+    forDaemon: (userId, daemonId, nowMs) =>
       encodeEdgeAttachTicket(
         keyBuffer,
         'daemon',
+        userId,
         daemonId,
         '',
         BigInt(Math.floor((nowMs + EDGE_ATTACH_TICKET_LIFETIME_MS) / 1000)),
       ),
-    forBrowser: (daemonId, sessionId) =>
-      encodeEdgeAttachTicket(keyBuffer, 'browser', daemonId, sessionId, 0n),
+    forBrowser: (userId, daemonId, sessionId) =>
+      encodeEdgeAttachTicket(keyBuffer, 'browser', userId, daemonId, sessionId, 0n),
   };
 }
 
@@ -75,6 +82,7 @@ export function createEdgeAttachTicketIssuer(key: Uint8Array): EdgeAttachTicketI
 export function encodeEdgeAttachTicket(
   key: Buffer,
   role: 'browser' | 'daemon',
+  userId: string,
   daemonId: string,
   sessionId: string,
   expiryUnixSeconds: bigint,
@@ -85,23 +93,26 @@ export function encodeEdgeAttachTicket(
   if (daemon.byteLength > MAX_FIELD_BYTES || session.byteLength > MAX_FIELD_BYTES) {
     throw new Error('edge attach ticket field exceeds its length prefix');
   }
-  const authenticated = Buffer.alloc(
-    TAG_LABEL.byteLength + HEADER_BYTES + 4 + daemon.byteLength + session.byteLength,
-  );
-  let offset = TAG_LABEL.copy(authenticated);
-  authenticated.writeUInt8(TICKET_VERSION, offset);
-  authenticated.writeUInt8(roleByte, offset + 1);
-  authenticated.writeBigUInt64BE(expiryUnixSeconds, offset + 2);
-  offset += HEADER_BYTES;
-  authenticated.writeUInt16BE(daemon.byteLength, offset);
-  offset += 2;
-  offset += daemon.copy(authenticated, offset);
-  authenticated.writeUInt16BE(session.byteLength, offset);
-  offset += 2;
-  session.copy(authenticated, offset);
-  const tag = new Bun.CryptoHasher('sha256', key).update(authenticated).digest();
-  const ticket = Buffer.alloc(TICKET_BYTES);
-  authenticated.copy(ticket, 0, TAG_LABEL.byteLength, TAG_LABEL.byteLength + HEADER_BYTES);
-  tag.copy(ticket, HEADER_BYTES, 0, TAG_BYTES);
-  return ticket.toString('base64url');
+  const tenant = new Bun.CryptoHasher('sha256', key)
+    .update(TENANT_LABEL)
+    .update(Buffer.from(userId, 'utf8'))
+    .digest()
+    .subarray(0, TENANT_BYTES);
+  const header = Buffer.alloc(HEADER_BYTES + TENANT_BYTES);
+  header.writeUInt8(TICKET_VERSION, 0);
+  header.writeUInt8(roleByte, 1);
+  header.writeBigUInt64BE(expiryUnixSeconds, 2);
+  tenant.copy(header, HEADER_BYTES);
+  const lengths = Buffer.alloc(4);
+  lengths.writeUInt16BE(daemon.byteLength, 0);
+  lengths.writeUInt16BE(session.byteLength, 2);
+  const tag = new Bun.CryptoHasher('sha256', key)
+    .update(TAG_LABEL)
+    .update(header)
+    .update(lengths.subarray(0, 2))
+    .update(daemon)
+    .update(lengths.subarray(2))
+    .update(session)
+    .digest();
+  return Buffer.concat([header, tag.subarray(0, TAG_BYTES)]).toString('base64url');
 }

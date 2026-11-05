@@ -164,7 +164,7 @@ pub fn issuance(daemon: &Daemon, binding: DaemonBinding) -> Box<Issuance> {
         session_id: "session-1".into(),
         edge_wt_url: "https://edge.merkur.example:4433".into(),
         edge_cert_hashes: vec!["q83vASNFZ4mrze8BI0VniavN7wEjRWeJq83vASNFZ4k=".into()],
-        edge_attach_ticket: encode(&[7; 26]),
+        edge_attach_ticket: encode(&[7; 42]),
     })
 }
 

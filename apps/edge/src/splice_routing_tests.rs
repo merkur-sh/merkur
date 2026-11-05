@@ -8,9 +8,30 @@ fn packet() -> Frame {
 #[tokio::test]
 async fn routing_does_not_wait_for_registry_or_unrelated_session_writers() {
     let registry = SpliceRegistry::new();
-    let source = registry.attach("active", Role::Browser, crate::attach_ticket::TEST_DAEMON_ID).unwrap();
-    let mut destination = registry.attach("active", Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID).unwrap();
-    let unrelated = registry.attach("other", Role::Browser, crate::attach_ticket::TEST_DAEMON_ID).unwrap();
+    let source = registry
+        .attach(
+            "active",
+            Role::Browser,
+            crate::attach_ticket::TEST_DAEMON_ID,
+            test_tenant(),
+        )
+        .unwrap();
+    let mut destination = registry
+        .attach(
+            "active",
+            Role::Daemon,
+            crate::attach_ticket::TEST_DAEMON_ID,
+            test_tenant(),
+        )
+        .unwrap();
+    let unrelated = registry
+        .attach(
+            "other",
+            Role::Browser,
+            crate::attach_ticket::TEST_DAEMON_ID,
+            test_tenant(),
+        )
+        .unwrap();
     let registry_guard = registry.write_sessions();
     let unrelated_guard = unrelated.datagram_route.peers.write();
     let (tx, rx) = std::sync::mpsc::channel();
@@ -29,8 +50,22 @@ async fn routing_does_not_wait_for_registry_or_unrelated_session_writers() {
 async fn retained_routes_do_not_keep_removed_slots_or_senders_alive() {
     for role in [Role::Browser, Role::Daemon] {
         let registry = SpliceRegistry::new();
-        let mut source = registry.attach("reused", role, crate::attach_ticket::TEST_DAEMON_ID).unwrap();
-        let mut destination = registry.attach("reused", role.peer(), crate::attach_ticket::TEST_DAEMON_ID).unwrap();
+        let mut source = registry
+            .attach(
+                "reused",
+                role,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
+            .unwrap();
+        let mut destination = registry
+            .attach(
+                "reused",
+                role.peer(),
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
+            .unwrap();
         registry.detach("reused", role, source.attachment_id);
         registry.detach("reused", role.peer(), destination.attachment_id);
         assert!(registry.read_sessions().is_empty());
@@ -46,8 +81,22 @@ async fn retained_routes_do_not_keep_removed_slots_or_senders_alive() {
                 .await
                 .is_err()
         );
-        let fresh_source = registry.attach("reused", role, crate::attach_ticket::TEST_DAEMON_ID).unwrap();
-        let mut fresh_destination = registry.attach("reused", role.peer(), crate::attach_ticket::TEST_DAEMON_ID).unwrap();
+        let fresh_source = registry
+            .attach(
+                "reused",
+                role,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
+            .unwrap();
+        let mut fresh_destination = registry
+            .attach(
+                "reused",
+                role.peer(),
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
+            .unwrap();
         assert!(!source.datagram_route.route(packet()));
         assert!(!destination.datagram_route.route(packet()));
         assert!(fresh_source.datagram_route.route(packet()));
@@ -59,8 +108,22 @@ async fn retained_routes_do_not_keep_removed_slots_or_senders_alive() {
 #[tokio::test]
 async fn registry_shutdown_clears_peers_even_when_routes_survive() {
     let registry = SpliceRegistry::new();
-    let browser = registry.attach("shutdown", Role::Browser, crate::attach_ticket::TEST_DAEMON_ID).unwrap();
-    let daemon = registry.attach("shutdown", Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID).unwrap();
+    let browser = registry
+        .attach(
+            "shutdown",
+            Role::Browser,
+            crate::attach_ticket::TEST_DAEMON_ID,
+            test_tenant(),
+        )
+        .unwrap();
+    let daemon = registry
+        .attach(
+            "shutdown",
+            Role::Daemon,
+            crate::attach_ticket::TEST_DAEMON_ID,
+            test_tenant(),
+        )
+        .unwrap();
     drop(registry);
     assert!(!browser.datagram_route.route(packet()));
     assert!(!daemon.datagram_route.route(packet()));
@@ -77,14 +140,35 @@ async fn every_expiry_path_invalidates_retained_routes_and_names_retirement() {
         // retire the same authoritative peer state before freeing membership.
         for expiry_path in 0..3 {
             let mut registry = SpliceRegistry::with_limits(1, Duration::from_secs(60));
-            let mut expired = registry.attach("expired", role, crate::attach_ticket::TEST_DAEMON_ID).unwrap();
+            let mut expired = registry
+                .attach(
+                    "expired",
+                    role,
+                    crate::attach_ticket::TEST_DAEMON_ID,
+                    test_tenant(),
+                )
+                .unwrap();
             registry.unpaired_ttl = Duration::ZERO;
             match expiry_path {
                 0 => {
-                    registry.attach("expired", role.peer(), crate::attach_ticket::TEST_DAEMON_ID).unwrap();
+                    registry
+                        .attach(
+                            "expired",
+                            role.peer(),
+                            crate::attach_ticket::TEST_DAEMON_ID,
+                            test_tenant(),
+                        )
+                        .unwrap();
                 }
                 1 => {
-                    registry.attach("other", role.peer(), crate::attach_ticket::TEST_DAEMON_ID).unwrap();
+                    registry
+                        .attach(
+                            "other",
+                            role.peer(),
+                            crate::attach_ticket::TEST_DAEMON_ID,
+                            test_tenant(),
+                        )
+                        .unwrap();
                 }
                 _ => {
                     assert_eq!(registry.wait_and_prune_expired_unpaired().await, 1);
@@ -108,8 +192,22 @@ async fn every_expiry_path_invalidates_retained_routes_and_names_retirement() {
 async fn concurrent_replacement_fences_both_source_and_destination() {
     for role in [Role::Browser, Role::Daemon] {
         let registry = SpliceRegistry::new();
-        let source = registry.attach("race", role, crate::attach_ticket::TEST_DAEMON_ID).unwrap();
-        let mut destination = registry.attach("race", role.peer(), crate::attach_ticket::TEST_DAEMON_ID).unwrap();
+        let source = registry
+            .attach(
+                "race",
+                role,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
+            .unwrap();
+        let mut destination = registry
+            .attach(
+                "race",
+                role.peer(),
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
+            .unwrap();
         let begin = Arc::new(std::sync::Barrier::new(2));
         let seated = Arc::new(std::sync::Barrier::new(2));
         let worker_begin = Arc::clone(&begin);
@@ -128,7 +226,14 @@ async fn concurrent_replacement_fences_both_source_and_destination() {
             source
         });
         begin.wait();
-        let mut replacement = registry.attach("race", role.peer(), crate::attach_ticket::TEST_DAEMON_ID).unwrap();
+        let mut replacement = registry
+            .attach(
+                "race",
+                role.peer(),
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
+            .unwrap();
         drop(replacement.replaced.take());
         seated.wait();
         let source = worker.join().unwrap();
@@ -147,7 +252,14 @@ async fn concurrent_replacement_fences_both_source_and_destination() {
                 Frame::datagram(Bytes::from_static(b"after"))
             ]
         );
-        let new_source = registry.attach("race", role, crate::attach_ticket::TEST_DAEMON_ID).unwrap();
+        let new_source = registry
+            .attach(
+                "race",
+                role,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
+            .unwrap();
         let worker = std::thread::spawn(move || {
             for _ in 0..1_000 {
                 assert!(!source.datagram_route.route(packet()));
@@ -206,10 +318,20 @@ fn profile_session_local_routing() {
             for index in 0..session_count {
                 let label = format!("session-{index:08}");
                 let browser = registry
-                    .attach(&label, Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+                    .attach(
+                        &label,
+                        Role::Browser,
+                        crate::attach_ticket::TEST_DAEMON_ID,
+                        test_tenant(),
+                    )
                     .unwrap();
                 let daemon = registry
-                    .attach(&label, Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID)
+                    .attach(
+                        &label,
+                        Role::Daemon,
+                        crate::attach_ticket::TEST_DAEMON_ID,
+                        test_tenant(),
+                    )
                     .unwrap();
                 let (old_browser, old_browser_rx) =
                     PeerSink::new(Role::Browser, browser.attachment_id);

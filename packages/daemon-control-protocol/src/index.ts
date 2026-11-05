@@ -341,8 +341,8 @@ export const MAX_STUN_SERVERS = 8;
 export const MAX_STUN_SERVER_CHARS = 64;
 /** base64url of a 41-byte ticket is 55 characters; allow a little slack. */
 const MAX_STUN_TICKET_CHARS = 128;
-/** base64url of the 26-byte edge attach ticket (`apps/edge/src/attach_ticket.rs`). */
-const EDGE_ATTACH_TICKET_CHARS = 35;
+/** base64url of the 42-byte edge attach ticket (`apps/edge/src/attach_ticket.rs`). */
+const EDGE_ATTACH_TICKET_CHARS = 56;
 const SESSION_START_KEYS = [
   'type',
   'version',

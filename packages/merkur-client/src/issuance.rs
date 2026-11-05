@@ -23,7 +23,7 @@ pub struct StunCredentialRequest {
     pub generation: u64,
 }
 /// `TICKET_LEN` in `apps/edge/src/attach_ticket.rs`; the ticket is opaque here.
-const EDGE_ATTACH_TICKET_BYTES: usize = 26;
+const EDGE_ATTACH_TICKET_BYTES: usize = 42;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

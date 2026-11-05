@@ -43,6 +43,8 @@ const EDGE_REGISTRATION_KEYS_JSON = JSON.stringify(Object.fromEntries(EDGE_REGIS
 // `EDGE_ATTACH_TICKET_KEY` in tests/e2e/start-server.ts, which mints the real session's.
 const EDGE_ATTACH_TICKET_KEY = Buffer.alloc(64, 0x74);
 const tickets = createEdgeAttachTicketIssuer(EDGE_ATTACH_TICKET_KEY);
+/** Every harness session is charged to one account. */
+const TOPOLOGY_ACCOUNT_ID = 'edge-topology-harness';
 const EDGE_AUTH_HEADERS = [
   'x-merkur-edge-id',
   'x-merkur-edge-timestamp',
@@ -101,8 +103,8 @@ const control = Bun.serve({
         return Response.json({ error: 'daemon and session are required' }, { status: 400 });
       }
       return Response.json({
-        browser: tickets.forBrowser(daemonId, sessionId),
-        daemon: tickets.forDaemon(daemonId, Date.now()),
+        browser: tickets.forBrowser(TOPOLOGY_ACCOUNT_ID, daemonId, sessionId),
+        daemon: tickets.forDaemon(TOPOLOGY_ACCOUNT_ID, daemonId, Date.now()),
       });
     }
     if (request.method === 'POST' && url.pathname.startsWith('/rotate/')) {

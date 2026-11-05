@@ -30,6 +30,10 @@ use crate::metrics;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::admission::{Admission, FairPool, Place};
+use crate::attach_ticket::Tenant;
+#[cfg(test)]
+use crate::attach_ticket::test_tenant;
 #[cfg(test)]
 use bytes::Bytes;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -628,6 +632,10 @@ struct SessionSlot {
     /// The dataplane process whose tunnel last joined this label. Kept after
     /// that tunnel detaches: the half-paired slot waits for that process.
     incarnation: Option<Box<str>>,
+    /// The account this label is charged to, fixed with `daemon_id`.
+    tenant: Tenant,
+    /// When the label was created. A capacity reclaim takes the oldest.
+    created: Instant,
 }
 
 impl SessionSlot {
@@ -635,6 +643,7 @@ impl SessionSlot {
         reliable_bytes_per_direction: usize,
         probe_groups: [ProbeGroup; 2],
         daemon_id: &str,
+        tenant: Tenant,
     ) -> Self {
         let (browser_destination, _) = watch::channel(None);
         let (daemon_destination, _) = watch::channel(None);
@@ -652,7 +661,15 @@ impl SessionSlot {
             unpaired_since: Some(Instant::now()),
             daemon_id: daemon_id.into(),
             incarnation: None,
+            tenant,
+            created: Instant::now(),
         }
+    }
+
+    /// Whether `label` belongs to the session `base` names: the interactive
+    /// lane is the base itself, the others append their lane.
+    fn is_lane_of(label: &str, base: &str) -> bool {
+        crate::attach_ticket::base_session_id(label) == base
     }
 
     fn probe_group_for(&self, role: Role) -> &ProbeGroup {
@@ -767,6 +784,8 @@ struct DaemonIncarnation {
 struct RegistrySessions {
     slots: HashMap<String, SessionSlot>,
     daemon_incarnations: HashMap<Box<str>, DaemonIncarnation>,
+    /// How many labels each tenant holds, the measure capacity is shared by.
+    tenant_slots: HashMap<Tenant, usize>,
 }
 
 // Read access cannot bypass membership accounting on insertion or removal.
@@ -783,6 +802,7 @@ impl RegistrySessions {
         Self {
             slots: HashMap::with_capacity(capacity),
             daemon_incarnations: HashMap::new(),
+            tenant_slots: HashMap::new(),
         }
     }
 
@@ -794,34 +814,87 @@ impl RegistrySessions {
         if let Some(known) = self.daemon_incarnations.get_mut(slot.daemon_id.as_ref()) {
             known.slots += 1;
         }
+        *self.tenant_slots.entry(slot.tenant).or_default() += 1;
         let replaced = self.slots.insert(session_id, slot);
         debug_assert!(replaced.is_none(), "only vacant labels create slots");
     }
 
-    fn remove_membership(incarnations: &mut HashMap<Box<str>, DaemonIncarnation>, daemon_id: &str) {
-        if let Some(known) = incarnations.get_mut(daemon_id) {
+    fn remove_membership(
+        incarnations: &mut HashMap<Box<str>, DaemonIncarnation>,
+        tenant_slots: &mut HashMap<Tenant, usize>,
+        slot: &SessionSlot,
+    ) {
+        if let Some(known) = incarnations.get_mut(slot.daemon_id.as_ref()) {
             known.slots -= 1;
             if known.slots == 0 {
-                incarnations.remove(daemon_id);
+                incarnations.remove(slot.daemon_id.as_ref());
+            }
+        }
+        if let Some(held) = tenant_slots.get_mut(&slot.tenant) {
+            *held -= 1;
+            if *held == 0 {
+                tenant_slots.remove(&slot.tenant);
             }
         }
     }
 
     fn remove(&mut self, session_id: &str) -> Option<SessionSlot> {
         let slot = self.slots.remove(session_id)?;
-        Self::remove_membership(&mut self.daemon_incarnations, &slot.daemon_id);
+        Self::remove_membership(&mut self.daemon_incarnations, &mut self.tenant_slots, &slot);
         Some(slot)
     }
 
     fn retain(&mut self, mut keep: impl FnMut(&str, &mut SessionSlot) -> bool) {
         let incarnations = &mut self.daemon_incarnations;
+        let tenant_slots = &mut self.tenant_slots;
         self.slots.retain(|label, slot| {
             if keep(label, slot) {
                 return true;
             }
-            Self::remove_membership(incarnations, &slot.daemon_id);
+            Self::remove_membership(incarnations, tenant_slots, slot);
             false
         });
+    }
+
+    /// Under the registry write guard, make room for `tenant` in a full
+    /// registry by ending one session of the tenant holding the most labels,
+    /// provided `tenant` still holds fewer once it has one more. Its oldest
+    /// half-paired session goes first, then its oldest paired one, every lane
+    /// together. Returns whether a label was freed.
+    fn reclaim_for(&mut self, tenant: Tenant) -> bool {
+        let own = self.tenant_slots.get(&tenant).copied().unwrap_or(0);
+        let Some((heaviest, held)) = self
+            .tenant_slots
+            .iter()
+            .map(|(tenant, held)| (*tenant, *held))
+            .max_by_key(|(_, held)| *held)
+        else {
+            return false;
+        };
+        if own + 1 >= held {
+            return false;
+        }
+        let Some(victim) = self
+            .slots
+            .iter()
+            .filter(|(_, slot)| slot.tenant == heaviest)
+            .min_by_key(|(_, slot)| match slot.unpaired_since {
+                Some(unpaired_since) => (false, unpaired_since),
+                None => (true, slot.created),
+            })
+            .map(|(label, _)| crate::attach_ticket::base_session_id(label).to_owned())
+        else {
+            return false;
+        };
+        let before = self.slots.len();
+        self.retain(|label, slot| {
+            if slot.tenant != heaviest || !SessionSlot::is_lane_of(label, &victim) {
+                return true;
+            }
+            slot.retire(RetireReason::CapacityReclaimed);
+            false
+        });
+        self.slots.len() < before
     }
 
     // A tunnel records here only after admission. If supersession left any
@@ -905,14 +978,20 @@ pub struct SpliceRegistry {
     global_reliable_bytes: Arc<Semaphore>,
     global_finite_bytes: Arc<Semaphore>,
     global_session_tasks: Arc<Semaphore>,
-    candidate_tasks: Arc<Semaphore>,
+    /// Proof bridges in flight, shared between tenants.
+    candidate_bridges: FairPool<Tenant>,
 }
+
+/// At most this many proof bridges, each holding two bounded 64 KiB records.
+const CANDIDATE_BRIDGES: usize = 64;
 
 pub(crate) struct CandidateTarget {
     pub(crate) attachment_id: AttachmentId,
     pub(crate) connection: Arc<Connection>,
-    // Both credits live until the proof bridge closes or promotes.
-    pub(crate) permits: [OwnedSemaphorePermit; 2],
+    // Both live until the proof bridge closes or promotes. A bridge whose
+    // place another tenant takes ends at once.
+    pub(crate) place: Place<Tenant>,
+    pub(crate) slot: OwnedSemaphorePermit,
 }
 
 impl SpliceRegistry {
@@ -932,8 +1011,7 @@ impl SpliceRegistry {
             global_reliable_bytes: Arc::new(Semaphore::new(SPLICE_RELIABLE_BYTES_GLOBAL)),
             global_finite_bytes: Arc::new(Semaphore::new(SPLICE_FINITE_BYTES_GLOBAL)),
             global_session_tasks: Arc::new(Semaphore::new(MAX_SPLICE_SESSION_TASKS)),
-            // At most 64 proof bridges, each holding two bounded 64 KiB records.
-            candidate_tasks: Arc::new(Semaphore::new(64)),
+            candidate_bridges: FairPool::with_capacity(CANDIDATE_BRIDGES),
         }
     }
 
@@ -1012,8 +1090,9 @@ impl SpliceRegistry {
         session_id: &str,
         role: Role,
         daemon_id: &str,
+        tenant: Tenant,
     ) -> Result<AttachHandle, AttachError> {
-        self.attach_checked(session_id, role, daemon_id, None, None)
+        self.attach_checked(session_id, role, daemon_id, tenant, None, None)
     }
 
     /// Attach a daemon tunnel dialed by the dataplane process `incarnation`,
@@ -1022,18 +1101,34 @@ impl SpliceRegistry {
         &self,
         session_id: &str,
         daemon_id: &str,
+        tenant: Tenant,
         incarnation: &str,
     ) -> Result<AttachHandle, AttachError> {
-        self.attach_checked(session_id, Role::Daemon, daemon_id, None, Some(incarnation))
+        self.attach_checked(
+            session_id,
+            Role::Daemon,
+            daemon_id,
+            tenant,
+            None,
+            Some(incarnation),
+        )
     }
 
     pub(crate) fn promote_candidate(
         &self,
         session_id: &str,
         daemon_id: &str,
+        tenant: Tenant,
         daemon: AttachmentId,
     ) -> Result<AttachHandle, AttachError> {
-        self.attach_checked(session_id, Role::Browser, daemon_id, Some(daemon), None)
+        self.attach_checked(
+            session_id,
+            Role::Browser,
+            daemon_id,
+            tenant,
+            Some(daemon),
+            None,
+        )
     }
 
     fn attach_checked(
@@ -1041,6 +1136,7 @@ impl SpliceRegistry {
         session_id: &str,
         role: Role,
         daemon_id: &str,
+        tenant: Tenant,
         expected_daemon: Option<AttachmentId>,
         incarnation: Option<&str>,
     ) -> Result<AttachHandle, AttachError> {
@@ -1068,9 +1164,11 @@ impl SpliceRegistry {
         {
             expired.retire(RetireReason::RebindWindowExpired);
         }
+        // Each daemon belongs to one account, so a label's tenant is fixed
+        // with its daemon; a ticket naming either differently is refused.
         if sessions
             .get(session_id)
-            .is_some_and(|slot| *slot.daemon_id != *daemon_id)
+            .is_some_and(|slot| *slot.daemon_id != *daemon_id || slot.tenant != tenant)
         {
             return Err(AttachError::DaemonMismatch);
         }
@@ -1086,10 +1184,10 @@ impl SpliceRegistry {
             return Err(AttachError::CounterpartChanged);
         }
         // The deadline worker owns unrelated routine expiry. Only pay the
-        // O(session-count) scan when a new label would otherwise hit capacity.
+        // O(session-count) scans when a new label would otherwise hit capacity.
         if !sessions.contains_key(session_id) && sessions.len() >= self.max_sessions {
             prune_expired_slots(&mut sessions, now, self.unpaired_ttl);
-            if sessions.len() >= self.max_sessions {
+            if sessions.len() >= self.max_sessions && !sessions.reclaim_for(tenant) {
                 return Err(AttachError::Capacity);
             }
         }
@@ -1097,7 +1195,12 @@ impl SpliceRegistry {
             let probe_groups = sibling_probe_groups(&sessions, session_id);
             sessions.insert(
                 session_id.to_string(),
-                SessionSlot::new(self.reliable_bytes_per_direction, probe_groups, daemon_id),
+                SessionSlot::new(
+                    self.reliable_bytes_per_direction,
+                    probe_groups,
+                    daemon_id,
+                    tenant,
+                ),
             );
         }
         if let Some(incarnation) = incarnation {
@@ -1216,20 +1319,21 @@ impl SpliceRegistry {
         else {
             return Ok(None);
         };
-        let global = self
-            .candidate_tasks
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| ())?;
-        let local = sink
+        // The attachment's own bound first, so a refused bridge displaces no
+        // other tenant's.
+        let slot_permit = sink
             .candidate_slots
             .clone()
             .try_acquire_owned()
             .map_err(|_| ())?;
+        let Admission::Admitted(place) = self.candidate_bridges.admit(slot.tenant, true) else {
+            return Err(());
+        };
         Ok(Some(CandidateTarget {
             attachment_id: sink.attachment_id,
             connection: target,
-            permits: [global, local],
+            place,
+            slot: slot_permit,
         }))
     }
 
@@ -1544,7 +1648,7 @@ impl SpliceRegistry {
             global_reliable_bytes: Arc::new(Semaphore::new(global_reliable_bytes)),
             global_finite_bytes: Arc::new(Semaphore::new(SPLICE_FINITE_BYTES_GLOBAL)),
             global_session_tasks: Arc::new(Semaphore::new(MAX_SPLICE_SESSION_TASKS)),
-            candidate_tasks: Arc::new(Semaphore::new(64)),
+            candidate_bridges: FairPool::with_capacity(CANDIDATE_BRIDGES),
         }
     }
 }
@@ -1904,6 +2008,9 @@ pub enum RetireReason {
     /// The half-paired grace period elapsed without the counterpart returning.
     RebindWindowExpired,
     EgressBudget,
+    /// The registry was full, and this session's tenant held the most labels
+    /// while another tenant held fewer and needed one.
+    CapacityReclaimed,
     /// Another dataplane process of the slot's daemon attached or announced:
     /// the process that held it is gone.
     IncarnationSuperseded,
@@ -1970,17 +2077,21 @@ mod tests {
         let registry = SpliceRegistry::new();
         let daemon = crate::attach_ticket::TEST_DAEMON_ID;
         let (earlier, later) = ("AAAAAAAAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBBBBBBBB");
-        let _paired_tunnel = registry.attach_tunnel("paired", daemon, earlier).unwrap();
-        let paired_browser = registry.attach("paired", Role::Browser, daemon).unwrap();
+        let _paired_tunnel = registry
+            .attach_tunnel("paired", daemon, test_tenant(), earlier)
+            .unwrap();
+        let paired_browser = registry
+            .attach("paired", Role::Browser, daemon, test_tenant())
+            .unwrap();
         let half_browser = registry
-            .attach("half#signaling", Role::Browser, daemon)
+            .attach("half#signaling", Role::Browser, daemon, test_tenant())
             .unwrap();
         let half_tunnel = registry
-            .attach_tunnel("half#signaling", daemon, earlier)
+            .attach_tunnel("half#signaling", daemon, test_tenant(), earlier)
             .unwrap();
         registry.detach("half#signaling", Role::Daemon, half_tunnel.attachment_id);
         let _other = registry
-            .attach_tunnel("other", "another-daemon", earlier)
+            .attach_tunnel("other", "another-daemon", test_tenant(), earlier)
             .unwrap();
 
         assert_eq!(registry.announce_incarnation(daemon, later), 2);
@@ -2000,7 +2111,9 @@ mod tests {
         }
         // The newest incarnation's own tunnels retire nothing.
         assert_eq!(registry.announce_incarnation(daemon, later), 0);
-        let _fresh = registry.attach_tunnel("fresh", daemon, later).unwrap();
+        let _fresh = registry
+            .attach_tunnel("fresh", daemon, test_tenant(), later)
+            .unwrap();
         assert!(registry.read_sessions().contains_key("fresh"));
     }
 
@@ -2009,10 +2122,10 @@ mod tests {
         let registry = SpliceRegistry::new();
         let daemon = crate::attach_ticket::TEST_DAEMON_ID;
         let _earlier = registry
-            .attach_tunnel("earlier", daemon, "AAAAAAAAAAAAAAAAAAAAAA")
+            .attach_tunnel("earlier", daemon, test_tenant(), "AAAAAAAAAAAAAAAAAAAAAA")
             .unwrap();
         let _later = registry
-            .attach_tunnel("later", daemon, "BBBBBBBBBBBBBBBBBBBBBB")
+            .attach_tunnel("later", daemon, test_tenant(), "BBBBBBBBBBBBBBBBBBBBBB")
             .unwrap();
         let sessions = registry.read_sessions();
         assert!(!sessions.contains_key("earlier"));
@@ -2023,20 +2136,45 @@ mod tests {
     async fn candidate_promotion_is_bound_to_the_exact_daemon_attachment() {
         let registry = SpliceRegistry::new();
         let browser = registry
-            .attach("proof#signaling", Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "proof#signaling",
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .unwrap();
         let daemon = registry
-            .attach("proof#signaling", Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "proof#signaling",
+                Role::Daemon,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .unwrap();
         let successor = registry
-            .attach("proof#signaling", Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "proof#signaling",
+                Role::Daemon,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .unwrap();
         assert!(matches!(
-            registry.promote_candidate("proof#signaling", crate::attach_ticket::TEST_DAEMON_ID, daemon.attachment_id),
+            registry.promote_candidate(
+                "proof#signaling",
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+                daemon.attachment_id
+            ),
             Err(AttachError::CounterpartChanged)
         ));
         let promoted = registry
-            .promote_candidate("proof#signaling", crate::attach_ticket::TEST_DAEMON_ID, successor.attachment_id)
+            .promote_candidate(
+                "proof#signaling",
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+                successor.attachment_id,
+            )
             .unwrap();
         assert_eq!(
             promoted.replaced.unwrap().attachment_id,
@@ -2055,6 +2193,7 @@ mod tests {
                 "path#signaling",
                 Role::Browser,
                 crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
             )
             .unwrap();
         let address: IpAddr = "203.0.113.9".parse().unwrap();
@@ -2064,6 +2203,7 @@ mod tests {
                 "path#signaling",
                 Role::Daemon,
                 crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
             )
             .unwrap();
         assert_eq!(
@@ -2084,6 +2224,7 @@ mod tests {
                 "displaced#signaling",
                 Role::Browser,
                 crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
             )
             .unwrap();
         let second = registry
@@ -2091,6 +2232,7 @@ mod tests {
                 "displaced#signaling",
                 Role::Browser,
                 crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
             )
             .unwrap();
         let daemon = registry
@@ -2098,6 +2240,7 @@ mod tests {
                 "displaced#signaling",
                 Role::Daemon,
                 crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
             )
             .unwrap();
         registry.publish_browser_path(
@@ -2127,6 +2270,7 @@ mod tests {
                 "mapped#signaling",
                 Role::Browser,
                 crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
             )
             .unwrap();
         registry.publish_browser_path(
@@ -2165,10 +2309,20 @@ mod tests {
     async fn candidate_cannot_resurrect_an_expired_daemon_half_pair() {
         let registry = SpliceRegistry::with_limits_and_byte_budgets(4, Duration::ZERO, 1024, 4096);
         let daemon = registry
-            .attach("expired#signaling", Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "expired#signaling",
+                Role::Daemon,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .unwrap();
         assert!(matches!(
-            registry.promote_candidate("expired#signaling", crate::attach_ticket::TEST_DAEMON_ID, daemon.attachment_id),
+            registry.promote_candidate(
+                "expired#signaling",
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+                daemon.attachment_id
+            ),
             Err(AttachError::CounterpartChanged)
         ));
         assert!(!registry.read_sessions().contains_key("expired#signaling"));
@@ -2385,10 +2539,20 @@ mod tests {
         let sid = "mailbox-full";
 
         let daemon = registry
-            .attach(sid, Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Daemon,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("daemon attach");
         let browser = registry
-            .attach(sid, Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("browser attach");
 
         let _counter_guard = ROUTE_DROP_COUNTER_TEST_LOCK
@@ -2429,7 +2593,12 @@ mod tests {
         // passes through this state while the second peer dials in, so counting
         // it as a drop would swamp the real signal.
         let browser = registry
-            .attach(sid, Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("browser attach");
 
         let _counter_guard = ROUTE_DROP_COUNTER_TEST_LOCK
@@ -2450,11 +2619,21 @@ mod tests {
         let sid = "session-abc";
 
         let mut daemon = registry
-            .attach(sid, Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Daemon,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("daemon attach");
         assert!(!daemon.both_attached);
         let mut browser = registry
-            .attach(sid, Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("browser attach");
         assert!(browser.both_attached);
 
@@ -2488,17 +2667,36 @@ mod tests {
                 let mut sources = Vec::new();
                 let mut destinations = Vec::new();
                 for label in labels {
-                    sources.push(registry.attach(label, role, crate::attach_ticket::TEST_DAEMON_ID).expect("source"));
+                    sources.push(
+                        registry
+                            .attach(
+                                label,
+                                role,
+                                crate::attach_ticket::TEST_DAEMON_ID,
+                                test_tenant(),
+                            )
+                            .expect("source"),
+                    );
                     destinations.push(
                         registry
-                            .attach(label, role.peer(), crate::attach_ticket::TEST_DAEMON_ID)
+                            .attach(
+                                label,
+                                role.peer(),
+                                crate::attach_ticket::TEST_DAEMON_ID,
+                                test_tenant(),
+                            )
                             .expect("destination"),
                     );
                 }
                 for replaced in order {
                     let old_id = sources[replaced].attachment_id;
                     let replacement = registry
-                        .attach(labels[replaced], role, crate::attach_ticket::TEST_DAEMON_ID)
+                        .attach(
+                            labels[replaced],
+                            role,
+                            crate::attach_ticket::TEST_DAEMON_ID,
+                            test_tenant(),
+                        )
                         .expect("replacement");
                     // Delayed cleanup must not cross either the attachment fence
                     // or the opaque routing label, regardless of replacement order.
@@ -2529,10 +2727,20 @@ mod tests {
 
         // Daemon first, as in production: it attaches ahead of the browser.
         let mut daemon = registry
-            .attach(sid, Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Daemon,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("daemon attach");
         let browser = registry
-            .attach(sid, Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("browser attach");
         assert_eq!(
             next_lifecycle(&mut daemon.lifecycle_rx).await,
@@ -2553,7 +2761,12 @@ mod tests {
         // The daemon sink survives, so a returning browser re-pairs to the very
         // same daemon attachment and traffic resumes without a new session.
         let rebound_browser = registry
-            .attach(sid, Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("rebound browser");
         assert_eq!(
             next_lifecycle(&mut daemon.lifecycle_rx).await,
@@ -2579,19 +2792,39 @@ mod tests {
         let sid = "ephemeral";
 
         let browser = registry
-            .attach(sid, Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("browser attach");
         let daemon = registry
-            .attach(sid, Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Daemon,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("daemon attach");
 
         registry.detach(sid, Role::Browser, browser.attachment_id);
 
         let replacement_browser = registry
-            .attach(sid, Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("replacement browser");
         let mut replacement_daemon = registry
-            .attach(sid, Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Daemon,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("replacement daemon");
 
         registry.detach(sid, Role::Daemon, daemon.attachment_id);
@@ -2606,14 +2839,31 @@ mod tests {
         let sid = "reconnect";
 
         let mut first = registry
-            .attach(sid, Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("first browser");
         let mut second = registry
-            .attach(sid, Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                sid,
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("second browser");
         assert!(second.replaced.is_some());
 
-        let daemon = registry.attach(sid, Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID).expect("daemon");
+        let daemon = registry
+            .attach(
+                sid,
+                Role::Daemon,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
+            .expect("daemon");
         let current = Frame::datagram(Bytes::from_static(b"current"));
         assert!(daemon.datagram_route.route(current.clone()));
         assert_eq!(second.datagram_rx.recv().await, Some(current));
@@ -2716,12 +2966,117 @@ mod tests {
     async fn session_capacity_rejects_new_routing_labels() {
         let registry = SpliceRegistry::with_limits(1, Duration::from_secs(60));
         registry
-            .attach("first", Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "first",
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("first session");
 
         assert!(matches!(
-            registry.attach("second", Role::Browser, crate::attach_ticket::TEST_DAEMON_ID),
+            registry.attach(
+                "second",
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant()
+            ),
             Err(AttachError::Capacity)
+        ));
+    }
+
+    fn tenant(account: &str) -> Tenant {
+        crate::attach_ticket::test_key().tenant(account)
+    }
+
+    fn reclaimed(handle: &AttachHandle) -> bool {
+        *handle.lifecycle_rx.borrow()
+            == Some(AttachmentLifecycle::Retire(RetireReason::CapacityReclaimed))
+    }
+
+    #[test]
+    fn a_full_registry_ends_the_heaviest_tenants_oldest_session_for_a_lighter_one() {
+        let registry = SpliceRegistry::with_limits(3, Duration::from_secs(60));
+        let heavy = tenant("heavy");
+        let oldest = registry
+            .attach("a", Role::Browser, "heavy-daemon", heavy)
+            .unwrap();
+        let oldest_bulk = registry
+            .attach("a#bulk", Role::Browser, "heavy-daemon", heavy)
+            .unwrap();
+        let newer = registry
+            .attach("b", Role::Browser, "heavy-daemon", heavy)
+            .unwrap();
+
+        registry
+            .attach("c", Role::Browser, "light-daemon", tenant("light"))
+            .expect("a tenant holding nothing takes a place from the heaviest");
+        // The whole oldest session ends, every lane together.
+        assert!(reclaimed(&oldest));
+        assert!(reclaimed(&oldest_bulk));
+        assert!(!reclaimed(&newer));
+        let sessions = registry.read_sessions();
+        assert!(sessions.contains_key("b") && sessions.contains_key("c"));
+        assert_eq!(sessions.len(), 2);
+    }
+
+    #[test]
+    fn a_tenant_at_its_share_is_refused_rather_than_taking_one() {
+        let registry = SpliceRegistry::with_limits(2, Duration::from_secs(60));
+        let first = registry
+            .attach("a", Role::Browser, "first-daemon", tenant("first"))
+            .unwrap();
+        let second = registry
+            .attach("b", Role::Browser, "second-daemon", tenant("second"))
+            .unwrap();
+        for (label, daemon, account) in [
+            ("a2", "first-daemon", "first"),
+            ("b2", "second-daemon", "second"),
+        ] {
+            assert!(matches!(
+                registry.attach(label, Role::Browser, daemon, tenant(account)),
+                Err(AttachError::Capacity)
+            ));
+        }
+        assert!(!reclaimed(&first) && !reclaimed(&second));
+    }
+
+    #[test]
+    fn a_reclaim_takes_a_half_paired_session_before_a_paired_one() {
+        let registry = SpliceRegistry::with_limits(4, Duration::from_secs(60));
+        let heavy = tenant("heavy");
+        let paired = registry
+            .attach("paired", Role::Browser, "heavy-daemon", heavy)
+            .unwrap();
+        registry
+            .attach("paired", Role::Daemon, "heavy-daemon", heavy)
+            .unwrap();
+        let waiting = registry
+            .attach("waiting", Role::Browser, "heavy-daemon", heavy)
+            .unwrap();
+        registry
+            .attach("other", Role::Browser, "heavy-daemon", heavy)
+            .unwrap();
+        registry
+            .attach("light", Role::Browser, "light-daemon", tenant("light"))
+            .unwrap();
+
+        registry
+            .attach("light2", Role::Browser, "light-daemon", tenant("light"))
+            .expect("one to three still leaves the light tenant below the heavy one");
+        assert!(reclaimed(&waiting));
+        assert!(!reclaimed(&paired));
+    }
+
+    #[test]
+    fn a_label_keeps_the_tenant_its_first_attachment_named() {
+        let registry = SpliceRegistry::with_limits(4, Duration::from_secs(60));
+        registry
+            .attach("s", Role::Browser, "daemon", tenant("owner"))
+            .unwrap();
+        assert!(matches!(
+            registry.attach("s", Role::Daemon, "daemon", tenant("intruder")),
+            Err(AttachError::DaemonMismatch)
         ));
     }
 
@@ -2729,11 +3084,21 @@ mod tests {
     async fn expired_same_label_cannot_be_revived_before_cleanup_runs() {
         let registry = SpliceRegistry::with_limits(1, Duration::ZERO);
         let mut expired_browser = registry
-            .attach("same-label", Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "same-label",
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("browser half-pair");
 
         let daemon = registry
-            .attach("same-label", Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "same-label",
+                Role::Daemon,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("fresh daemon half-pair");
 
         assert!(!daemon.both_attached);
@@ -2746,10 +3111,20 @@ mod tests {
 
         let registry = SpliceRegistry::new();
         let mut browser = registry
-            .attach("concurrent", Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "concurrent",
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("browser");
         let mut daemon = registry
-            .attach("concurrent", Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "concurrent",
+                Role::Daemon,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("daemon");
         let start = Arc::new(std::sync::Barrier::new(3));
 
@@ -2791,13 +3166,28 @@ mod tests {
     async fn expired_half_pair_is_pruned_but_complete_pair_survives() {
         let registry = SpliceRegistry::with_limits(2, Duration::from_millis(5));
         let mut lone = registry
-            .attach("half", Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "half",
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("half session");
         let paired_browser = registry
-            .attach("paired", Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "paired",
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("paired browser");
         let mut paired_daemon = registry
-            .attach("paired", Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "paired",
+                Role::Daemon,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("paired daemon");
 
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -2841,7 +3231,12 @@ mod tests {
         );
 
         registry
-            .attach("event-driven-expiry", Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "event-driven-expiry",
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("half session");
 
         assert_eq!(
@@ -2852,7 +3247,12 @@ mod tests {
             1
         );
         registry
-            .attach("replacement", Role::Browser, crate::attach_ticket::TEST_DAEMON_ID)
+            .attach(
+                "replacement",
+                Role::Browser,
+                crate::attach_ticket::TEST_DAEMON_ID,
+                test_tenant(),
+            )
             .expect("expired slot capacity was reclaimed");
     }
 
@@ -2954,15 +3354,15 @@ mod tests {
     async fn a_label_pairs_only_attachments_naming_one_daemon() {
         let registry = SpliceRegistry::new();
         registry
-            .attach("pinned", Role::Browser, "daemon-1")
+            .attach("pinned", Role::Browser, "daemon-1", test_tenant())
             .expect("first attachment binds the label");
         assert!(matches!(
-            registry.attach("pinned", Role::Daemon, "daemon-2"),
+            registry.attach("pinned", Role::Daemon, "daemon-2", test_tenant()),
             Err(AttachError::DaemonMismatch)
         ));
         assert!(
             registry
-                .attach("pinned", Role::Daemon, "daemon-1")
+                .attach("pinned", Role::Daemon, "daemon-1", test_tenant())
                 .expect("the named daemon pairs")
                 .both_attached
         );
@@ -2981,12 +3381,14 @@ mod egress_tests {
     #[tokio::test]
     async fn budget_retires_only_data_lanes_then_every_lane() {
         let registry = SpliceRegistry::new();
-        let data = registry.attach("budget", Role::Browser, "daemon").unwrap();
+        let data = registry
+            .attach("budget", Role::Browser, "daemon", test_tenant())
+            .unwrap();
         let bulk = registry
-            .attach("budget#bulk", Role::Daemon, "daemon")
+            .attach("budget#bulk", Role::Daemon, "daemon", test_tenant())
             .unwrap();
         let signaling = registry
-            .attach("budget#signaling", Role::Browser, "daemon")
+            .attach("budget#signaling", Role::Browser, "daemon", test_tenant())
             .unwrap();
         registry.apply_egress_state(BudgetState::SignalingOnly);
         for handle in [data, bulk] {
@@ -2998,7 +3400,7 @@ mod egress_tests {
         assert!(signaling.lifecycle_rx.borrow().is_none());
         assert_eq!(registry.read_sessions().len(), 1);
         assert!(matches!(
-            registry.attach("budget", Role::Browser, "daemon"),
+            registry.attach("budget", Role::Browser, "daemon", test_tenant()),
             Err(AttachError::EgressBudget),
         ));
         registry.apply_egress_state(BudgetState::Stopped);
@@ -3008,10 +3410,14 @@ mod egress_tests {
         );
         assert!(registry.read_sessions().is_empty());
         assert!(matches!(
-            registry.attach("new#signaling", Role::Browser, "daemon"),
+            registry.attach("new#signaling", Role::Browser, "daemon", test_tenant()),
             Err(AttachError::EgressBudget),
         ));
         registry.apply_egress_state(BudgetState::Open);
-        assert!(registry.attach("new", Role::Browser, "daemon").is_ok());
+        assert!(
+            registry
+                .attach("new", Role::Browser, "daemon", test_tenant())
+                .is_ok()
+        );
     }
 }

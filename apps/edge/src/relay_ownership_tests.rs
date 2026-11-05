@@ -1155,8 +1155,22 @@ async fn fused_control_serialization_reduces_allocations_and_keeps_wire_bytes() 
 #[test]
 fn session_local_datagram_routing_reuses_payload_without_steady_state_allocations() {
     let registry = crate::splice::SpliceRegistry::new();
-    let browser = registry.attach("owned-route", Role::Browser, crate::attach_ticket::TEST_DAEMON_ID).unwrap();
-    let mut daemon = registry.attach("owned-route", Role::Daemon, crate::attach_ticket::TEST_DAEMON_ID).unwrap();
+    let browser = registry
+        .attach(
+            "owned-route",
+            Role::Browser,
+            crate::attach_ticket::TEST_DAEMON_ID,
+            test_tenant(),
+        )
+        .unwrap();
+    let mut daemon = registry
+        .attach(
+            "owned-route",
+            Role::Daemon,
+            crate::attach_ticket::TEST_DAEMON_ID,
+            test_tenant(),
+        )
+        .unwrap();
     let payload = Bytes::from(vec![0x5a; 1100]);
     let mut route = || {
         assert!(

@@ -78,7 +78,7 @@ async fn attach(url: &str, hash: [u8; 32], label: &str, role: Role) -> Result<Pe
             },
             daemon_id: DAEMON.into(),
             ticket: key
-                .issue(ticket_role, DAEMON, label, expiry)
+                .issue(ticket_role, DAEMON, DAEMON, label, expiry)
                 .map_err(|e| format!("ticket: {e:?}"))?,
         }
         .encode(),

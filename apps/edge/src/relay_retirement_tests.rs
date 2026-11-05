@@ -256,7 +256,7 @@ async fn delayed_old_tunnel_cannot_supersede_new_incarnation()
         },
         ticket: crate::attach_ticket::test_ticket(Role::Daemon.into(), "old#signaling"),
     };
-    let setup = prepare_tunnel(&edge, &registry, &preface);
+    let setup = prepare_tunnel(&edge, &registry, &preface, test_tenant());
     tokio::pin!(setup);
     // Poll through admission up to the missing quote preface, with no scheduler race.
     assert!(
@@ -265,10 +265,10 @@ async fn delayed_old_tunnel_cannot_supersede_new_incarnation()
     );
     registry.announce_incarnation(daemon, "BBBBBBBBBBBBBBBBBB");
     let replacement = registry
-        .attach_tunnel("new#signaling", daemon, "BBBBBBBBBBBBBBBBBB")
+        .attach_tunnel("new#signaling", daemon, test_tenant(), "BBBBBBBBBBBBBBBBBB")
         .map_err(|error| format!("{error:?}"))?;
     let browser = registry
-        .attach("new#signaling", Role::Browser, daemon)
+        .attach("new#signaling", Role::Browser, daemon, test_tenant())
         .map_err(|error| format!("{error:?}"))?;
     let (mut quote, _events) = old.open_bi().await?.await?;
     quote

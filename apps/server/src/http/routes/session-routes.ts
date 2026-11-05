@@ -79,7 +79,7 @@ const SessionRequestWithEdgeResponse = t.Object({
   sessionId: t.String({ minLength: 1 }),
   edgeWtUrl: t.String({ minLength: 1 }),
   edgeCertHashes: t.Array(t.String({ minLength: 1 }), { minItems: 1, maxItems: 2 }),
-  edgeAttachTicket: t.String({ minLength: 35, maxLength: 35, pattern: '^[A-Za-z0-9_-]+$' }),
+  edgeAttachTicket: t.String({ minLength: 56, maxLength: 56, pattern: '^[A-Za-z0-9_-]+$' }),
 });
 
 interface SessionRoutesOptions {

@@ -37,8 +37,10 @@ use wtransport::datagram::DatagramBatch;
 use wtransport::endpoint::endpoint_side::Server;
 use wtransport::{Endpoint, ServerConfig, VarInt};
 
-use crate::admission::{Admission, PendingPool};
-use crate::attach_ticket::AttachTicketKey;
+use crate::admission::{Admission, FairPool, Network, PENDING_CAPACITY};
+#[cfg(test)]
+use crate::attach_ticket::test_tenant;
+use crate::attach_ticket::{AttachTicketKey, Tenant};
 use crate::cert::EdgeCert;
 use crate::endpoint_secret::EndpointSecret;
 use crate::metrics;
@@ -176,6 +178,7 @@ impl SessionExit {
             SessionExit::Registry(RetireReason::RebindWindowExpired) => "rebind_window_expired",
             SessionExit::Registry(RetireReason::EgressBudget) => "egress_budget",
             SessionExit::Registry(RetireReason::IncarnationSuperseded) => "incarnation_superseded",
+            SessionExit::Registry(RetireReason::CapacityReclaimed) => "capacity_reclaimed",
         }
     }
 }
@@ -263,7 +266,8 @@ pub async fn accept_loop(
     tickets: Arc<AttachTicketKey>,
     budget: tokio::sync::watch::Receiver<crate::egress_budget::BudgetState>,
 ) {
-    accept_loop_with(endpoint, registry, tickets, budget, PendingPool::new()).await;
+    let pending = FairPool::with_capacity(PENDING_CAPACITY);
+    accept_loop_with(endpoint, registry, tickets, budget, pending).await;
 }
 
 async fn accept_loop_with(
@@ -271,7 +275,7 @@ async fn accept_loop_with(
     registry: SpliceRegistry,
     tickets: Arc<AttachTicketKey>,
     mut budget: tokio::sync::watch::Receiver<crate::egress_budget::BudgetState>,
-    pending: PendingPool,
+    pending: FairPool<Network>,
 ) {
     let cleanup_registry = registry.clone();
     tokio::spawn(async move {
@@ -311,7 +315,7 @@ async fn accept_loop_with(
         // Nothing is spent on an attempt before it holds a place in the pool,
         // and a Retry or a refusal keeps no state at all.
         let mut admitted = match pending.admit(
-            incoming.remote_address().ip(),
+            Network::of(incoming.remote_address().ip()),
             incoming.remote_address_validated(),
         ) {
             Admission::Admitted(admitted) => admitted,
@@ -424,18 +428,21 @@ async fn accept_loop_with(
             }
             // Admission before the registry: an unticketed peer never holds a
             // splice slot, a candidate bridge, or a counterpart's attention.
-            if let Err(error) = tickets.verify(
+            let tenant = match tickets.verify(
                 preface.role.into(),
                 &preface.daemon_id,
                 &preface.session_id,
                 &preface.ticket,
                 unix_now_secs(),
             ) {
-                metrics::record_handshake_failure("ticket");
-                warn!(role = ?preface.role, ?error, "edge: attach ticket refused");
-                connection.close(VarInt::from_u32(CLOSE_CODE), b"bad-ticket");
-                return;
-            }
+                Ok(tenant) => tenant,
+                Err(error) => {
+                    metrics::record_handshake_failure("ticket");
+                    warn!(role = ?preface.role, ?error, "edge: attach ticket refused");
+                    connection.close(VarInt::from_u32(CLOSE_CODE), b"bad-ticket");
+                    return;
+                }
+            };
             // Covers preface admission, attached pumps, and teardown. No
             // ticketed session task can outlive this process-wide permit.
             let Some(session_task_permit) = registry.try_acquire_session_task() else {
@@ -471,6 +478,7 @@ async fn accept_loop_with(
                             &registry,
                             &preface.session_id,
                             &preface.daemon_id,
+                            tenant,
                             nonce,
                             &mut control,
                         )
@@ -488,7 +496,7 @@ async fn accept_loop_with(
                     }
                 };
                 let (promoted, quote_control) = if preface.role == Role::Daemon {
-                    match prepare_tunnel(&connection, &registry, &preface).await {
+                    match prepare_tunnel(&connection, &registry, &preface, tenant).await {
                         Ok((handle, quote)) => (Some(handle), Some(quote)),
                         Err(error) => {
                             warn!("edge: tunnel setup failed: {error}");
@@ -521,6 +529,7 @@ async fn accept_loop_with(
                     connection.clone(),
                     registry,
                     preface,
+                    tenant,
                     control,
                     quote_control,
                     promoted,
@@ -618,6 +627,7 @@ async fn prepare_tunnel(
     connection: &wtransport::Connection,
     registry: &SpliceRegistry,
     preface: &RoutingPreface,
+    tenant: Tenant,
 ) -> Result<
     (
         crate::splice::AttachHandle,
@@ -631,7 +641,7 @@ async fn prepare_tunnel(
     // Seat the verified incarnation before any further peer-controlled await.
     // Setup completion owns this handle and never supersedes an incarnation again.
     let handle = registry
-        .attach_tunnel(&preface.session_id, &preface.daemon_id, incarnation)
+        .attach_tunnel(&preface.session_id, &preface.daemon_id, tenant, incarnation)
         .map_err(|error| {
             if error == AttachError::EgressBudget {
                 connection.close(
@@ -1109,6 +1119,7 @@ async fn run_spliced_session(
     connection: Arc<wtransport::Connection>,
     registry: SpliceRegistry,
     preface: RoutingPreface,
+    tenant: Tenant,
     control: wtransport::SendStream,
     quote_control: Option<(wtransport::SendStream, wtransport::RecvStream)>,
     promoted: Option<crate::splice::AttachHandle>,
@@ -1127,7 +1138,7 @@ async fn run_spliced_session(
 
     let attached = match promoted {
         Some(handle) => Ok(handle),
-        None => registry.attach(&session_id, role, &preface.daemon_id),
+        None => registry.attach(&session_id, role, &preface.daemon_id, tenant),
     };
     let handle = match attached {
         Ok(handle) => handle,
@@ -1689,8 +1700,11 @@ async fn run_spliced_session(
         SessionExit::Registry(RetireReason::EgressBudget) => {
             (EGRESS_BUDGET_CLOSE_CODE, EGRESS_BUDGET_CLOSE_REASON)
         }
+        // Each ends the session for good: the far side must not redial.
         SessionExit::Registry(
-            RetireReason::RebindWindowExpired | RetireReason::IncarnationSuperseded,
+            RetireReason::RebindWindowExpired
+            | RetireReason::IncarnationSuperseded
+            | RetireReason::CapacityReclaimed,
         ) => (
             COUNTERPART_DETACHED_CLOSE_CODE,
             COUNTERPART_DETACHED_CLOSE_REASON,
@@ -2988,6 +3002,7 @@ mod tests {
             crate::attach_ticket::AttachTicketKey::new(&[1u8; crate::attach_ticket::KEY_LEN])
                 .issue(
                     crate::attach_ticket::TicketRole::Browser,
+                    crate::attach_ticket::TEST_ACCOUNT_ID,
                     crate::attach_ticket::TEST_DAEMON_ID,
                     "forged",
                     0,

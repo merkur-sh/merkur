@@ -177,6 +177,7 @@ impl Account {
         merkur_edge::sim::issue_ticket(
             &self.edge_ticket_key,
             merkur_edge::sim::Role::Daemon,
+            USER_ID,
             DAEMON_ID,
             "",
             now_ms() / 1_000 + DAEMON_TICKET_LIFETIME_SECS,
@@ -436,6 +437,7 @@ impl Server {
         let ticket = merkur_edge::sim::issue_ticket(
             &self.account.edge_ticket_key,
             merkur_edge::sim::Role::Browser,
+            USER_ID,
             DAEMON_ID,
             &session_id,
             0,

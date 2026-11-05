@@ -6,6 +6,7 @@ use std::time::Duration;
 use tokio::time::{Instant, timeout_at};
 use wtransport::{Connection, RecvStream, SendStream};
 
+use crate::attach_ticket::Tenant;
 use crate::splice::{AttachHandle, SpliceControlEvent, SpliceRegistry};
 
 // One bounded signaling record. This is independent of terminal-data credit.
@@ -36,6 +37,7 @@ pub(super) async fn admit(
     registry: &SpliceRegistry,
     session: &str,
     daemon_id: &str,
+    tenant: Tenant,
     nonce: &str,
     control: &mut SendStream,
 ) -> Result<(AttachHandle, super::RelayDataControl), ()> {
@@ -54,7 +56,8 @@ pub(super) async fn admit(
         let Some(crate::splice::CandidateTarget {
             attachment_id: daemon_attachment,
             connection: daemon,
-            permits: _permits,
+            mut place,
+            slot: _slot,
         }) = target
         else {
             // An absent daemon is this candidate's final answer, and the browser
@@ -63,102 +66,139 @@ pub(super) async fn admit(
             let _ = timeout_at(deadline, browser.closed()).await;
             return Err(());
         };
-        let ((to_browser, mut from_browser), (to_daemon, mut from_daemon)) =
-            timeout_at(deadline, async {
-                let browser_stream = browser.accept_bi().await.map_err(|_| ())?;
-                let daemon_stream = daemon
-                    .open_bi()
-                    .await
-                    .map_err(|_| ())?
-                    .await
-                    .map_err(|_| ())?;
-                Ok::<_, ()>((browser_stream, daemon_stream))
-            })
-            .await
-            .map_err(|_| ())??;
-        let mut to_browser = super::ContainedStream::new(to_browser);
-        let mut to_daemon = super::ContainedStream::new(to_daemon);
-        to_browser.get_mut().ok_or(())?.set_priority(100);
-        to_daemon.get_mut().ok_or(())?.set_priority(100);
-        // The candidate's proven source address travels with its nonce, so the
-        // daemon can offer against the network this carrier came from the
-        // moment it commits, before any promotion reports the attachment.
-        let address = (*browser.quic_connection().validated_path().borrow())
-            .map(|path| crate::splice::canonical_peer_address(path.remote.ip()))
-            .ok_or(())?;
-        let metadata = serde_json::json!({
-            "candidate_nonce": nonce,
-            "browser_address": address,
-        })
-        .to_string();
-        timeout_at(
+        // A bridge whose place a tenant holding fewer took ends at once.
+        let bridge = bridge(
+            browser,
+            registry,
+            session,
+            daemon_id,
+            tenant,
+            nonce,
             deadline,
-            write_record(to_daemon.get_mut().ok_or(())?, metadata.as_bytes()),
-        )
-        .await
-        .map_err(|_| ())??;
-
-        // JoinSet owns cancellation even if a peer disappears while the opposite
-        // direction is blocked. No detached task can retain proof credit.
-        let mut ingress = tokio::task::JoinSet::new();
-        ingress.spawn(async move {
-            loop {
-                let bytes = read_record(&mut from_browser).await?;
-                write_record(to_daemon.get_mut().ok_or(())?, &bytes).await?;
-            }
-            #[expect(
-                unreachable_code,
-                reason = "the loop exits only through `?`; this types the task"
-            )]
-            Ok::<(), ()>(())
-        });
-        loop {
-            let next = async {
-                let mut kind = [0];
-                from_daemon.read_exact(&mut kind).await.map_err(|_| ())?;
-                let bytes = read_record(&mut from_daemon).await?;
-                Ok::<_, ()>((kind[0], bytes))
-            };
-            let (kind, bytes) = tokio::select! {
-                _ = browser.closed() => return Err(()),
-                _ = daemon.closed() => return Err(()),
-                _ = ingress.join_next() => return Err(()),
-                received = timeout_at(deadline, next) => received.map_err(|_| ())??,
-            };
-            match kind {
-                0 => timeout_at(
-                    deadline,
-                    write_record(to_browser.get_mut().ok_or(())?, &bytes),
-                )
-                .await
-                .map_err(|_| ())??,
-                1 => {
-                    // Compare and attach under the registry's one write lock. A
-                    // replaced daemon cannot select a browser for its successor.
-                    let handle = complete_promotion(
-                        registry,
-                        session,
-                        daemon_id,
-                        daemon_attachment,
-                        async {
-                            timeout_at(
-                                deadline,
-                                write_record(to_browser.get_mut().ok_or(())?, &bytes),
-                            )
-                            .await
-                            .map_err(|_elapsed| ())??;
-                            ingress.shutdown().await;
-                            Ok(())
-                        },
-                    )
-                    .await?;
-                    return Ok(handle);
-                }
-                _ => return Err(()),
-            }
+            daemon_attachment,
+            daemon,
+        );
+        tokio::select! {
+            biased;
+            () = place.displaced() => Err(()),
+            result = bridge => result,
         }
     };
     drive_proof(proof, budget, control).await
+}
+
+/// Carry proof records between the candidate browser and the daemon
+/// attachment until the daemon selects the candidate or either side ends.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one admitted candidate's identity and its two endpoints, passed once"
+)]
+async fn bridge(
+    browser: &Arc<Connection>,
+    registry: &SpliceRegistry,
+    session: &str,
+    daemon_id: &str,
+    tenant: Tenant,
+    nonce: &str,
+    deadline: Instant,
+    daemon_attachment: crate::splice::AttachmentId,
+    daemon: Arc<Connection>,
+) -> Result<AttachHandle, ()> {
+    let ((to_browser, mut from_browser), (to_daemon, mut from_daemon)) =
+        timeout_at(deadline, async {
+            let browser_stream = browser.accept_bi().await.map_err(|_| ())?;
+            let daemon_stream = daemon
+                .open_bi()
+                .await
+                .map_err(|_| ())?
+                .await
+                .map_err(|_| ())?;
+            Ok::<_, ()>((browser_stream, daemon_stream))
+        })
+        .await
+        .map_err(|_| ())??;
+    let mut to_browser = super::ContainedStream::new(to_browser);
+    let mut to_daemon = super::ContainedStream::new(to_daemon);
+    to_browser.get_mut().ok_or(())?.set_priority(100);
+    to_daemon.get_mut().ok_or(())?.set_priority(100);
+    // The candidate's proven source address travels with its nonce, so the
+    // daemon can offer against the network this carrier came from the
+    // moment it commits, before any promotion reports the attachment.
+    let address = (*browser.quic_connection().validated_path().borrow())
+        .map(|path| crate::splice::canonical_peer_address(path.remote.ip()))
+        .ok_or(())?;
+    let metadata = serde_json::json!({
+        "candidate_nonce": nonce,
+        "browser_address": address,
+    })
+    .to_string();
+    timeout_at(
+        deadline,
+        write_record(to_daemon.get_mut().ok_or(())?, metadata.as_bytes()),
+    )
+    .await
+    .map_err(|_| ())??;
+
+    // JoinSet owns cancellation even if a peer disappears while the opposite
+    // direction is blocked. No detached task can retain proof credit.
+    let mut ingress = tokio::task::JoinSet::new();
+    ingress.spawn(async move {
+        loop {
+            let bytes = read_record(&mut from_browser).await?;
+            write_record(to_daemon.get_mut().ok_or(())?, &bytes).await?;
+        }
+        #[expect(
+            unreachable_code,
+            reason = "the loop exits only through `?`; this types the task"
+        )]
+        Ok::<(), ()>(())
+    });
+    loop {
+        let next = async {
+            let mut kind = [0];
+            from_daemon.read_exact(&mut kind).await.map_err(|_| ())?;
+            let bytes = read_record(&mut from_daemon).await?;
+            Ok::<_, ()>((kind[0], bytes))
+        };
+        let (kind, bytes) = tokio::select! {
+            _ = browser.closed() => return Err(()),
+            _ = daemon.closed() => return Err(()),
+            _ = ingress.join_next() => return Err(()),
+            received = timeout_at(deadline, next) => received.map_err(|_| ())??,
+        };
+        match kind {
+            0 => timeout_at(
+                deadline,
+                write_record(to_browser.get_mut().ok_or(())?, &bytes),
+            )
+            .await
+            .map_err(|_| ())??,
+            1 => {
+                // Compare and attach under the registry's one write lock. A
+                // replaced daemon cannot select a browser for its successor.
+                let handle = complete_promotion(
+                    registry,
+                    session,
+                    daemon_id,
+                    tenant,
+                    daemon_attachment,
+                    async {
+                        timeout_at(
+                            deadline,
+                            write_record(to_browser.get_mut().ok_or(())?, &bytes),
+                        )
+                        .await
+                        .map_err(|_elapsed| ())??;
+                        ingress.shutdown().await;
+                        Ok(())
+                    },
+                )
+                .await?;
+                return Ok(handle);
+            }
+            _ => return Err(()),
+        }
+    }
 }
 
 pub(super) async fn drive_proof<T>(
@@ -184,11 +224,12 @@ pub(super) async fn complete_promotion(
     registry: &SpliceRegistry,
     session: &str,
     daemon_id: &str,
+    tenant: Tenant,
     daemon: crate::splice::AttachmentId,
     response: impl std::future::Future<Output = Result<(), ()>>,
 ) -> Result<AttachHandle, ()> {
     let handle = registry
-        .promote_candidate(session, daemon_id, daemon)
+        .promote_candidate(session, daemon_id, tenant, daemon)
         .map_err(|_| ())?;
     let mut pending = PendingPromotion {
         registry,

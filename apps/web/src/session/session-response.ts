@@ -18,7 +18,7 @@ export interface SessionRequestResponse {
 }
 
 /** `TICKET_LEN` in apps/edge/src/attach_ticket.rs; the ticket is opaque here. */
-const EDGE_ATTACH_TICKET_BYTES = 26;
+const EDGE_ATTACH_TICKET_BYTES = 42;
 
 const SESSION_RESPONSE_FIELDS = new Set([
   'daemonId',

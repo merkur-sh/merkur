@@ -5,6 +5,23 @@ const EARLIER: &str = "AAAAAAAAAAAAAAAAAAAAAA";
 const LATER: &str = "BBBBBBBBBBBBBBBBBBBBBB";
 const CHURN: usize = 128;
 
+fn browser_on(registry: &SpliceRegistry, label: &str, daemon: &str) -> AttachHandle {
+    registry
+        .attach(label, Role::Browser, daemon, test_tenant())
+        .unwrap()
+}
+
+fn tunnel_on(
+    registry: &SpliceRegistry,
+    label: &str,
+    daemon: &str,
+    incarnation: &str,
+) -> AttachHandle {
+    registry
+        .attach_tunnel(label, daemon, test_tenant(), incarnation)
+        .unwrap()
+}
+
 fn metadata(registry: &SpliceRegistry) -> (usize, usize, usize) {
     let sessions = registry.read_sessions();
     let entries = &sessions.daemon_incarnations;
@@ -49,12 +66,12 @@ async fn churn_expired_slots(expiry: usize) -> SpliceRegistry {
     for index in 0..CHURN {
         registry.unpaired_ttl = Duration::from_secs(60);
         let daemon = format!("daemon-{index:04}");
-        let expired = registry.attach_tunnel("expired", &daemon, EARLIER).unwrap();
+        let expired = tunnel_on(&registry, "expired", &daemon, EARLIER);
         registry.unpaired_ttl = Duration::ZERO;
         match expiry {
             0 | 1 => {
                 let label = if expiry == 0 { "expired" } else { "other" };
-                let fresh = registry.attach_tunnel(label, &daemon, EARLIER).unwrap();
+                let fresh = tunnel_on(&registry, label, &daemon, EARLIER);
                 assert_eq!(metadata(&registry).0, 1);
                 registry.detach(label, Role::Daemon, fresh.attachment_id);
             }
@@ -92,9 +109,9 @@ async fn incarnation_metadata_retires_with_slots() {
     for index in 0..CHURN {
         let daemon = format!("daemon-{index:04}");
         for label in ["session", "session#bulk", "session#signaling"] {
-            let browser = registry.attach(label, Role::Browser, &daemon).unwrap();
-            let first = registry.attach_tunnel(label, &daemon, EARLIER).unwrap();
-            let replacement = registry.attach_tunnel(label, &daemon, EARLIER).unwrap();
+            let browser = browser_on(&registry, label, &daemon);
+            let first = tunnel_on(&registry, label, &daemon, EARLIER);
+            let replacement = tunnel_on(&registry, label, &daemon, EARLIER);
             registry.detach(label, Role::Daemon, first.attachment_id);
             assert!(
                 browser
@@ -112,9 +129,9 @@ async fn incarnation_metadata_retires_with_slots() {
     let registry = SpliceRegistry::new();
     for index in 0..CHURN {
         let daemon = format!("daemon-{index:04}");
-        let unknown = registry.attach("unknown", Role::Browser, &daemon).unwrap();
-        let tunnel = registry.attach_tunnel("known", &daemon, EARLIER).unwrap();
-        let browser = registry.attach("known", Role::Browser, &daemon).unwrap();
+        let unknown = browser_on(&registry, "unknown", &daemon);
+        let tunnel = tunnel_on(&registry, "known", &daemon, EARLIER);
+        let browser = browser_on(&registry, "known", &daemon);
         registry.detach("known", Role::Daemon, tunnel.attachment_id);
         assert_eq!(registry.announce_incarnation(&daemon, LATER), 1);
         retired(&browser, RetireReason::IncarnationSuperseded);
@@ -122,8 +139,8 @@ async fn incarnation_metadata_retires_with_slots() {
         assert_eq!(metadata(&registry).0, 1);
         assert_eq!(registry.announce_incarnation(&daemon, LATER), 0);
         registry.detach("unknown", Role::Browser, unknown.attachment_id);
-        let first = registry.attach_tunnel("known", &daemon, EARLIER).unwrap();
-        let successor = registry.attach_tunnel("known", &daemon, LATER).unwrap();
+        let first = tunnel_on(&registry, "known", &daemon, EARLIER);
+        let successor = tunnel_on(&registry, "known", &daemon, LATER);
         retired(&first, RetireReason::IncarnationSuperseded);
         registry.detach("known", Role::Daemon, first.attachment_id);
         assert!(registry.read_sessions().contains_key("known"));
@@ -143,13 +160,9 @@ async fn incarnation_metadata_retires_with_slots() {
         for index in 0..CHURN {
             registry.apply_egress_state(crate::egress_budget::BudgetState::Open);
             let daemon = format!("daemon-{index:04}");
-            let data = registry.attach_tunnel("session", &daemon, EARLIER).unwrap();
-            let bulk = registry
-                .attach_tunnel("session#bulk", &daemon, EARLIER)
-                .unwrap();
-            let signaling = registry
-                .attach_tunnel("session#signaling", &daemon, EARLIER)
-                .unwrap();
+            let data = tunnel_on(&registry, "session", &daemon, EARLIER);
+            let bulk = tunnel_on(&registry, "session#bulk", &daemon, EARLIER);
+            let signaling = tunnel_on(&registry, "session#signaling", &daemon, EARLIER);
             registry.apply_egress_state(state);
             retired(&data, RetireReason::EgressBudget);
             retired(&bulk, RetireReason::EgressBudget);
@@ -169,25 +182,19 @@ async fn incarnation_metadata_retires_with_slots() {
 #[tokio::test]
 async fn incarnation_metadata_preserves_live_siblings_and_admission() {
     let registry = SpliceRegistry::with_limits(3, Duration::from_secs(60));
-    let browser = registry.attach("session", Role::Browser, "daemon").unwrap();
+    let browser = browser_on(&registry, "session", "daemon");
     assert_eq!(metadata(&registry).0, 0);
     assert_eq!(registry.announce_incarnation("daemon", EARLIER), 0);
     assert_eq!(metadata(&registry).0, 1);
-    let first = registry
-        .attach_tunnel("session", "daemon", EARLIER)
-        .unwrap();
-    let sibling = registry
-        .attach_tunnel("session#bulk", "daemon", EARLIER)
-        .unwrap();
-    let other = registry
-        .attach_tunnel("other", "other-daemon", EARLIER)
-        .unwrap();
+    let first = tunnel_on(&registry, "session", "daemon", EARLIER);
+    let sibling = tunnel_on(&registry, "session#bulk", "daemon", EARLIER);
+    let other = tunnel_on(&registry, "other", "other-daemon", EARLIER);
     assert!(matches!(
-        registry.attach_tunnel("full", "refused", EARLIER),
+        registry.attach_tunnel("full", "refused", test_tenant(), EARLIER),
         Err(AttachError::Capacity)
     ));
     assert!(matches!(
-        registry.attach_tunnel("other", "mismatched", EARLIER),
+        registry.attach_tunnel("other", "mismatched", test_tenant(), EARLIER),
         Err(AttachError::DaemonMismatch)
     ));
     assert_eq!(metadata(&registry).0, 2);
@@ -213,10 +220,8 @@ fn incarnation_metadata_non_target_profile() {
     for role in [Role::Browser, Role::Daemon] {
         for len in [0, 57, 1100] {
             let registry = SpliceRegistry::new();
-            let browser = registry.attach("session", Role::Browser, "daemon").unwrap();
-            let daemon = registry
-                .attach_tunnel("session", "daemon", EARLIER)
-                .unwrap();
+            let browser = browser_on(&registry, "session", "daemon");
+            let daemon = tunnel_on(&registry, "session", "daemon", EARLIER);
             let (source, mut destination) = if role == Role::Browser {
                 (browser, daemon)
             } else {

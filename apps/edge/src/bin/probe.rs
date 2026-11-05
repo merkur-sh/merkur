@@ -109,7 +109,7 @@ fn ticket(session_id: &str, role: &str) -> String {
         .expect("clock after the epoch")
         .as_secs()
         + 90;
-    key.issue(role, PROBE_DAEMON_ID, session_id, expiry)
+    key.issue(role, PROBE_DAEMON_ID, PROBE_DAEMON_ID, session_id, expiry)
         .expect("probe ticket")
 }
 

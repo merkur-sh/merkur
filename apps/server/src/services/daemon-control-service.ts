@@ -1228,7 +1228,7 @@ export function createDaemonControlService(
               ticket.ticket,
               ticket.secret,
               ticket.lifetimeMs,
-              edgeAttach.forDaemon(input.daemonId, now()),
+              edgeAttach.forDaemon(input.userId, input.daemonId, now()),
               edges,
               stagedRelease,
               connection.telemetryEnabled,
@@ -1705,7 +1705,7 @@ export function createDaemonControlService(
                 ticket.ticket,
                 ticket.secret,
                 ticket.lifetimeMs,
-                edgeAttach.forDaemon(connection.daemonId, now()),
+                edgeAttach.forDaemon(connection.userId, connection.daemonId, now()),
                 edges,
               ),
             ).pipe(

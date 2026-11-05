@@ -3,7 +3,7 @@
 use super::retirement_tests::endpoints;
 use super::tests::{attach_test_peer, read_test_lifecycle};
 use super::*;
-use crate::admission::PendingPool;
+use crate::admission::FairPool;
 use crate::splice::MAX_SPLICE_SESSION_TASKS;
 
 #[tokio::test]
@@ -15,7 +15,7 @@ async fn a_full_pending_pool_retries_a_dial_that_then_displaces_an_unticketed_on
         registry.clone(),
         crate::attach_ticket::test_key(),
         crate::egress_budget::test_open_budget(),
-        PendingPool::with_capacity(1),
+        FairPool::with_capacity(1),
     ));
 
     // Completes its handshake and never sends a preface: the pool's only place.

@@ -3483,7 +3483,7 @@ function createFakeCoordination(
  * fixed pattern rather than random so a failure is reproducible.
  */
 /** A fixed, well-formed edge attach ticket (35 base64url characters). */
-const EDGE_TICKET = 'A'.repeat(35);
+const EDGE_TICKET = 'A'.repeat(56);
 /** The registry every test service states. */
 const EDGES = [
   {

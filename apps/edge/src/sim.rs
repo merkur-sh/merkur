@@ -112,6 +112,7 @@ pub enum Role {
 pub fn issue_ticket(
     ticket_key: &[u8; KEY_LEN],
     role: Role,
+    account_id: &str,
     daemon_id: &str,
     session_id: &str,
     expiry_unix_secs: u64,
@@ -121,6 +122,6 @@ pub fn issue_ticket(
         Role::Daemon => TicketRole::Daemon,
     };
     AttachTicketKey::new(ticket_key)
-        .issue(role, daemon_id, session_id, expiry_unix_secs)
+        .issue(role, account_id, daemon_id, session_id, expiry_unix_secs)
         .map_err(|error| format!("attach ticket: {error:?}"))
 }

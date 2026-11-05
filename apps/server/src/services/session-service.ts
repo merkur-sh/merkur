@@ -415,8 +415,13 @@ export const SessionServiceLive = Layer.effect(
                         edgeWtUrl: edge.edgeWtUrl,
                         edgeCertHashes: [...edge.certHashes],
                         // Admits this session's browser lanes at any edge,
-                        // paired only with a live ticket of this daemon.
-                        edgeAttachTicket: edgeAttachTickets.forBrowser(input.daemonId, sessionId),
+                        // paired only with a live ticket of this daemon, and
+                        // charged to this account's share of the edge.
+                        edgeAttachTicket: edgeAttachTickets.forBrowser(
+                          principal.userId,
+                          input.daemonId,
+                          sessionId,
+                        ),
                         clientNonce: input.clientNonce,
                         encapsulationKey: input.encapsulationKey,
                       },

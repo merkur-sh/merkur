@@ -105,14 +105,31 @@ bytes, under the deployment-wide `MERKUR_EDGE_ATTACH_TICKET_KEY`:
 
 | Role | Binds | Lifetime | Issued |
 | --- | --- | --- | --- |
-| Daemon | `daemon_id` | 90 s, bounded at the edge to 5 minutes plus 60 s of skew | On control registration and every lease renewal, so an unlinked or disconnected daemon stops being admitted within one lifetime |
-| Browser | `daemon_id` and the base session id | None: renewal and rebind are in-band, and the ticket is useless without a live daemon ticket for the same daemon | With the session, covering all three lanes and every redial |
+| Daemon | tenant and `daemon_id` | 90 s, bounded at the edge to 5 minutes plus 60 s of skew | On control registration and every lease renewal, so an unlinked or disconnected daemon stops being admitted within one lifetime |
+| Browser | tenant, `daemon_id` and the base session id | None: renewal and rebind are in-band, and the ticket is useless without a live daemon ticket for the same daemon | With the session, covering all three lanes and every redial |
+
+The tenant is the account the attachment is charged to, carried in the ticket as the first 16
+bytes of an HMAC of the account id under the same key, so the edge never learns account ids.
+Layout: version, role, expiry, tenant, tag; 42 bytes, 56 base64url characters.
 
 The tag is checked before the expiry, so a forged and an expired ticket take one path. A slot
-records the daemon its first verified attachment named, and a counterpart naming a different
-daemon is closed with `splice-daemon-mismatch`; a refused ticket closes with `bad-ticket`. The length is capped at `MAX_PREFACE_LEN` (4096 bytes) so a hostile
-length prefix cannot reserve memory. The edge keeps the send half of this stream for the
-control events above.
+records the daemon and tenant its first verified attachment named, and a counterpart naming
+either differently is closed with `splice-daemon-mismatch`; a refused ticket closes with
+`bad-ticket`. The length is capped at `MAX_PREFACE_LEN` (4096 bytes) so a hostile length prefix
+cannot reserve memory. The edge keeps the send half of this stream for the control events
+above.
+
+### Sharing between accounts
+
+The registry's 4096 labels and the 64 candidate proof bridges are shared by tenant. While
+there is room, every attachment is admitted. When a new label finds the registry full, the
+tenant holding the most labels gives one session up, provided the attaching tenant still holds
+fewer once it has the new label. That session is the tenant's oldest half-paired one, or its
+oldest paired one if none is half-paired, and all of its lanes end together. Its peers are
+closed with the counterpart-detached code, so neither redials. Otherwise the attachment is
+refused. A full candidate pool works the same way: a bridge of the tenant holding the most
+ends at once, and a candidate that would only take an equal share is refused. Each account can
+therefore keep any other from no more than an equal share, however many sessions it opens.
 
 ### Before the ticket
 
@@ -190,7 +207,8 @@ budgets are logical record credits, not a process RSS cap.
 | Finite bytes in flight, process-wide | 256 MiB |
 | Reliable operation deadline once a record is in progress | 30 s |
 | QUIC keep-alive and idle timeout | 4 s and 30 s |
-| Splice sessions in the registry | 4096 |
+| Splice sessions in the registry | 4096 labels, shared by tenant |
+| Candidate proof bridges | 64, shared by tenant |
 | Connections awaiting a verified ticket | 1024, shared by source network |
 | First packet to verified ticket | 10 s |
 | Ticketed session tasks | 9216 (two per splice session plus 1024) |
