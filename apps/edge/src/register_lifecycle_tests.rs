@@ -171,6 +171,7 @@ async fn live_registration_recovery() {
         publisher,
         rotation,
         PathBuf::new(),
+        EndpointSecret::generate().unwrap(),
     );
     tokio::pin!(maintenance);
     let missing = tokio::select! {

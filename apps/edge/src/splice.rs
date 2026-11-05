@@ -105,12 +105,13 @@ pub const SPLICE_RELIABLE_BYTES_GLOBAL: usize = 256 * 1024 * 1024;
 /// without limit.
 pub const MAX_SPLICE_SESSIONS: usize = 4096;
 
-/// Extra transport-session tasks allowed beyond the maximum 2 peers per
-/// registry slot. This absorbs reconnect overlap and in-flight prefaces without
-/// leaving handshake/session task creation unbounded.
+/// Extra ticketed session tasks allowed beyond the maximum 2 peers per
+/// registry slot. This absorbs reconnect overlap and candidate bridges.
+/// Connections without a verified ticket never take one: they wait in the
+/// relay's pending pool (`admission.rs`).
 pub const SPLICE_SESSION_TASK_HEADROOM: usize = 1024;
 
-/// Process-wide ceiling for accepted WebTransport session tasks. A fully paired
+/// Process-wide ceiling for ticketed WebTransport session tasks. A fully paired
 /// registry uses at most `2 * MAX_SPLICE_SESSIONS`; the additional headroom
 /// keeps reconnect admission off the steady-state capacity boundary.
 pub const MAX_SPLICE_SESSION_TASKS: usize = 2 * MAX_SPLICE_SESSIONS + SPLICE_SESSION_TASK_HEADROOM;
@@ -987,11 +988,13 @@ impl SpliceRegistry {
         self.sessions.write()
     }
 
-    /// Admit one accepted transport session for its complete task lifetime.
-    /// Acquisition never holds the session-registry lock. The returned permit
-    /// must outlive all per-session pumps and their child tasks.
-    pub async fn acquire_session_task(&self) -> Option<OwnedSemaphorePermit> {
-        self.global_session_tasks.clone().acquire_owned().await.ok()
+    /// Admit one ticketed transport session for its complete task lifetime, or
+    /// `None` when every task is taken. Never waits: a connection that cannot
+    /// run now is closed rather than queued. Acquisition never holds the
+    /// session-registry lock. The returned permit must outlive all per-session
+    /// pumps and their child tasks.
+    pub fn try_acquire_session_task(&self) -> Option<OwnedSemaphorePermit> {
+        self.global_session_tasks.clone().try_acquire_owned().ok()
     }
 
     /// Attach a peer (identified by its routing preface) to a session slot,
@@ -2686,29 +2689,23 @@ mod tests {
         drop(daemon_record);
         assert_eq!(global.available_permits(), 12);
     }
-    #[tokio::test]
-    async fn session_task_admission_exhausts_and_recovers_across_registry_clones() {
+    #[test]
+    fn session_task_admission_exhausts_and_recovers_across_registry_clones() {
         let mut registry = SpliceRegistry::with_limits(1, Duration::from_secs(60));
         registry.global_session_tasks = Arc::new(Semaphore::new(1));
         let first = registry
-            .acquire_session_task()
-            .await
+            .try_acquire_session_task()
             .expect("first session task");
         assert_eq!(registry.global_session_tasks.available_permits(), 0);
-
-        let waiting_registry = registry.clone();
-        let waiter = tokio::spawn(async move { waiting_registry.acquire_session_task().await });
-        tokio::task::yield_now().await;
+        let other = registry.clone();
         assert!(
-            !waiter.is_finished(),
+            other.try_acquire_session_task().is_none(),
             "session task bypassed exhausted admission"
         );
 
         drop(first);
-        let recovered = tokio::time::timeout(Duration::from_secs(1), waiter)
-            .await
-            .expect("session task admission did not recover")
-            .expect("waiter task")
+        let recovered = other
+            .try_acquire_session_task()
             .expect("recovered session task permit");
         assert_eq!(registry.global_session_tasks.available_permits(), 0);
         drop(recovered);

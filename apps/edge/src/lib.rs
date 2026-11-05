@@ -9,6 +9,7 @@
 //! The library is the whole edge: `main.rs` only runs [`run`], and the network
 //! simulator (`tools/sim`) links [`sim`] under `cfg(merkur_sim)`.
 
+mod admission;
 mod attach_ticket;
 mod cert;
 mod egress_budget;
@@ -274,6 +275,7 @@ pub async fn run() {
         certs,
         publisher,
         registration.identity_dir,
+        secret,
     );
 
     info!(

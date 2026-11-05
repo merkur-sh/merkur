@@ -1,5 +1,6 @@
 //! The relay's endpoint secret: 32 random bytes created once per identity
-//! volume, from which its QUIC stateless-reset key and connection-ID key derive.
+//! volume, from which its QUIC stateless-reset key, connection-ID key and
+//! Retry-token key derive.
 //!
 //! A relay restarted on the same volume recognizes every connection ID it
 //! issued before the restart and answers each with a stateless reset its peer
@@ -12,9 +13,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
-use wtransport::quinn::{EndpointConfig, HashedConnectionIdGenerator};
+use ring::{hkdf, hmac};
+use wtransport::quinn::{EndpointConfig, HashedConnectionIdGenerator, ServerConfig};
 
 const SECRET_BYTES: usize = 32;
 const SECRET_FILE: &str = "endpoint-secret";
@@ -77,6 +78,15 @@ impl EndpointSecret {
                 Box::new(HashedConnectionIdGenerator::from_key(connection_id_key))
             })
             .min_reset_interval(std::time::Duration::ZERO);
+    }
+
+    /// Install the key that seals QUIC Retry tokens, so a certificate reload or
+    /// a restart within a token's lifetime still honours the tokens it issued.
+    pub fn install_token_key(&self, config: &mut ServerConfig) {
+        let tokens = self.derive(b"merkur-edge retry token");
+        config.token_key(Arc::new(
+            hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(tokens.as_ref()),
+        ));
     }
 
     fn derive(&self, label: &[u8]) -> hmac::Tag {

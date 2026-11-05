@@ -37,6 +37,7 @@ use wtransport::datagram::DatagramBatch;
 use wtransport::endpoint::endpoint_side::Server;
 use wtransport::{Endpoint, ServerConfig, VarInt};
 
+use crate::admission::{Admission, PendingPool};
 use crate::attach_ticket::AttachTicketKey;
 use crate::cert::EdgeCert;
 use crate::endpoint_secret::EndpointSecret;
@@ -118,10 +119,11 @@ fn tuned_quic_transport_config() -> wtransport::config::QuicTransportConfig {
     config.ack_frequency_config(Some(ack_frequency));
     config
 }
-/// Bound QUIC/WebTransport request negotiation so half-open handshakes cannot
-/// pin accepted-session admission indefinitely.
-const SESSION_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-/// A peer that connects but never sends a valid preface is dropped.
+/// From a connection's first packet to its verified attach ticket: the QUIC and
+/// WebTransport handshakes and the routing preface, a few round trips. A peer
+/// that has not presented a ticket by then gives its pending place back.
+const ADMISSION_TIMEOUT: Duration = Duration::from_secs(10);
+/// A daemon tunnel that never opens its delivery-quote stream is dropped.
 const PREFACE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Fixed preface on the daemon-opened delivery-quote bidirectional stream.
 /// It is outside the terminal lanes and changes only with a routing-preface
@@ -202,16 +204,22 @@ async fn settle_session_pump(
 /// Build the browser+daemon-facing WebTransport server endpoint bound to
 /// `bind_addr`, the dual-stack wildcard. No NAT discovery: the host's public
 /// address is stable and externally fixed.
-pub fn build_server_config(cert: &EdgeCert, bind_addr: std::net::SocketAddr) -> ServerConfig {
+pub fn build_server_config(
+    cert: &EdgeCert,
+    bind_addr: std::net::SocketAddr,
+    secret: &EndpointSecret,
+) -> ServerConfig {
     let mut tls_config =
         wtransport::tls::server::build_default_tls_config(cert.identity.clone_identity());
     // Allow 0-RTT early data for fast reconnect (mobile network handoff).
     tls_config.max_early_data_size = u32::MAX;
 
-    ServerConfig::builder()
+    let mut config = ServerConfig::builder()
         .with_bind_address(bind_addr)
         .with_custom_tls_and_transport(tls_config, tuned_quic_transport_config())
-        .build()
+        .build();
+    secret.install_token_key(config.quic_config_mut());
+    config
 }
 
 /// The relay with `transport` in place of its tuning: a test that must hold a
@@ -243,7 +251,7 @@ pub fn build_server(
     bind_addr: std::net::SocketAddr,
     secret: &EndpointSecret,
 ) -> Result<Endpoint<Server>, String> {
-    let mut config = build_server_config(cert, bind_addr);
+    let mut config = build_server_config(cert, bind_addr, secret);
     secret.install(config.quic_endpoint_config_mut());
     Endpoint::server(config).map_err(|e| format!("failed to bind edge WebTransport server: {e}"))
 }
@@ -253,7 +261,17 @@ pub async fn accept_loop(
     endpoint: Arc<Endpoint<Server>>,
     registry: SpliceRegistry,
     tickets: Arc<AttachTicketKey>,
+    budget: tokio::sync::watch::Receiver<crate::egress_budget::BudgetState>,
+) {
+    accept_loop_with(endpoint, registry, tickets, budget, PendingPool::new()).await;
+}
+
+async fn accept_loop_with(
+    endpoint: Arc<Endpoint<Server>>,
+    registry: SpliceRegistry,
+    tickets: Arc<AttachTicketKey>,
     mut budget: tokio::sync::watch::Receiver<crate::egress_budget::BudgetState>,
+    pending: PendingPool,
 ) {
     let cleanup_registry = registry.clone();
     tokio::spawn(async move {
@@ -267,19 +285,7 @@ pub async fn accept_loop(
     use crate::egress_budget::BudgetState;
     registry.apply_egress_state(*budget.borrow_and_update());
     loop {
-        let state = *budget.borrow();
-        let admitted = async {
-            if state == BudgetState::Stopped {
-                // Ignore the QUIC Initial before starting TLS: unlike refuse()
-                // this sends no response. Keep draining so rollover can reopen
-                // this endpoint; Endpoint::close permanently ends acceptance.
-                endpoint.accept().await.ignore();
-                return None;
-            }
-            let permit = registry.acquire_session_task().await?;
-            Some((endpoint.accept().await, permit))
-        };
-        let accepted = tokio::select! {
+        let incoming = tokio::select! {
             biased;
             changed = budget.changed() => {
                 let state = if changed.is_err() {
@@ -293,19 +299,40 @@ pub async fn accept_loop(
                 }
                 continue;
             }
-            accepted = admitted => accepted,
+            incoming = endpoint.accept() => incoming,
         };
-        let Some((incoming, session_task_permit)) = accepted else {
+        if *budget.borrow() == BudgetState::Stopped {
+            // Ignore the QUIC Initial before starting TLS: unlike refuse()
+            // this sends no response. Keep draining so rollover can reopen
+            // this endpoint; Endpoint::close permanently ends acceptance.
+            incoming.ignore();
             continue;
+        }
+        // Nothing is spent on an attempt before it holds a place in the pool,
+        // and a Retry or a refusal keeps no state at all.
+        let mut admitted = match pending.admit(
+            incoming.remote_address().ip(),
+            incoming.remote_address_validated(),
+        ) {
+            Admission::Admitted(admitted) => admitted,
+            Admission::Retry => {
+                metrics::record_pending_admission("retry");
+                incoming.retry();
+                continue;
+            }
+            Admission::Refused => {
+                metrics::record_pending_admission("refused");
+                incoming.ignore();
+                continue;
+            }
         };
         let registry = registry.clone();
         let tickets = Arc::clone(&tickets);
         let budget = budget.clone();
 
         tokio::spawn(async move {
-            // Covers handshake, preface admission, attached pumps, and teardown.
-            // No accepted-session task can outlive this process-wide permit.
-            let _session_task_permit = session_task_permit;
+            // One deadline from the first packet to a verified ticket.
+            let deadline = tokio::time::Instant::now() + ADMISSION_TIMEOUT;
             let handshake = async {
                 let session_request = incoming
                     .await
@@ -319,7 +346,11 @@ pub async fn accept_loop(
             let handshake_result = tokio::select! {
                 biased;
                 _ = handshake_budget.wait_for(|state| *state == BudgetState::Stopped) => return,
-                result = tokio::time::timeout(SESSION_HANDSHAKE_TIMEOUT, handshake) => result,
+                () = admitted.displaced() => {
+                    metrics::record_handshake_failure("displaced");
+                    return;
+                }
+                result = tokio::time::timeout_at(deadline, handshake) => result,
             };
             let connection = match handshake_result {
                 Ok(Ok(connection)) => connection,
@@ -336,62 +367,87 @@ pub async fn accept_loop(
             };
             let connection = Arc::new(connection);
 
-            let session = async {
-                // First step every peer performs: open a bi stream and send the
-                // plaintext routing preface. The only later structured read is a
-                // reliable stream's declared length for memory admission.
-                let preface =
-                    match tokio::time::timeout(PREFACE_TIMEOUT, read_routing_preface(&connection))
-                        .await
-                    {
-                        Ok(Ok(p)) => p,
-                        Ok(Err(e)) => {
-                            metrics::record_handshake_failure("preface");
-                            warn!("edge: invalid routing preface: {e}");
-                            connection.close(VarInt::from_u32(CLOSE_CODE), b"bad-preface");
-                            return;
-                        }
-                        Err(_) => {
-                            metrics::record_handshake_failure("preface_timeout");
-                            warn!("edge: routing preface timed out");
-                            connection.close(VarInt::from_u32(CLOSE_CODE), b"preface-timeout");
-                            return;
-                        }
-                    };
-
-                let (preface, mut control, preface_inbound) = preface;
-                // Held unread until the session ends; see `read_routing_preface`.
-                let _preface_inbound = ContainedStream::new(preface_inbound);
-                let state = *budget.borrow();
-                if state == BudgetState::Stopped
-                    || (state == BudgetState::SignalingOnly
-                        && matches!(
-                            preface.attachment,
-                            RoutingAttachment::Primary | RoutingAttachment::Tunnel { .. }
-                        )
-                        && !preface.session_id.ends_with("#signaling"))
-                {
-                    metrics::record_handshake_failure("egress_budget");
+            // First step every peer performs: open a bi stream and send the
+            // plaintext routing preface. The only later structured read is a
+            // reliable stream's declared length for memory admission.
+            let mut preface_budget = budget.clone();
+            let preface = tokio::select! {
+                biased;
+                _ = preface_budget.wait_for(|state| *state == BudgetState::Stopped) => {
                     connection.close(
                         VarInt::from_u32(EGRESS_BUDGET_CLOSE_CODE),
                         EGRESS_BUDGET_CLOSE_REASON,
                     );
                     return;
                 }
-                // Admission before the registry: an unticketed peer never holds a
-                // splice slot, a candidate bridge, or a counterpart's attention.
-                if let Err(error) = tickets.verify(
-                    preface.role.into(),
-                    &preface.daemon_id,
-                    &preface.session_id,
-                    &preface.ticket,
-                    unix_now_secs(),
-                ) {
-                    metrics::record_handshake_failure("ticket");
-                    warn!(role = ?preface.role, ?error, "edge: attach ticket refused");
-                    connection.close(VarInt::from_u32(CLOSE_CODE), b"bad-ticket");
+                () = admitted.displaced() => {
+                    metrics::record_handshake_failure("displaced");
+                    connection.close(VarInt::from_u32(CLOSE_CODE), b"admission-displaced");
                     return;
                 }
+                result = tokio::time::timeout_at(deadline, read_routing_preface(&connection)) => result,
+            };
+            let preface = match preface {
+                Ok(Ok(p)) => p,
+                Ok(Err(e)) => {
+                    metrics::record_handshake_failure("preface");
+                    warn!("edge: invalid routing preface: {e}");
+                    connection.close(VarInt::from_u32(CLOSE_CODE), b"bad-preface");
+                    return;
+                }
+                Err(_) => {
+                    metrics::record_handshake_failure("preface_timeout");
+                    warn!("edge: routing preface timed out");
+                    connection.close(VarInt::from_u32(CLOSE_CODE), b"preface-timeout");
+                    return;
+                }
+            };
+
+            let (preface, mut control, preface_inbound) = preface;
+            // Held unread until the session ends; see `read_routing_preface`.
+            let preface_inbound = ContainedStream::new(preface_inbound);
+            let state = *budget.borrow();
+            if state == BudgetState::Stopped
+                || (state == BudgetState::SignalingOnly
+                    && matches!(
+                        preface.attachment,
+                        RoutingAttachment::Primary | RoutingAttachment::Tunnel { .. }
+                    )
+                    && !preface.session_id.ends_with("#signaling"))
+            {
+                metrics::record_handshake_failure("egress_budget");
+                connection.close(
+                    VarInt::from_u32(EGRESS_BUDGET_CLOSE_CODE),
+                    EGRESS_BUDGET_CLOSE_REASON,
+                );
+                return;
+            }
+            // Admission before the registry: an unticketed peer never holds a
+            // splice slot, a candidate bridge, or a counterpart's attention.
+            if let Err(error) = tickets.verify(
+                preface.role.into(),
+                &preface.daemon_id,
+                &preface.session_id,
+                &preface.ticket,
+                unix_now_secs(),
+            ) {
+                metrics::record_handshake_failure("ticket");
+                warn!(role = ?preface.role, ?error, "edge: attach ticket refused");
+                connection.close(VarInt::from_u32(CLOSE_CODE), b"bad-ticket");
+                return;
+            }
+            // Covers preface admission, attached pumps, and teardown. No
+            // ticketed session task can outlive this process-wide permit.
+            let Some(session_task_permit) = registry.try_acquire_session_task() else {
+                metrics::record_handshake_failure("capacity");
+                connection.close(VarInt::from_u32(CLOSE_CODE), b"edge-capacity");
+                return;
+            };
+            let _session_task_permit = session_task_permit;
+            drop(admitted);
+
+            let session = async {
+                let _preface_inbound = preface_inbound;
                 let mut candidate_budget = None;
                 let promoted = match &preface.attachment {
                     RoutingAttachment::Primary | RoutingAttachment::Tunnel { .. } => None,
@@ -2402,6 +2458,10 @@ where
 mod retirement_tests;
 
 #[cfg(test)]
+#[path = "relay_admission_tests.rs"]
+mod admission_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -3507,15 +3567,11 @@ mod tests {
         let bind_addr = SocketAddr::from((Ipv6Addr::LOCALHOST, 0));
         let old = EdgeCert::generate(&["localhost"]).expect("old certificate");
         let new = EdgeCert::generate(&["localhost"]).expect("new certificate");
-        let endpoint = build_server(
-            &old,
-            bind_addr,
-            &EndpointSecret::generate().expect("secret"),
-        )
-        .expect("server endpoint");
+        let secret = EndpointSecret::generate().expect("secret");
+        let endpoint = build_server(&old, bind_addr, &secret).expect("server endpoint");
 
         endpoint
-            .reload_config(build_server_config(&new, bind_addr), false)
+            .reload_config(build_server_config(&new, bind_addr, &secret), false)
             .expect("hot reload certificate");
     }
 }

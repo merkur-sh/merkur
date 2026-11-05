@@ -111,8 +111,26 @@ bytes, under the deployment-wide `MERKUR_EDGE_ATTACH_TICKET_KEY`:
 The tag is checked before the expiry, so a forged and an expired ticket take one path. A slot
 records the daemon its first verified attachment named, and a counterpart naming a different
 daemon is closed with `splice-daemon-mismatch`; a refused ticket closes with `bad-ticket`. The length is capped at `MAX_PREFACE_LEN` (4096 bytes) so a hostile
-length prefix cannot reserve memory, and a peer that sends no valid preface within 10 seconds
-is dropped. The edge keeps the send half of this stream for the control events above.
+length prefix cannot reserve memory. The edge keeps the send half of this stream for the
+control events above.
+
+### Before the ticket
+
+From its first packet until its ticket verifies, a connection holds only a place in the
+pending pool (`apps/edge/src/admission.rs`), never a session task or a splice slot, and gives
+it back after 10 seconds without a verified ticket. The pool holds 1024 connections and is
+shared by source network, an IPv4 /24 or an IPv6 /48:
+
+- With room, every attempt enters, so no dial pays an extra round trip.
+- Full, an attempt from an address no QUIC Retry has proven gets a Retry. That keeps no state,
+  so a spoofed source never holds a place, and a real client returns proven one round trip
+  later.
+- A proven attempt takes the place of the oldest unproven one. With none left, it takes the
+  oldest place of the network holding the most, provided its own network still holds fewer
+  afterwards; otherwise it is ignored.
+
+The Retry-token key derives from the endpoint secret, so a certificate reload or a restart
+within a token's 15-second lifetime still accepts the tokens it issued.
 
 ### Datagrams
 
@@ -173,6 +191,9 @@ budgets are logical record credits, not a process RSS cap.
 | Reliable operation deadline once a record is in progress | 30 s |
 | QUIC keep-alive and idle timeout | 4 s and 30 s |
 | Splice sessions in the registry | 4096 |
+| Connections awaiting a verified ticket | 1024, shared by source network |
+| First packet to verified ticket | 10 s |
+| Ticketed session tasks | 9216 (two per splice session plus 1024) |
 
 ## Monthly egress budget
 

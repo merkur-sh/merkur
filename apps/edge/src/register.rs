@@ -24,6 +24,7 @@ use wtransport::Endpoint;
 use wtransport::endpoint::endpoint_side::Server;
 
 use crate::cert::EdgeCerts;
+use crate::endpoint_secret::EndpointSecret;
 use crate::metrics;
 use crate::relay;
 
@@ -413,6 +414,7 @@ pub fn spawn(
     certs: EdgeCerts,
     publisher: EdgePublisher,
     identity_dir: PathBuf,
+    secret: EndpointSecret,
 ) {
     let (rotation_tx, rotation_rx) = tokio::sync::mpsc::channel(1);
     #[cfg(unix)]
@@ -445,6 +447,7 @@ pub fn spawn(
             publisher,
             rotation_rx,
             identity_dir,
+            secret,
         )
         .await
         {
@@ -462,6 +465,7 @@ async fn run(
     publisher: EdgePublisher,
     mut rotation_rx: tokio::sync::mpsc::Receiver<()>,
     identity_dir: PathBuf,
+    secret: EndpointSecret,
 ) -> Result<(), String> {
     let names: Vec<&str> = subject_alt_names.iter().map(String::as_str).collect();
     let mut persist_pending = false;
@@ -496,7 +500,16 @@ async fn run(
             if force_rotation {
                 info!(edge_id = %publisher.edge_id, "edge: certificate rotation requested by SIGHUP");
             }
-            match rotate(&endpoint, bind_addr, &names, &identity_dir, &mut certs).await {
+            match rotate(
+                &endpoint,
+                bind_addr,
+                &secret,
+                &names,
+                &identity_dir,
+                &mut certs,
+            )
+            .await
+            {
                 Ok(persisted) => {
                     metrics::record_cert_rotation("ok");
                     persist_pending = !persisted;
@@ -526,6 +539,7 @@ async fn run(
 async fn rotate(
     endpoint: &Endpoint<Server>,
     bind_addr: SocketAddr,
+    secret: &EndpointSecret,
     names: &[&str],
     identity_dir: &std::path::Path,
     certs: &mut EdgeCerts,
@@ -537,7 +551,10 @@ async fn rotate(
             "persist_failed"
         })?;
     endpoint
-        .reload_config(relay::build_server_config(&certs.next, bind_addr), false)
+        .reload_config(
+            relay::build_server_config(&certs.next, bind_addr, secret),
+            false,
+        )
         .map_err(|error| {
             warn!("edge: certificate hot reload failed: {error}");
             "reload_failed"

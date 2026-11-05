@@ -71,6 +71,7 @@ struct EdgeInstruments {
     egress_ledger_initialized_total: Counter<u64>,
     attach_total: Counter<u64>,
     handshake_failures_total: Counter<u64>,
+    pending_admissions_total: Counter<u64>,
     datagram_egress_drops_total: Counter<u64>,
     datagrams_superseded_total: Counter<u64>,
     contained_stream_drop_panics_total: Counter<u64>,
@@ -140,6 +141,10 @@ static INSTRUMENTS: LazyLock<EdgeInstruments> = LazyLock::new(|| {
         handshake_failures_total: meter
             .u64_counter("merkur_edge_handshake_failures_total")
             .with_description("Sessions rejected before splice admission")
+            .build(),
+        pending_admissions_total: meter
+            .u64_counter("merkur_edge_pending_admissions_total")
+            .with_description("Connection attempts the full pending pool retried or refused")
             .build(),
         datagram_egress_drops_total: meter
             .u64_counter("merkur_edge_datagram_egress_drops_total")
@@ -244,6 +249,14 @@ pub fn record_handshake_failure(reason: &'static str) {
     INSTRUMENTS
         .handshake_failures_total
         .add(1, &[KeyValue::new("reason", reason)]);
+}
+
+/// `outcome` is `retry` (a QUIC Retry asked an unproven address to prove
+/// itself) or `refused` (its network already held its share).
+pub fn record_pending_admission(outcome: &'static str) {
+    INSTRUMENTS
+        .pending_admissions_total
+        .add(1, &[KeyValue::new("outcome", outcome)]);
 }
 
 pub fn record_datagram_egress_drop() {

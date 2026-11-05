@@ -82,7 +82,7 @@ impl Edge {
     pub fn reload(&self, identity: &Identity) -> Result<(), String> {
         self.endpoint
             .reload_config(
-                relay::build_server_config(&identity.active, self.bind_addr),
+                relay::build_server_config(&identity.active, self.bind_addr, &identity.secret),
                 false,
             )
             .map_err(|error| format!("edge reload: {error}"))

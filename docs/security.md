@@ -75,6 +75,14 @@ without the server; it admits nothing without a live daemon ticket for the same 
 is admission, not authority: it grants no session and replaces none of the checks above. A
 leaked deployment key would let its holder relay through the edge, and nothing more.
 
+Before its ticket verifies, a connection holds only a place in a separate pool of 1024 that is
+shared by source network (an IPv4 /24 or an IPv6 /48), never a session task or a splice slot,
+and it has 10 seconds from its first packet to present the ticket. While the pool is full, an
+address no QUIC Retry has proven is sent a stateless Retry, so spoofed sources hold nothing. A
+proven connection takes the place of an unproven one, or of the network holding the most while
+its own holds fewer. A flood can therefore fill only that pool, and costs a client one round
+trip only while it lasts ([edge README](../apps/edge/README.md#before-the-ticket)).
+
 Control registration holds the database write lock while checking that the authenticated daemon
 binding still matches the linked row, claiming its Redis lease and recording its exact ownership
 in `daemon_control_owners`. Unlinking cascades that record into
