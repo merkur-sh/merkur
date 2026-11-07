@@ -3598,6 +3598,14 @@
             "verify-linux-arm64": "75697d334669d407884c4ee6cace0ed150da40aaffc78eaf7cbd0532cbe8ea626aae06f7c7034152c01d50e2e6520672da917e98026d95b34bfd2872e0d78754",
             "verify-linux-x64": "39355caca2dbfeead2408113aeef2039f55ca75014a91e19169a3144c0eae09ac0d9d071c7c3ca7d2fc88fa535daae5d6d1fc3960066abe489fea5fa90cb2f07"
           }
+        },
+        {
+          "phase": "retained",
+          "targetIdentities": {
+            "merkur-edge": "3989f0679e7cbe7c2407f5e26dc689579667761be72855b3a8108ecdead2c9a3ebb9ba2798f5d7161810f3b2d13902ea0b6a9a6fd147e21802dfde5fc085f315",
+            "merkur-stun": "ea1989be518419008acee36f57e34048b53cf07daa29fc4899b083cc45ab04e5f8f12267a112fa3938b24f54d35a67fc0ac3a9623a5bc8294f922ee006d20211",
+            "server": "5c8514d8d4fab3898e80dc8ec24db7374a9275c23dbd297c401cb3a2f5b3b56eb491b6a1c86de947087e1e6cc5debfed9beb677002f887b69ed93db8b38862f4"
+          }
         }
       ],
       "configuration": {
