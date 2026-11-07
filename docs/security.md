@@ -1299,7 +1299,7 @@ of the hybrid-bound direct-upgrade secret. Check keys bind their candidate gener
 socket identity; opposite directions use different keys. Invalid or unknown checks receive no
 reply, and authenticated replies cannot exceed their requests. A reply is what lets the peer dial
 a tuple, so a side answers a source it checks only after it has sent a check request of its own on
-that exact tuple, from the address the request arrived at, and the daemon answers a public source
+the tuple that answer will use, and the daemon answers a public source
 only when it also checks it; a private source still gets a reply without an unsolicited probe.
 Observations, leases and
 received requests do not admit terminal traffic: the native client must complete a check from

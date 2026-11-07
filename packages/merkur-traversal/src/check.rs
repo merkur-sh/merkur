@@ -253,7 +253,7 @@ impl Binding {
     }
 
     /// Sends one check request on exactly the tuple an answer to `request`
-    /// will use: to its source, from the local address it arrived on. It
+    /// will use: to its source, from the same source address selection. It
     /// opens this side's filter state for that tuple before the answer lets
     /// the peer dial it. Its own reply is not awaited: the full check does
     /// the verifying, so this send holds no slot.
@@ -392,7 +392,13 @@ impl Binding {
                         // An answer without this side's request on the tuple
                         // would be one-sided; beyond the pair bound, or when
                         // the opening send fails, the source goes unanswered.
-                        if opened.len() >= MAX_PAIRS { continue; }
+                        // Every opened endpoint is also checked, so the two
+                        // share the one endpoint bound.
+                        if opened.len() >= MAX_PAIRS
+                            || (seen.len() >= MAX_PAIRS && !seen.contains(&request.source))
+                        {
+                            continue;
+                        }
                         if let Err(error) = self.open(&request).await {
                             tracing::debug!(%error, "peer check opening failed");
                             continue;
@@ -607,6 +613,63 @@ mod tests {
             });
         }
         assert_eq!(order, ["check", "answer"]);
+        task.abort();
+    }
+
+    /// Opening requests count against the one endpoint bound with checks:
+    /// past it a new source is neither opened nor answered.
+    #[tokio::test]
+    async fn opening_requests_share_the_checked_endpoint_bound() {
+        let (_daemon_endpoint, daemon, daemon_address) = endpoint();
+        let initial = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let binding = Binding::install(
+            daemon.clone(),
+            [7; 16],
+            &[3; 32],
+            &[4; 32],
+            false,
+            Arc::new(Semaphore::new(MAX_CHECKS_PER_PEER)),
+        )
+        .unwrap();
+        let (events, _at_daemon) = mpsc::channel(512);
+        let task = tokio::spawn(binding.run(
+            vec![initial.local_addr().unwrap()],
+            |_| true,
+            |_| true,
+            events,
+        ));
+        let key = hmac::Key::new(hmac::HMAC_SHA256, &[3; 32]);
+        let mut clients = Vec::new();
+        for index in 0..u32::try_from(MAX_PAIRS).unwrap() {
+            let client = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let mut transaction = [0; 12];
+            transaction[..4].copy_from_slice(&index.to_be_bytes());
+            let request =
+                message::binding_request(&transaction, &username(&[7; 16], true), 0, &key).unwrap();
+            client
+                .send_to(request.as_bytes(), daemon_address)
+                .await
+                .unwrap();
+            clients.push(client);
+            // Let the daemon drain each request before the queue bound
+            // would drop the next.
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let mut packet = [0; 512];
+        let mut reached = usize::from(initial.try_recv(&mut packet).is_ok());
+        for client in &clients {
+            let mut requested = false;
+            while let Ok(len) = client.try_recv(&mut packet) {
+                if message::parse_binding_request(&packet[..len]).is_ok() {
+                    requested = true;
+                } else {
+                    assert!(requested, "an answer arrived before this side's request");
+                }
+            }
+            reached += usize::from(requested);
+        }
+        assert_eq!(reached, MAX_PAIRS, "the initial endpoint and 199 sources");
         task.abort();
     }
 
