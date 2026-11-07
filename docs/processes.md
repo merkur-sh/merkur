@@ -224,7 +224,7 @@ terminal columns with an ellipsis; the editing end of a long sign-in field stays
 Passwords and approval codes are masked.
 
 Local screens (sign-in, machines, dialogs) paint into an offscreen terminal grid, and the
-host receives only the cells that changed, through the composer a remote session uses. A
+host receives the cells that changed, through the composer a remote session uses. A
 local frame never clears the host: a multiplexer reads a frame from its pty in pieces and may
 redraw between them (tmux does, in a popup), and a cleared screen redrawn halfway is a blank
 flash on every keystroke. After a remote session draws, the next local frame repaints every

@@ -2144,8 +2144,10 @@ relay never waits to fill a batch. No io_uring transport is selected by the prof
 ## Native terminal presentation
 
 The native terminal client shares the authenticated session and display viewer with the
-browser. It separates host writes from each tab's transport reactor. The UI composes only
-changed cells and maintains one outstanding host-consumption query. Changed state composes
+browser. It separates host writes from each tab's transport reactor. The UI composes the
+changed cells in the fewest exact bytes (shortest cursor moves, short unchanged gaps written
+through, the shorter of an SGR reset and per-attribute changes, colour digits from a table)
+and maintains one outstanding host-consumption query. Changed state composes
 as soon as the previous frame is consumed; ready work does not register a timer. Grant-only
 refreshes and redraw/repair frame bounds retain a 60 Hz maintenance cadence. Partial writes
 preserve their offset while input and display grants continue. Graphics raster preparation

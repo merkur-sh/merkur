@@ -22,7 +22,10 @@ use tokio::io::unix::AsyncFd;
 use tokio::signal::unix::{Signal, SignalKind, signal};
 
 /// Save the host title, alternate screen, Kitty flags 31, bracketed paste, focus.
-const ENTER: &[u8] = b"\x1b[22;0t\x1b[?1049h\x1b[>31u\x1b[?2004h\x1b[?1004h";
+/// Origin mode, left and right margins and the scroll region are reset, so every
+/// cursor move the composer chooses lands where it computed: CUP from the
+/// screen's corner, and CR, CUF, CUB, CUU and CUD stopped by no margin.
+const ENTER: &[u8] = b"\x1b[22;0t\x1b[?1049h\x1b[?6l\x1b[?69l\x1b[r\x1b[>31u\x1b[?2004h\x1b[?1004h";
 /// Every mode the TUI may have set, off; the pushed flags popped; the
 /// cursor's shape and pen, normal screen and saved host title restored.
 const LEAVE: &[u8] = b"\x18\x1b\\\x1b[?2026l\x1b]8;;\x1b\\\x1b[?1004l\x1b[?2004l\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l\

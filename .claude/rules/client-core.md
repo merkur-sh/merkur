@@ -140,11 +140,14 @@ WebTransport carrier and the loop.
   A raw key ends the preceding text run. Ctrl-B passes to the remote session; Ctrl-\\
   belongs to the workspace, with a double press forwarding one prefix.
 - `merkur_tui::composer` writes what term-wasm's `displayed_row`/`displayed_cursor` show
-  (the presentation, with the visible speculative echo over it) as diff frames: only
-  changed cells, the fewest SGR changes, EL for a row's blank tail, one synchronized-output
-  frame ending in `CSI 5 n`. The host's answer releases consumption credit, since
-  no host reports drawing. Changed state paints immediately on that credit; grant-only
-  refreshes and viewer redraw/repair frame counts retain a 60 Hz maintenance cadence.
+  (the presentation, with the visible speculative echo over it) as diff frames: changed
+  cells, each cursor move and pen change the fewest bytes that are exact, a gap of up to
+  three unchanged cells written through when shorter than a move, EL for a row's blank
+  tail, one synchronized-output frame ending in `CSI 5 n`. Host entry resets origin mode,
+  left/right margins and the scroll region, which those relative moves rely on. The
+  host's answer releases consumption credit, since no host reports drawing. Changed state
+  paints immediately on that credit; grant-only refreshes and viewer redraw/repair frame
+  counts retain a 60 Hz maintenance cadence.
   A default colour stays the host's default; explicit colours are the daemon's RGB. OSC 8
   identities come from the presentation cells; missing
   definitions stay unlinked until their reliable control frame arrives. It reads a row only
@@ -155,7 +158,7 @@ WebTransport carrier and the loop.
   every row. Its tests replay frames into alacritty and compare every cell and link.
 - `merkur_tui::chrome` puts local screens through the same composer: sign-in, machines and
   dialogs paint escape sequences into an offscreen alacritty grid, and the host receives
-  only the changed cells. Local chrome never writes `ED`/`2J` to the host; tmux redraws a
+  the changed cells. Local chrome never writes `ED`/`2J` to the host; tmux redraws a
   popup between pty reads, so a clear-then-repaint flashes blank. A remote frame
   invalidates the chrome; local chrome paints explicit RGB or the host default only.
 - `merkur_tui::graphics` prepares clipped rasters in host pixels from verified PNG tiles.

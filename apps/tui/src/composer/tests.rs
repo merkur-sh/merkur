@@ -332,8 +332,8 @@ fn the_cursor_hides_shows_and_changes_shape() {
 }
 
 #[test]
-fn turning_an_attribute_off_resets_the_pen_and_adding_one_does_not() {
-    let mut screen = Screen::new(4, 1);
+fn turning_an_attribute_off_takes_the_shorter_of_a_reset_and_its_off_code() {
+    let mut screen = Screen::new(6, 1);
     screen.cursor = None;
     screen.put(0, 0, "a", pen(None, None, DISPLAYED_BOLD));
     screen.put(
@@ -342,16 +342,70 @@ fn turning_an_attribute_off_resets_the_pen_and_adding_one_does_not() {
         "b",
         pen(None, None, DISPLAYED_BOLD | DISPLAYED_ITALIC),
     );
+    // Dropping bold and italic for a colour: the reset is shorter.
     screen.put(0, 2, "c", pen(Some(RED), None, 0));
-    screen.put(0, 3, "d", pen(Some(RED), None, 0));
-    let mut host = Host::new(4, 1);
+    screen.put(0, 3, "d", pen(Some(RED), Some(BLUE), DISPLAYED_UNDERLINE));
+    // Dropping underline under two kept colours: its off code is shorter.
+    // Then both colours return to the default for the erased tail, where the
+    // reset is shorter than `39;49`.
+    screen.put(0, 4, "e", pen(Some(RED), Some(BLUE), 0));
+    let mut host = Host::new(6, 1);
     let mut composer = Composer::new(0);
     let frame = compose(&mut composer, &screen, &mut host);
     assert_eq!(
         body(&frame),
-        b"\x1b[1;1H\x1b[0;1ma\x1b[3mb\x1b[0;38;2;243;139;168mcd\x1b[?25l\x1b[m"
+        b"\x1b[1H\x1b[0;1ma\x1b[3mb\x1b[0;38;2;243;139;168mc\
+          \x1b[4;48;2;30;30;46md\x1b[24me\x1b[0m\x1b[K\x1b[?25l"
     );
     host.shows(&screen, 0);
+}
+
+#[test]
+fn moves_within_a_frame_take_the_fewest_bytes() {
+    let mut screen = Screen::new(40, 4);
+    let mut host = Host::new(40, 4);
+    let mut composer = Composer::new(0);
+    compose(&mut composer, &screen, &mut host);
+    // Far along one row (CHA beats CUF), to the start of a row two down (CUP
+    // beats CUD and CR), and a column move the cursor finishes with.
+    screen.put(1, 2, "a", pen(None, None, 0));
+    screen.put(1, 30, "b", pen(None, None, 0));
+    screen.put(3, 0, "c", pen(None, None, 0));
+    screen.cursor = Some(DisplayedCursor {
+        row: 3,
+        col: 9,
+        shape: DisplayedCursorShape::Block,
+    });
+    let frame = compose(&mut composer, &screen, &mut host);
+    host.shows(&screen, 0);
+    assert_eq!(body(&frame), b"\x1b[2;3H\x1b[0ma\x1b[31Gb\x1b[4Hc\x1b[8C");
+}
+
+#[test]
+fn a_short_unchanged_gap_in_the_same_pen_is_written_through() {
+    let mut screen = Screen::new(10, 1);
+    screen.put(0, 0, "abcdef", pen(None, None, 0));
+    let mut host = Host::new(10, 1);
+    let mut composer = Composer::new(0);
+    compose(&mut composer, &screen, &mut host);
+    // `c` stays, between two changes: one byte through it beats a move.
+    screen.put(0, 1, "X", pen(None, None, 0));
+    screen.put(0, 3, "Y", pen(None, None, 0));
+    screen.cursor = Some(DisplayedCursor {
+        row: 0,
+        col: 4,
+        shape: DisplayedCursorShape::Block,
+    });
+    let frame = compose(&mut composer, &screen, &mut host);
+    host.shows(&screen, 0);
+    assert_eq!(body(&frame), b"\x1b[1;2H\x1b[0mXcY");
+    // A gap in another pen is moved over instead.
+    screen.put(0, 5, "f", pen(Some(RED), None, 0));
+    screen.put(0, 4, "Z", pen(None, None, 0));
+    screen.put(0, 6, "W", pen(None, None, 0));
+    let frame = compose(&mut composer, &screen, &mut host);
+    host.shows(&screen, 0);
+    assert!(!contains_bytes(body(&frame), b"Zf"));
 }
 
 #[test]
@@ -1057,4 +1111,28 @@ fn chrome_composer_instruction_profile() {
         black_box(out.as_slice());
     }
     eprintln!("chrome_{workload} rounds=20000 bytes={bytes} first_frame={fingerprint:?}");
+}
+
+#[test]
+fn a_control_cell_in_a_written_through_gap_stays_a_blank() {
+    let mut screen = Screen::new(6, 1);
+    screen.put(0, 0, "a", pen(None, None, 0));
+    screen.rows[0][1] = DisplayedCell {
+        c: '\r',
+        ..pen(None, None, 0)
+    };
+    screen.put(0, 2, "b", pen(None, None, 0));
+    let mut host = Host::new(6, 1);
+    let mut composer = Composer::new(0);
+    compose(&mut composer, &screen, &mut host);
+    screen.put(0, 0, "A", pen(None, None, 0));
+    screen.put(0, 2, "B", pen(None, None, 0));
+    let frame = compose(&mut composer, &screen, &mut host);
+    // One blank through the gap is the cheapest way across, and it is a
+    // blank; the cursor then returns to the first column.
+    assert_eq!(body(&frame), b"\x1b[1H\x1b[0mA B\r");
+    assert_eq!(
+        (host.cell(0, 0).c, host.cell(0, 1).c, host.cell(0, 2).c),
+        ('A', ' ', 'B')
+    );
 }

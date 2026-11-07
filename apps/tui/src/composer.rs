@@ -1,17 +1,20 @@
 //! What the host shows, kept in step with what the viewer presents.
 //!
-//! Each composition writes only the cells that changed since the last, in the
-//! fewest SGR changes, erasing a row's blank tail with EL, as one
-//! synchronized-output frame. It ends with `CSI 5 n`: the host answers once
-//! it consumed the frame, the grant signal Phase 0.2 settled on, since no
-//! host reports when it drew one. A default colour stays the host's default,
-//! exactly as the daemon's cell says. The composer owns only its area,
-//! `origin` rows down the host's screen.
+//! Each composition writes the cells that changed since the last, as one
+//! synchronized-output frame of the fewest bytes the composer can prove exact:
+//! each cursor move the shortest of CUP, CHA, CR, CUF/CUB and CUU/CUD from a
+//! known position, a gap of up to three unchanged cells written through when
+//! that is shorter than moving over it, each pen change the shorter of a reset
+//! and per-attribute changes, and a row's blank tail erased with EL. It ends
+//! with `CSI 5 n`: the host answers once it consumed the frame, the grant
+//! signal Phase 0.2 settled on, since no host reports when it drew one. A
+//! default colour stays the host's default, exactly as the daemon's cell says.
+//! The composer owns only its area, `origin` rows down the host's screen.
 
 use merkur_client_native::grid::NativeGrid;
 use term_wasm::{
-    DISPLAYED_BOLD, DISPLAYED_INVERSE, DISPLAYED_ITALIC, DISPLAYED_UNDERLINE, DISPLAYED_WIDE,
-    DisplayedCell, DisplayedCursor, DisplayedCursorShape,
+    DISPLAYED_BOLD, DISPLAYED_INVERSE, DISPLAYED_ITALIC, DISPLAYED_SPACER, DISPLAYED_UNDERLINE,
+    DISPLAYED_WIDE, DisplayedCell, DisplayedCursor, DisplayedCursorShape,
 };
 
 /// The attributes a pen carries; width is the cell's, not the pen's.
@@ -229,20 +232,24 @@ fn compose_row(
     );
     let mut col = 0;
     while col < tail {
-        let cell = next[col];
-        // A wide character draws the spacer after it too.
-        let width = if cell.attrs & DISPLAYED_WIDE != 0 && col + 1 < cols {
-            2
-        } else {
-            1
-        };
+        let width = unit_width(next, col);
         let unit = col..col + width;
         if stale
             || next[unit.clone()] != shown[unit.clone()]
             || next_links[unit.clone()] != shown_links[unit.clone()]
         {
+            let at = col as u16;
+            // Only a gap of one to three cells on this row can be written
+            // through for less than a move; anything else skips the call.
+            if let Some((at_row, at_col)) = writer.at
+                && at_row == row
+                && at > at_col
+                && at - at_col <= 3
+            {
+                writer.write_through(row, at, next, next_links);
+            }
             writer.link(next_links[col], source.link_uri(next_links[col]));
-            writer.cell(row, col as u16, cell, width);
+            writer.cell(row, at, next[col], width);
             shown[unit.clone()].copy_from_slice(&next[unit.clone()]);
             shown_links[unit.clone()].copy_from_slice(&next_links[unit]);
         }
@@ -255,6 +262,16 @@ fn compose_row(
         writer.erase_tail(row, tail as u16, next[tail].bg);
         shown[tail..].copy_from_slice(&next[tail..]);
         shown_links[tail..].copy_from_slice(&next_links[tail..]);
+    }
+}
+
+/// A wide character draws the spacer after it too.
+#[inline]
+fn unit_width(next: &[DisplayedCell], col: usize) -> usize {
+    if next[col].attrs & DISPLAYED_WIDE != 0 && col + 1 < next.len() {
+        2
+    } else {
+        1
     }
 }
 
@@ -311,15 +328,89 @@ impl Writer<'_> {
         self.link = id;
     }
 
+    /// Reaches `(row, col)` with the fewest bytes among the moves whose result
+    /// is exact from a known position: CR, CHA or CUF/CUB on the same row (always
+    /// shorter than CUP there), CUU/CUD then a column move, or CUP, which is the
+    /// only move from an unknown one.
     fn move_to(&mut self, row: u16, col: u16) {
-        if self.at == Some((row, col)) {
+        let Some((at_row, at_col)) = self.at else {
+            return self.position(row, col);
+        };
+        if at_row == row {
+            if at_col != col {
+                ColumnMove::new(at_col, col).push(self.out);
+                self.at = Some((row, col));
+            }
             return;
         }
+        let rows = at_row.abs_diff(row);
+        let column = ColumnMove::new(at_col, col);
+        let relative = count_sequence_len(rows) + column.len();
+        let absolute = 3
+            + digits(self.origin.saturating_add(row).saturating_add(1))
+            + if col == 0 { 0 } else { 1 + digits(col + 1) };
+        if relative >= absolute {
+            return self.position(row, col);
+        }
+        self.out.extend_from_slice(b"\x1b[");
+        push_count(self.out, rows);
+        self.out.push(if row > at_row { b'B' } else { b'A' });
+        column.push(self.out);
+        self.at = Some((row, col));
+    }
+
+    /// CUP, without the column when it is the first.
+    fn position(&mut self, row: u16, col: u16) {
         self.out.extend_from_slice(b"\x1b[");
         push_decimal(self.out, u32::from(self.origin) + u32::from(row) + 1);
-        self.out.push(b';');
-        push_decimal(self.out, u32::from(col) + 1);
+        if col != 0 {
+            self.out.push(b';');
+            push_decimal(self.out, u32::from(col) + 1);
+        }
         self.out.push(b'H');
+        self.at = Some((row, col));
+    }
+
+    /// Writes the unchanged cells between the host's cursor and `col` when
+    /// that costs fewer bytes than moving over them: single-width cells in the
+    /// current pen and link, written exactly as `cell` writes them, so the
+    /// host is left as it was and no cell can issue a host control.
+    #[inline(never)]
+    fn write_through(&mut self, row: u16, col: u16, next: &[DisplayedCell], links: &[u32]) {
+        let Some((at_row, at_col)) = self.at else {
+            return;
+        };
+        // Every cell costs at least a byte and the shortest forward move three
+        // (`CSI C`), four from a gap of two on: only a gap of up to three can
+        // be cheaper, and a longer one is decided without reading it.
+        if at_row != row || col <= at_col || col - at_col > 3 {
+            return;
+        }
+        let Some(pen) = self.pen else {
+            return;
+        };
+        let gap = usize::from(at_col)..usize::from(col);
+        let mut bytes = 0;
+        for (cell, &link) in next[gap.clone()].iter().zip(&links[gap.clone()]) {
+            let cell_pen = Pen {
+                fg: cell.fg,
+                bg: cell.bg,
+                attrs: cell.attrs & STYLE,
+            };
+            if cell.attrs & (DISPLAYED_WIDE | DISPLAYED_SPACER) != 0
+                || cell_pen != pen
+                || link != self.link
+            {
+                return;
+            }
+            bytes += glyph_len(cell.c);
+        }
+        if bytes >= ColumnMove::new(at_col, col).len() {
+            return;
+        }
+        for cell in &next[gap] {
+            push_glyph(self.out, cell.c, 1);
+        }
         self.at = Some((row, col));
     }
 
@@ -342,19 +433,7 @@ impl Writer<'_> {
         } else {
             cell.c
         };
-        if ('!'..='~').contains(&c) {
-            self.out.push(c as u8);
-        } else if c <= '\u{9f}' {
-            // Cell data cannot issue host controls. Keep its declared columns.
-            self.out.extend_from_slice(&b"  "[..width]);
-        } else {
-            let mut utf8 = [0; 4];
-            match c.encode_utf8(&mut utf8).len() {
-                2 => self.out.extend_from_slice(&utf8[..2]),
-                3 => self.out.extend_from_slice(&utf8[..3]),
-                _ => self.out.extend_from_slice(&utf8),
-            }
-        }
+        push_glyph(self.out, c, width);
     }
 
     fn erase_tail(&mut self, row: u16, col: u16, bg: Option<[u8; 3]>) {
@@ -363,15 +442,30 @@ impl Writer<'_> {
         self.out.extend_from_slice(b"\x1b[K");
     }
 
+    /// Moves the host's pen to `next` in one SGR, by whichever of a reset or
+    /// the exact per-attribute changes is shorter; an unknown pen takes the reset.
     fn pen(&mut self, next: Pen) {
         if self.pen == Some(next) {
             return;
         }
+        // With no attribute to turn off and no colour returning to the
+        // default, the per-attribute changes are a subset of what a reset
+        // must restate, so only the other cases compare.
+        let from = match self.pen {
+            Some(pen)
+                if (pen.attrs & !next.attrs == 0
+                    && (next.fg.is_some() || pen.fg.is_none())
+                    && (next.bg.is_some() || pen.bg.is_none()))
+                    || changes_beat_reset(pen, next) =>
+            {
+                Some(pen)
+            }
+            _ => None,
+        };
         self.out.extend_from_slice(b"\x1b[");
-        // Turning an attribute off takes a reset; adding one does not.
-        let (from, mut separator) = match self.pen {
-            Some(pen) if pen.attrs & !next.attrs == 0 => (pen, false),
-            _ => {
+        let (from, mut separator) = match from {
+            Some(pen) => (pen, false),
+            None => {
                 self.out.push(b'0');
                 (Pen::DEFAULT, true)
             }
@@ -383,14 +477,11 @@ impl Writer<'_> {
             separator = true;
             out.extend_from_slice(text);
         };
-        for (bit, code) in [
-            (DISPLAYED_BOLD, &b"1"[..]),
-            (DISPLAYED_ITALIC, b"3"),
-            (DISPLAYED_UNDERLINE, b"4"),
-            (DISPLAYED_INVERSE, b"7"),
-        ] {
+        for &(bit, on, off) in &ATTRIBUTE_CODES {
             if next.attrs & bit != 0 && from.attrs & bit == 0 {
-                param(self.out, code);
+                param(self.out, on);
+            } else if next.attrs & bit == 0 && from.attrs & bit != 0 {
+                param(self.out, off);
             }
         }
         for (color, was, default, spec) in [
@@ -404,11 +495,11 @@ impl Writer<'_> {
                 None => param(self.out, default),
                 Some([r, g, b]) => {
                     param(self.out, spec);
-                    push_decimal(self.out, u32::from(r));
+                    push_channel(self.out, r);
                     self.out.push(b';');
-                    push_decimal(self.out, u32::from(g));
+                    push_channel(self.out, g);
                     self.out.push(b';');
-                    push_decimal(self.out, u32::from(b));
+                    push_channel(self.out, b);
                 }
             }
         }
@@ -435,7 +526,171 @@ impl Writer<'_> {
     }
 }
 
+/// Writes a cell's glyph over its `width` columns. Cell data cannot issue
+/// host controls: a C0, C1 or DEL cell keeps its declared columns as blanks.
+#[inline]
+fn push_glyph(out: &mut Vec<u8>, c: char, width: usize) {
+    if ('!'..='~').contains(&c) {
+        out.push(c as u8);
+    } else if c <= '\u{9f}' {
+        out.extend_from_slice(&b"  "[..width]);
+    } else {
+        let mut utf8 = [0; 4];
+        match c.encode_utf8(&mut utf8).len() {
+            2 => out.extend_from_slice(&utf8[..2]),
+            3 => out.extend_from_slice(&utf8[..3]),
+            _ => out.extend_from_slice(&utf8),
+        }
+    }
+}
+
+/// The bytes `push_glyph` writes for a single-width cell.
+#[inline]
+fn glyph_len(c: char) -> usize {
+    if c <= '\u{9f}' { 1 } else { c.len_utf8() }
+}
+
+/// Each style bit's SGR codes: on, then off. 22 also ends faint, which no pen
+/// carries.
+const ATTRIBUTE_CODES: [(u8, &[u8], &[u8]); 4] = [
+    (DISPLAYED_BOLD, b"1", b"22"),
+    (DISPLAYED_ITALIC, b"3", b"23"),
+    (DISPLAYED_UNDERLINE, b"4", b"24"),
+    (DISPLAYED_INVERSE, b"7", b"27"),
+];
+
+/// Whether turning attributes off one by one is shorter than a reset, from the
+/// parameters only one of the two forms writes: each turned-off attribute and
+/// each colour returning to the default (`;22`, `;39`), against the reset's
+/// `0;`, its restated kept attributes (`1;`) and restated unchanged colours
+/// (`38;2;r;g;b;`). Added attributes and newly set colours cost both the same.
+fn changes_beat_reset(from: Pen, next: Pen) -> bool {
+    let mut changes = 3 * (from.attrs & !next.attrs).count_ones() as usize;
+    let mut reset = 2 + 2 * (from.attrs & next.attrs).count_ones() as usize;
+    for (color, was) in [(next.fg, from.fg), (next.bg, from.bg)] {
+        match (color == was, color) {
+            (true, Some([r, g, b])) => {
+                reset += 8 + digits(r.into()) + digits(g.into()) + digits(b.into());
+            }
+            (false, None) => changes += 3,
+            _ => {}
+        }
+    }
+    changes <= reset
+}
+
+/// Bytes of a cursor-motion sequence moving `count` cells: `ESC [ n X`, with
+/// the count omitted when it is one.
+fn count_sequence_len(count: u16) -> usize {
+    3 + if count == 1 { 0 } else { digits(count) }
+}
+
+fn push_count(out: &mut Vec<u8>, count: u16) {
+    if count != 1 {
+        push_decimal(out, u32::from(count));
+    }
+}
+
+/// The shortest exact move between two columns of one row.
+#[derive(Clone, Copy)]
+enum ColumnMove {
+    Stay,
+    /// CR, to the first column.
+    Return,
+    /// CHA to a 1-based column.
+    Absolute(u16),
+    /// CUF.
+    Forward(u16),
+    /// CUB.
+    Back(u16),
+}
+
+impl ColumnMove {
+    #[inline]
+    fn new(from: u16, to: u16) -> Self {
+        if from == to {
+            return Self::Stay;
+        }
+        if to == 0 {
+            return Self::Return;
+        }
+        let distance = from.abs_diff(to);
+        if 3 + digits(to + 1) <= count_sequence_len(distance) {
+            Self::Absolute(to + 1)
+        } else if to > from {
+            Self::Forward(distance)
+        } else {
+            Self::Back(distance)
+        }
+    }
+
+    #[inline]
+    fn len(self) -> usize {
+        match self {
+            Self::Stay => 0,
+            Self::Return => 1,
+            Self::Absolute(column) => 3 + digits(column),
+            Self::Forward(count) | Self::Back(count) => count_sequence_len(count),
+        }
+    }
+
+    fn push(self, out: &mut Vec<u8>) {
+        let (count, end) = match self {
+            Self::Stay => return,
+            Self::Return => return out.push(b'\r'),
+            Self::Absolute(column) => {
+                out.extend_from_slice(b"\x1b[");
+                push_decimal(out, u32::from(column));
+                return out.push(b'G');
+            }
+            Self::Forward(count) => (count, b'C'),
+            Self::Back(count) => (count, b'D'),
+        };
+        out.extend_from_slice(b"\x1b[");
+        push_count(out, count);
+        out.push(end);
+    }
+}
+
+/// Decimal digits of a terminal coordinate or count.
+#[inline]
+fn digits(value: u16) -> usize {
+    1 + usize::from(value >= 10)
+        + usize::from(value >= 100)
+        + usize::from(value >= 1000)
+        + usize::from(value >= 10000)
+}
+
+/// Every colour channel's decimal digits, so an SGR colour is written by
+/// table lookup rather than by division: `[len, d0, d1, d2]`.
+static CHANNEL_DIGITS: [[u8; 4]; 256] = {
+    let mut table = [[0u8; 4]; 256];
+    let mut v: u8 = 0;
+    loop {
+        table[v as usize] = if v >= 100 {
+            [3, b'0' + v / 100, b'0' + v / 10 % 10, b'0' + v % 10]
+        } else if v >= 10 {
+            [2, b'0' + v / 10, b'0' + v % 10, 0]
+        } else {
+            [1, b'0' + v, 0, 0]
+        };
+        if v == u8::MAX {
+            break table;
+        }
+        v += 1;
+    }
+};
+
+#[inline]
+fn push_channel(out: &mut Vec<u8>, value: u8) {
+    let [len, digits @ ..] = &CHANNEL_DIGITS[usize::from(value)];
+    out.extend_from_slice(&digits[..usize::from(*len)]);
+}
+
 fn push_decimal(out: &mut Vec<u8>, value: u32) {
+    if let Ok(small) = u8::try_from(value) {
+        return push_channel(out, small);
+    }
     let mut digits = [0; 10];
     let mut at = digits.len();
     let mut value = value;
