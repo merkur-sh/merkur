@@ -293,24 +293,36 @@ fn candidates(
         .collect()
 }
 
+/// A source this daemon answers without checking it: one that is not
+/// globally routable, in any spelling. Every public source needs this side's
+/// own check before an answer.
+fn answered_unchecked(source: SocketAddr) -> bool {
+    !super::side_channel::is_globally_routable(&source.ip().to_canonical())
+}
+
 fn spawn_checks(
     checks: merkur_traversal::check::Binding,
     initial: Vec<SocketAddr>,
     expires: Option<Instant>,
 ) -> JoinHandle<()> {
     let allowed_ips: Vec<IpAddr> = initial.iter().map(|address| address.ip()).collect();
+    let allows = Arc::new(move |source: SocketAddr| {
+        allowed_ips.contains(&source.ip())
+            && super::side_channel::is_globally_routable(&source.ip())
+            && expires.is_none_or(|deadline| Instant::now() < deadline)
+    });
     tokio::spawn(async move {
         let (verified, mut results) = mpsc::channel(1);
+        let checked = allows.clone();
         let run = checks.run(
             initial,
-            move |source| {
-                allowed_ips.contains(&source.ip())
-                    && super::side_channel::is_globally_routable(&source.ip())
-                    && expires.is_none_or(|deadline| Instant::now() < deadline)
-            },
-            // Authenticated LAN requests earn bounded replies; they do
-            // not authorize unsolicited checks toward private targets.
-            |_| true,
+            move |source| allows(source),
+            // Authenticated LAN requests earn bounded replies; they do not
+            // authorize unsolicited checks toward private targets. A public
+            // source is answered only when it is also checked: the answer is
+            // what lets the client dial, and a public tuple carries QUIC only
+            // through filter state this side's own check opened.
+            move |source| answered_unchecked(source) || checked(source),
             verified,
         );
         tokio::pin!(run);
@@ -502,6 +514,29 @@ mod tests {
         assert!(authorized_targets(&claimed, Some(&credential)).is_some());
         claimed.bindings[0].candidates[0].address = "198.51.100.3:50001".parse().unwrap();
         assert!(authorized_targets(&claimed, Some(&credential)).is_none());
+    }
+
+    #[test]
+    fn only_a_local_source_is_answered_without_this_sides_check() {
+        for local in [
+            "192.168.1.5:4433",
+            "10.0.0.2:4433",
+            "100.64.0.9:4433",
+            "[fd00::7]:4433",
+        ] {
+            assert!(answered_unchecked(local.parse().unwrap()), "{local}");
+        }
+        // A mapped spelling of a private address is still local.
+        assert!(answered_unchecked(
+            "[::ffff:192.168.1.5]:4433".parse().unwrap()
+        ));
+        for public in [
+            "8.8.8.8:4433",
+            "[2606:4700::1111]:4433",
+            "[::ffff:8.8.8.8]:4433",
+        ] {
+            assert!(!answered_unchecked(public.parse().unwrap()), "{public}");
+        }
     }
 
     #[test]

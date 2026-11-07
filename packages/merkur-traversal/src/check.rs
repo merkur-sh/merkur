@@ -252,6 +252,26 @@ impl Binding {
         }
     }
 
+    /// Sends one check request on exactly the tuple an answer to `request`
+    /// will use: to its source, from the local address it arrived on. It
+    /// opens this side's filter state for that tuple before the answer lets
+    /// the peer dial it. Its own reply is not awaited: the full check does
+    /// the verifying, so this send holds no slot.
+    async fn open(&self, request: &Incoming) -> io::Result<()> {
+        let mut transaction = [0; 12];
+        SystemRandom::new()
+            .fill(&mut transaction)
+            .map_err(io::Error::other)?;
+        let opening =
+            message::binding_request(&transaction, &self.outgoing_username, 0, &self.outgoing_key)
+                .ok_or_else(|| io::Error::other("check request encoding"))?;
+        tokio::select! {
+            biased;
+            () = self.context.cancelled() => Err(io::Error::new(io::ErrorKind::Interrupted, "check authority retired")),
+            result = self.socket.send_checked(request.source, opening.as_bytes(), request.local_ip, &self.context) => result,
+        }
+    }
+
     pub fn authority(&self) -> Authority {
         Authority(self.context.clone())
     }
@@ -316,6 +336,12 @@ impl Binding {
 
     /// Checks each named endpoint once, with bounded retransmissions. Verified
     /// requests may add exact peer-reflexive endpoints, never a port search.
+    ///
+    /// An answer is what lets the peer dial a tuple, so a source this side
+    /// checks is answered only after this side has sent a check request on
+    /// that exact tuple; the first answer on a tuple is preceded by
+    /// [`Binding::open`]. A source this side does not check is answered at
+    /// once when `responds` allows it.
     pub async fn run(
         mut self,
         initial: Vec<SocketAddr>,
@@ -325,6 +351,8 @@ impl Binding {
     ) {
         let allows: Arc<dyn Fn(SocketAddr) -> bool + Send + Sync> = Arc::new(allows);
         let mut seen = Vec::new();
+        // Tuples this side has sent a check request on, as (local, remote).
+        let mut opened: Vec<(Option<std::net::IpAddr>, SocketAddr)> = Vec::new();
         let mut pending = FuturesUnordered::new();
         for target in initial.into_iter().take(MAX_PAIRS) {
             if allows(target) && !seen.contains(&target) {
@@ -359,6 +387,18 @@ impl Binding {
                     exhausted_reported = false;
                     if !self.publish(&verified, Event::Checking).await { break; }
                     if !responds(request.source) { continue; }
+                    let tuple = (request.local_ip, request.source);
+                    if allows(request.source) && !opened.contains(&tuple) {
+                        // An answer without this side's request on the tuple
+                        // would be one-sided; beyond the pair bound, or when
+                        // the opening send fails, the source goes unanswered.
+                        if opened.len() >= MAX_PAIRS { continue; }
+                        if let Err(error) = self.open(&request).await {
+                            tracing::debug!(%error, "peer check opening failed");
+                            continue;
+                        }
+                        opened.push(tuple);
+                    }
                     if let Err(error) = self.answer(&request).await {
                         tracing::debug!(%error, "peer check response failed");
                     }
@@ -469,6 +509,105 @@ mod tests {
         daemon_task.await.unwrap();
         assert!(client.pending_is_empty());
         assert!(daemon.pending_is_empty());
+    }
+
+    /// The answer is what lets a peer dial a tuple, so the daemon's own check
+    /// toward a source it checks leaves first, even for a source it learns
+    /// from that very request.
+    #[tokio::test]
+    async fn a_checked_source_hears_our_check_before_our_answer() {
+        let (_daemon_endpoint, daemon, daemon_address) = endpoint();
+        let binding = Binding::install(
+            daemon.clone(),
+            [7; 16],
+            &[3; 32],
+            &[4; 32],
+            false,
+            Arc::new(Semaphore::new(MAX_CHECKS_PER_PEER)),
+        )
+        .unwrap();
+        let (events, _at_daemon) = mpsc::channel(8);
+        let task = tokio::spawn(binding.run(Vec::new(), |_| true, |_| true, events));
+        let client = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let transaction = [5; 12];
+        let request = message::binding_request(
+            &transaction,
+            &username(&[7; 16], true),
+            0,
+            &hmac::Key::new(hmac::HMAC_SHA256, &[3; 32]),
+        )
+        .unwrap();
+        client
+            .send_to(request.as_bytes(), daemon_address)
+            .await
+            .unwrap();
+        let mut packet = [0; 512];
+        let mut order = Vec::new();
+        while order.len() < 2 {
+            let (len, _) =
+                tokio::time::timeout(Duration::from_secs(2), client.recv_from(&mut packet))
+                    .await
+                    .unwrap()
+                    .unwrap();
+            order.push(match message::parse_binding_request(&packet[..len]) {
+                Ok(_) => "check",
+                Err(_) => {
+                    assert!(message::parse_success(&packet[..len], &transaction).is_some());
+                    "answer"
+                }
+            });
+        }
+        assert_eq!(order, ["check", "answer"]);
+        task.abort();
+    }
+
+    /// Checks waiting for a slot do not hold an answer back: the request that
+    /// opens the tuple needs none.
+    #[tokio::test]
+    async fn a_checked_source_hears_our_check_before_our_answer_with_every_slot_taken() {
+        let (_daemon_endpoint, daemon, daemon_address) = endpoint();
+        let binding = Binding::install(
+            daemon.clone(),
+            [7; 16],
+            &[3; 32],
+            &[4; 32],
+            false,
+            Arc::new(Semaphore::new(0)),
+        )
+        .unwrap();
+        let (events, _at_daemon) = mpsc::channel(8);
+        let task = tokio::spawn(binding.run(Vec::new(), |_| true, |_| true, events));
+        let client = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let transaction = [5; 12];
+        let request = message::binding_request(
+            &transaction,
+            &username(&[7; 16], true),
+            0,
+            &hmac::Key::new(hmac::HMAC_SHA256, &[3; 32]),
+        )
+        .unwrap();
+        client
+            .send_to(request.as_bytes(), daemon_address)
+            .await
+            .unwrap();
+        let mut packet = [0; 512];
+        let mut order = Vec::new();
+        while order.len() < 2 {
+            let (len, _) =
+                tokio::time::timeout(Duration::from_secs(2), client.recv_from(&mut packet))
+                    .await
+                    .unwrap()
+                    .unwrap();
+            order.push(match message::parse_binding_request(&packet[..len]) {
+                Ok(_) => "check",
+                Err(_) => {
+                    assert!(message::parse_success(&packet[..len], &transaction).is_some());
+                    "answer"
+                }
+            });
+        }
+        assert_eq!(order, ["check", "answer"]);
+        task.abort();
     }
 
     #[test]
