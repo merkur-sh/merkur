@@ -7,7 +7,7 @@
  * and `published` are live bindings: a test reads what its `beforeEach` made, and replaces the
  * service through `setService`.
  */
-import { beforeEach, expect } from 'bun:test';
+import { beforeEach, expect, setDefaultTimeout } from 'bun:test';
 import { createOpaqueServerSetup } from '@merkur/auth';
 import { AuthSessionResponse, AuthStartResponse } from '@merkur/shared/api-schema';
 import { OPAQUE_PASSWORD_STRETCHING } from '@merkur/shared/opaque-password-policy';
@@ -50,6 +50,9 @@ export let service: AuthService;
 export const published: Array<{ channel: string; message: string }> = [];
 
 export function useAuthServiceFixture(): void {
+  // A test here runs several production Argon2id finishes, which CI's parallel test processes
+  // slow from under a second to several. Nothing asserts on time, so the limit only guards a hang.
+  setDefaultTimeout(30_000);
   beforeEach(async () => {
     published.length = 0;
     await opaque.ready;
