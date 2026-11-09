@@ -2,21 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import { PROXY_DELAY_HISTOGRAM_BUCKETS } from './edge-network-stats';
 import {
   buildReferencePlaywrightConfig,
-  DIRECT_REFERENCE_COMMON_FILES,
   replaceReferenceProxyPath,
   validateReferenceCompanionResult,
   validateReferenceOverlayPaths,
 } from './run-terminal-direct-reference';
 
 describe('owned historical Direct test overlay', () => {
-  test('carries every current-only runtime helper into the historical overlay', () => {
-    expect(DIRECT_REFERENCE_COMMON_FILES).toContain('tests/e2e/fixtures/direct-artifacts.ts');
-    expect(DIRECT_REFERENCE_COMMON_FILES).toContain('tests/e2e/fixtures/direct-tui-workloads.ts');
-    expect(DIRECT_REFERENCE_COMMON_FILES).toContain(
-      'tests/e2e/fixtures/direct-reference-events.ts',
-    );
-    expect(DIRECT_REFERENCE_COMMON_FILES).toContain('tests/e2e/fixtures/direct-redraw-coverage.ts');
-  });
   test('pins one common automation switch for executable provenance', () => {
     const base =
       "import { defineConfig } from '@playwright/test';\n" +

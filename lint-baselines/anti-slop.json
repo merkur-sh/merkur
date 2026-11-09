@@ -23,9 +23,6 @@
     "comment-defensive": 2,
     "comment-temporary": 6
   },
-  "apps/daemon/dataplane/src/main_tests/ingress_allocation_oracle.rs": {
-    "comment-provenance": 1
-  },
   "apps/daemon/dataplane/src/network/peer.rs": {
     "comment-defensive": 1
   },
@@ -151,7 +148,6 @@
   },
   "apps/daemon/src/services/daemon-release.test.ts": {
     "no-known-value-widening": 3,
-    "no-literal-timer-delay": 1,
     "no-swallowed-error": 2
   },
   "apps/daemon/src/services/daemon-release.ts": {
@@ -174,11 +170,10 @@
   },
   "apps/daemon/src/services/dataplane-client.test.ts": {
     "no-known-value-widening": 1,
-    "no-literal-timer-delay": 6,
     "no-object-parameters": 1,
-    "no-runtime-typeof": 2,
+    "no-runtime-typeof": 1,
     "no-unsafe-dictionary-type": 5,
-    "require-safety-comment-for-type-assertion": 6
+    "require-safety-comment-for-type-assertion": 4
   },
   "apps/daemon/src/services/dataplane-client.ts": {
     "comment-defensive": 6,
@@ -283,9 +278,6 @@
   "apps/server/src/http/daemon-request-auth.dragonfly.test.ts": {
     "no-skipped-tests": 1
   },
-  "apps/server/src/http/effect-route.test.ts": {
-    "require-safety-comment-for-type-assertion": 1
-  },
   "apps/server/src/http/effect-route.ts": {
     "comment-provenance": 1,
     "no-conditional-empty-object-spread": 1,
@@ -324,11 +316,10 @@
   },
   "apps/server/src/http/routes/daemon-control-auth.test.ts": {
     "no-conditional-empty-object-spread": 1,
-    "no-literal-timer-delay": 2,
+    "no-literal-timer-delay": 1,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/server/src/http/routes/daemon-control-routes.test.ts": {
-    "no-literal-timer-delay": 2,
     "no-weak-assertion": 1,
     "require-safety-comment-for-type-assertion": 1
   },
@@ -387,7 +378,6 @@
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/server/src/http/sse.test.ts": {
-    "no-literal-timer-delay": 2,
     "no-manual-tagged-construction": 13
   },
   "apps/server/src/http/sse.ts": {
@@ -420,7 +410,6 @@
   "apps/server/src/observability/tail-sampling-tracer.test.ts": {
     "no-chained-type-assertions": 2,
     "no-known-value-widening": 2,
-    "no-literal-timer-delay": 1,
     "require-safety-comment-for-type-assertion": 6
   },
   "apps/server/src/observability/tail-sampling-tracer.ts": {
@@ -461,8 +450,7 @@
     "no-weak-assertion": 1
   },
   "apps/server/src/services/auth-service.test.ts": {
-    "comment-provenance": 1,
-    "no-literal-timer-delay": 1
+    "comment-provenance": 1
   },
   "apps/server/src/services/auth-service.ts": {
     "no-array-filter-map": 1,
@@ -484,7 +472,6 @@
     "no-manual-tagged-construction": 1
   },
   "apps/server/src/services/browser-session-presence.dragonfly.test.ts": {
-    "no-literal-timer-delay": 1,
     "no-manual-tag-comparison": 4,
     "no-skipped-tests": 1
   },
@@ -504,7 +491,7 @@
   },
   "apps/server/src/services/daemon-control-service.test.ts": {
     "no-chained-type-assertions": 1,
-    "no-literal-timer-delay": 2,
+    "no-literal-timer-delay": 1,
     "no-manual-tagged-construction": 9,
     "no-unknown-parameters": 1,
     "require-safety-comment-for-type-assertion": 3
@@ -523,11 +510,10 @@
     "no-unknown-parameters": 2
   },
   "apps/server/src/services/device-events-service.test.ts": {
-    "no-chained-type-assertions": 4,
+    "no-chained-type-assertions": 3,
     "no-known-value-widening": 1,
-    "no-manual-tag-comparison": 1,
     "no-manual-tagged-construction": 1,
-    "require-safety-comment-for-type-assertion": 10
+    "require-safety-comment-for-type-assertion": 6
   },
   "apps/server/src/services/device-events-service.ts": {
     "no-swallowed-error": 1
@@ -580,9 +566,6 @@
   },
   "apps/server/src/services/notification-outbox-service.dragonfly.test.ts": {
     "no-skipped-tests": 1
-  },
-  "apps/server/src/services/notification-outbox-service.test.ts": {
-    "require-safety-comment-for-type-assertion": 1
   },
   "apps/server/src/services/notification-outbox-service.ts": {
     "no-manual-tag-comparison": 2
@@ -681,7 +664,6 @@
   },
   "apps/server/src/services/session-issuance-service.test.ts": {
     "no-known-value-widening": 17,
-    "no-literal-timer-delay": 1,
     "no-manual-tagged-construction": 7,
     "no-runtime-typeof": 1,
     "no-unknown-parameters": 4,
@@ -907,7 +889,6 @@
   },
   "apps/web/src/auth/delegation-vault.test.ts": {
     "no-known-value-widening": 5,
-    "no-literal-timer-delay": 1,
     "no-unknown-parameters": 1
   },
   "apps/web/src/auth/delegation-vault.ts": {
@@ -939,7 +920,6 @@
     "no-known-value-widening": 1
   },
   "apps/web/src/event-stream-worker-client.test.ts": {
-    "no-literal-timer-delay": 2,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/event-stream-worker.ts": {
@@ -1058,7 +1038,6 @@
     "no-conditional-empty-object-spread": 1
   },
   "apps/web/src/lib/task-wake.test.ts": {
-    "no-literal-timer-delay": 1,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/lib/transport-autotuner.ts": {
@@ -1305,7 +1284,6 @@
   "apps/web/src/terminal/input-controller.test.ts": {
     "no-chained-type-assertions": 1,
     "no-known-value-widening": 1,
-    "no-literal-timer-delay": 3,
     "no-object-parameters": 1,
     "no-unknown-parameters": 3,
     "no-unsafe-dictionary-type": 2,
@@ -1376,9 +1354,6 @@
   "apps/web/src/terminal/retained-wire-payload-pool.test.ts": {
     "no-compat-names": 6
   },
-  "apps/web/src/terminal/ring-wake-readers.test.ts": {
-    "no-literal-timer-delay": 1
-  },
   "apps/web/src/terminal/selection-layer.test.ts": {
     "no-chained-type-assertions": 4,
     "require-safety-comment-for-type-assertion": 8
@@ -1410,7 +1385,6 @@
   "apps/web/src/transport-worker-client.test.ts": {
     "no-conditional-empty-object-spread": 1,
     "no-known-value-widening": 1,
-    "no-literal-timer-delay": 1,
     "no-runtime-typeof": 1,
     "no-swallowed-error": 3,
     "no-unknown-parameters": 9,
@@ -1450,7 +1424,6 @@
   },
   "apps/web/src/transport/input-ring.test.ts": {
     "no-known-value-widening": 1,
-    "no-literal-timer-delay": 1,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/web/src/transport/input-ring.ts": {
@@ -1602,11 +1575,6 @@
     "no-manual-tag-comparison": 4,
     "no-runtime-typeof": 1,
     "no-unsafe-dictionary-type": 1,
-    "require-safety-comment-for-type-assertion": 1
-  },
-  "packages/logger/src/trace-correlation.test.ts": {
-    "no-conditional-empty-object-spread": 1,
-    "no-known-value-widening": 1,
     "require-safety-comment-for-type-assertion": 1
   },
   "packages/merkur-client-native/src/carrier.rs": {
@@ -2022,7 +1990,6 @@
   },
   "scripts/edge-network-control.test.ts": {
     "no-known-value-widening": 3,
-    "no-literal-timer-delay": 1,
     "no-runtime-typeof": 1,
     "no-unsafe-dictionary-type": 3,
     "require-safety-comment-for-type-assertion": 1
@@ -2318,12 +2285,8 @@
     "no-chained-type-assertions": 1,
     "require-safety-comment-for-type-assertion": 11
   },
-  "tests/e2e/app.e2e.ts": {
-    "no-literal-timer-delay": 2
-  },
   "tests/e2e/auth-cross-tab.e2e.ts": {
-    "no-known-value-widening": 1,
-    "no-literal-timer-delay": 1
+    "no-known-value-widening": 1
   },
   "tests/e2e/auth-email.e2e.ts": {
     "require-safety-comment-for-type-assertion": 1
@@ -2421,9 +2384,6 @@
   "tests/e2e/fixtures/direct-network-proxy.ts": {
     "no-known-value-widening": 1,
     "no-literal-timer-delay": 3
-  },
-  "tests/e2e/fixtures/direct-redraw-coverage.test.ts": {
-    "no-literal-timer-delay": 1
   },
   "tests/e2e/fixtures/direct-reference-events.ts": {
     "no-array-filter-map": 2,

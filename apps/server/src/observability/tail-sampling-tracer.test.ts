@@ -234,7 +234,6 @@ describe('conformance with Effect OtlpTracer', () => {
         Effect.provideService(Tracer.Tracer, tracer),
       );
 
-      yield* Effect.sleep('40 millis');
       expect(decisions).toEqual(['kept_ratio']);
     });
 

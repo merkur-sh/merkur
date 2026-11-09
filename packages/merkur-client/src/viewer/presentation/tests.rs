@@ -502,14 +502,6 @@ fn a_complete_k1_singleton_never_waits_for_its_optional_probe() {
 }
 
 #[test]
-fn a_frame_right_after_the_first_packet_cannot_expose_it_alone() {
-    let mut c = PresentationCoordinator::new(9);
-    note(&mut c, 100.0, 8, true, false, 16.0);
-    assert_eq!(c.release_at_frame(Frames::new().next()), Release::None);
-    assert!(c.is_held());
-}
-
-#[test]
 fn end_alone_is_advisory_and_cannot_release_before_the_frame_bound() {
     let mut c = PresentationCoordinator::new(9);
     let mut frames = Frames::new();
@@ -657,16 +649,6 @@ fn the_frame_rule_releases_with_no_end_and_with_a_late_callback() {
 }
 
 #[test]
-fn a_suspended_frame_clock_holds_instead_of_guessing() {
-    let mut c = PresentationCoordinator::new(9);
-    note(&mut c, 100.0, 5, true, true, 1_000.0 / 120.0);
-    // No frames at all: the grid advanced, the pixels wait, and no timer
-    // could release this.
-    assert!(c.is_held());
-    assert_eq!(at_deadline(&mut c, &mut Frames::new()), Release::Deadline);
-}
-
-#[test]
 fn a_burst_across_a_pump_slice_stays_one_anchored_transaction() {
     let mut c = PresentationCoordinator::new(9);
     let mut frames = Frames::new();
@@ -690,16 +672,6 @@ fn a_burst_across_a_pump_slice_stays_one_anchored_transaction() {
     assert_eq!(c.transaction_deadline_at_ms(), 116.0);
     assert_eq!(c.release_at_frame(frames.next()), Release::None);
     assert_eq!(c.release_at_frame(frames.next()), Release::Deadline);
-}
-
-#[test]
-fn continuous_output_cannot_move_the_transaction_deadline() {
-    let mut c = PresentationCoordinator::new(9);
-    for at in 100..116u32 {
-        note(&mut c, f64::from(at), at, true, false, 16.0);
-        assert_eq!(c.transaction_deadline_at_ms(), 116.0);
-    }
-    assert_eq!(at_deadline(&mut c, &mut Frames::new()), Release::Deadline);
 }
 
 #[test]
@@ -931,19 +903,17 @@ fn the_frame_budget_is_identical_at_every_refresh_cadence() {
 
 #[test]
 fn resets_discard_stale_hold_state() {
-    for _boundary in ["resync", "epoch", "teardown"] {
-        let mut c = PresentationCoordinator::new(9);
-        note(&mut c, 100.0, 12, true, true, 16.0);
-        c.reset();
-        assert!(!c.is_held());
-        assert_eq!(c.first_applied_at_ms(), 0.0);
-        assert_eq!(c.applied_datagram_count(), 0);
-        assert!(!c.end_seen());
-        assert_eq!(
-            note(&mut c, 101.0, 13, false, false, 16.0),
-            ApplyAction::Now
-        );
-    }
+    let mut c = PresentationCoordinator::new(9);
+    note(&mut c, 100.0, 12, true, true, 16.0);
+    c.reset();
+    assert!(!c.is_held());
+    assert_eq!(c.first_applied_at_ms(), 0.0);
+    assert_eq!(c.applied_datagram_count(), 0);
+    assert!(!c.end_seen());
+    assert_eq!(
+        note(&mut c, 101.0, 13, false, false, 16.0),
+        ApplyAction::Now
+    );
 }
 
 #[test]

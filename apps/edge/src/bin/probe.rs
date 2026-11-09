@@ -30,32 +30,6 @@ const MAX_RELIABLE_BODY: usize = 8 * 1024 * 1024 - 5;
 /// `apps/edge/src/relay.rs` `DELIVERY_QUOTE_STREAM_PREFACE`.
 const DELIVERY_QUOTE_STREAM_PREFACE: &[u8] = b"merkur-edge-quote-v1";
 
-#[cfg(test)]
-fn reliable_record(body: &[u8]) -> Vec<u8> {
-    let body_len = u32::try_from(body.len()).expect("probe reliable body fits u32");
-    let mut record = Vec::with_capacity(RELIABLE_RECORD_HEADER_BYTES + body.len());
-    record.extend_from_slice(&body_len.to_be_bytes());
-    record.extend_from_slice(body);
-    record
-}
-
-#[cfg(test)]
-fn parse_reliable_records(mut wire: &[u8]) -> Option<Vec<&[u8]>> {
-    let mut records = Vec::new();
-    while !wire.is_empty() {
-        let header = wire.get(..RELIABLE_RECORD_HEADER_BYTES)?;
-        let body_len = u32::from_be_bytes(header.try_into().ok()?) as usize;
-        if body_len > MAX_RELIABLE_BODY {
-            return None;
-        }
-        let record_len = RELIABLE_RECORD_HEADER_BYTES.checked_add(body_len)?;
-        let body = wire.get(RELIABLE_RECORD_HEADER_BYTES..record_len)?;
-        records.push(body);
-        wire = wire.get(record_len..)?;
-    }
-    Some(records)
-}
-
 async fn read_record<R>(source: &mut R) -> io::Result<Option<Vec<u8>>>
 where
     R: AsyncRead + Unpin,
@@ -324,28 +298,6 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn persistent_wire_has_one_channel_prefix_and_multiple_exact_records() {
-        let mut lane = vec![0xA5];
-        lane.extend_from_slice(&reliable_record(b"one"));
-        lane.extend_from_slice(&reliable_record(b""));
-        lane.extend_from_slice(&reliable_record(b"three"));
-
-        assert_eq!(lane[0], 0xA5);
-        assert_eq!(
-            parse_reliable_records(&lane[1..]),
-            Some(vec![&b"one"[..], &b""[..], &b"three"[..]])
-        );
-
-        let mut truncated = lane.clone();
-        truncated.pop();
-        assert!(parse_reliable_records(&truncated[1..]).is_none());
-
-        let mut trailing = lane;
-        trailing.push(0);
-        assert!(parse_reliable_records(&trailing[1..]).is_none());
-    }
 
     #[tokio::test]
     async fn record_helpers_roundtrip_concatenated_records() {

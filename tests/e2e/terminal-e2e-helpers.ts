@@ -240,5 +240,12 @@ export function shellQuote(value: string): string {
 
 export function exactValueCommand(value: string, marker: string): string {
   const quoted = shellQuote(value);
-  return `actual=${quoted}; [ "$actual" = ${quoted} ] && printf '${marker}\\n'\n`;
+  const expectedHex = Buffer.from(value, 'utf8').toString('hex');
+  const splitAt = Math.max(1, Math.floor(marker.length / 2));
+  const first = shellQuote(marker.slice(0, splitAt));
+  const second = shellQuote(marker.slice(splitAt));
+  return (
+    `actual=${quoted}; actual_hex=$(printf '%s' "$actual" | od -An -tx1 | tr -d ' \\n'); ` +
+    `[ "$actual_hex" = '${expectedHex}' ] && printf '%s%s\\n' ${first} ${second}\n`
+  );
 }

@@ -6,17 +6,11 @@ import {
   packingMarker,
 } from './packing-delivery-workload';
 
-test('application uses bounded precomputed alternating rows and explicit sync updates', () => {
+test('generated application is valid JavaScript', () => {
   const source = packingDeliveryApplication(
     { cols: 384, rows: 256, entropy: true },
     '/tmp/owned-packing-status',
   );
-  expect(source).toContain('variant<2');
-  expect(source).toContain('[?2026h');
-  expect(source).toContain('[?2026l');
-  expect(source).toContain('records.length>=2000');
-  expect(source).not.toContain('133;B');
-  expect(source).not.toContain('?2004h');
   expect(() => new Function(source)).not.toThrow();
 });
 

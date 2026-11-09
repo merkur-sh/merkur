@@ -32,6 +32,7 @@ interface Harness {
   readonly reader: ReadableStreamDefaultReader<Uint8Array>;
   readonly errors: unknown[];
   readonly presenceReady: Promise<void>;
+  readonly snapshotStarted: Promise<void>;
   /** Every close this stream reported, in order. */
   readonly closes: Array<{ reason: string; openForUser: number }>;
   readonly abort: () => void;
@@ -78,6 +79,7 @@ function createHarness(options: {
   const snapshotGate = new Promise<void>((resolve) => {
     releaseSnapshot = resolve;
   });
+  const snapshotStarted = Promise.withResolvers<void>();
   const response = createDeviceEventsSseResponse<unknown, never>({
     lifetime,
     run: (program, runOptions) => runtime.runPromise(program, runOptions),
@@ -118,6 +120,7 @@ function createHarness(options: {
     readCursor: Effect.succeed({ epoch: EPOCH, seq: options.seq }),
     loadSnapshot: Effect.tryPromise({
       try: async () => {
+        snapshotStarted.resolve();
         if (options.holdSnapshot === true) await snapshotGate;
         return options.loadSnapshot === undefined ? [DEVICE] : await options.loadSnapshot();
       },
@@ -135,6 +138,7 @@ function createHarness(options: {
     reader,
     errors,
     presenceReady,
+    snapshotStarted: snapshotStarted.promise,
     closes,
     abort: () => requestController.abort(),
     shutdown: () => runtime.dispose(),
@@ -426,7 +430,7 @@ describe('createDeviceEventsSseResponse', () => {
     // Subscription precedes the snapshot; a read that lands between the two
     // is in the snapshot and arrives again as a delta — harmless, because it
     // is absolute — while anything newer must follow the snapshot in order.
-    await Bun.sleep(5);
+    await harness.snapshotStarted;
     harness.signal({ _tag: 'delta', frame: delta(2) });
     harness.signal({ _tag: 'delta', frame: delta(3) });
     harness.signal({ _tag: 'delta', frame: delta(4) });
@@ -632,12 +636,7 @@ async function readUntil(
   const decoder = new TextDecoder();
   let text = '';
   for (let reads = 0; reads < 10; reads += 1) {
-    const next = await Promise.race([
-      reader.read(),
-      Bun.sleep(1_000).then(() => {
-        throw new Error('timed out reading SSE response');
-      }),
-    ]);
+    const next = await reader.read();
     if (!next.done) text += decoder.decode(next.value, { stream: true });
     if (complete(text, next.done)) return text;
   }

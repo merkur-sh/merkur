@@ -178,7 +178,6 @@ test.describe('a post', () => {
     const requests = watchRequests(page);
     await page.goto(POST);
     await page.waitForLoadState('load');
-    await page.waitForTimeout(800);
     const fetched = (name: string): boolean =>
       requests.some((path) => FIGURE_RESOURCE.test(path) && path.includes(`/${name}-`));
     // At the top of the post the first figure is within a viewport of the fold;

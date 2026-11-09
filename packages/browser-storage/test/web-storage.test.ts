@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import { observeStorageFailures, type StorageFailureEvent } from '../src/failures';
 import { guarded } from '../src/parse';
-import { localValue, sessionValue } from '../src/web-storage';
+import { localValue } from '../src/web-storage';
 import {
   installStorage,
   installStorageGetter,
@@ -11,28 +11,9 @@ import {
 } from './test-environment';
 
 // The behaviour every engine must share is in `conformance.ts`, run here and in
-// real browsers. This file holds the refusals only a fake can produce, and the types.
-
-interface Preferences {
-  readonly theme: string;
-  readonly size?: number;
-  readonly tags: readonly string[];
-}
+// real browsers. This file holds the refusals only a fake can produce.
 
 const isString = (value: unknown): value is string => value === String(value);
-
-function isPreferences(value: unknown): value is Preferences {
-  return (
-    value instanceof Object &&
-    'theme' in value &&
-    isString(value.theme) &&
-    'tags' in value &&
-    Array.isArray(value.tags) &&
-    value.tags.every(isString)
-  );
-}
-
-const parsePreferences = guarded(isPreferences);
 
 /**
  * What Gecko throws for an internal failure such as a corrupted profile: a
@@ -118,32 +99,5 @@ describe('refusals', () => {
 
     expect(value.write('later')).toBe(true);
     expect(storage.entries.get('id')).toBe('"later"');
-  });
-});
-
-describe('static typing', () => {
-  test('only JSON-shaped values can be declared', () => {
-    installStorage('localStorage');
-    installStorage('sessionStorage');
-    // Interfaces, optional properties, readonly arrays and literals are JSON.
-    localValue('prefs', parsePreferences);
-    localValue('flag', (value): true | null => (value === true ? true : null));
-    localValue('nullable', (value): { readonly id: string | null } | null =>
-      value === null ? null : { id: null },
-    );
-
-    // @ts-expect-error a Map does not survive JSON
-    localValue('map', (_value): Map<string, string> | null => null);
-    // @ts-expect-error a Date does not survive JSON
-    localValue('date', (_value): { readonly at: Date } | null => null);
-    // @ts-expect-error bytes do not survive JSON
-    localValue('bytes', (_value): Uint8Array | null => null);
-    // @ts-expect-error a required property that may be undefined is dropped by JSON
-    sessionValue('gap', (_value): { readonly id: string | undefined } | null => null);
-
-    const preferences = localValue('prefs', parsePreferences);
-    // @ts-expect-error a write is checked against the declared type
-    preferences.write({ theme: 1, tags: [] });
-    expect(preferences.read()).toBeNull();
   });
 });

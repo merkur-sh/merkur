@@ -40,12 +40,16 @@ test('edge readiness waits for the indexed registration serving this certificate
   expect(reads).toBe(pending.length);
 });
 
-test('an edge that never registers fails setup instead of releasing browser tests', async () => {
+test('edge registration cancellation during a read fails setup', async () => {
+  const controller = new AbortController();
   await expect(
     waitForHarnessEdgeRegistration(
-      async () => ({ record: null, score: null }),
+      async () => {
+        controller.abort(new Error('registration cancelled'));
+        return { record: null, score: null };
+      },
       { edgeId: 'missing', edgeUrl: 'https://[::1]:14433', certHash: 'certificate' },
-      AbortSignal.timeout(20),
+      controller.signal,
     ),
-  ).rejects.toThrow();
+  ).rejects.toThrow('registration cancelled');
 });

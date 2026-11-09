@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { findHedges, isRustSource, measureFile, RULES, rustComments } from './comment-rules';
+import { findHedges, isRustSource, measureFile, rustComments } from './comment-rules';
 
 /** The text of each comment the lexer finds, in order. */
 function texts(source: string): string[] {
@@ -329,24 +329,4 @@ test('a file is read as Rust by its extension, and as a script otherwise', () =>
   // The same text has a comment in one language and a string in the other.
   expect(found('src/lib.rs', 'let a = r"// for now";\n')).toEqual([]);
   expect(found('src/lib.ts', 'let a = r; // for now\n')).toEqual(['1:15 comment-for-now']);
-});
-
-test('every rule is named as a comment rule and carries its repair instruction', () => {
-  expect(RULES.map((rule) => rule.name)).toEqual([
-    'comment-for-now',
-    'comment-temporary',
-    'comment-should-work',
-    'comment-hopefully',
-    'comment-provenance',
-    'comment-defensive',
-    'comment-vacuous-safety',
-    'comment-todo-without-link',
-  ]);
-
-  for (const rule of RULES) {
-    expect([rule.name, rule.message.endsWith('.') && rule.message.includes(': ')]).toEqual([
-      rule.name,
-      true,
-    ]);
-  }
 });

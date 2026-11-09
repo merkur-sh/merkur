@@ -4106,17 +4106,18 @@ mod tests {
         let first = state.try_acquire_packet(&clock).expect("first lease");
         let second = state.try_acquire_packet(&clock).expect("second lease");
 
+        let notified = quiescence.notified();
+        tokio::pin!(notified);
         drop(first);
         assert!(
-            tokio::time::timeout(Duration::from_millis(1), quiescence.notified())
-                .await
-                .is_err(),
+            std::future::poll_fn(|cx| {
+                std::task::Poll::Ready(std::future::Future::poll(notified.as_mut(), cx).is_pending())
+            })
+            .await,
             "pending 2->1 must not wake admission",
         );
         drop(second);
-        tokio::time::timeout(Duration::from_millis(100), quiescence.notified())
-            .await
-            .expect("pending 1->0 must wake admission");
+        notified.await;
         assert_eq!(state.pending_packets(), 0);
     }
 
@@ -5555,8 +5556,9 @@ mod tests {
         let clock = AtomicU64::new(0);
         let (tx, rx) = mpsc::unbounded_channel();
 
-        let now = Instant::now();
-        // Enqueued first, but jittered to a deadline far in the future — the
+        // Every deadline is already due; this case proves release order.
+        let now = Instant::now() - Duration::from_secs(1);
+        // Enqueued first, but jittered to a later deadline — the
         // same shape `should_delay_extra` produces for a marked packet.
         let held_back = test_delayed_packet(
             now + Duration::from_millis(40),
@@ -5599,14 +5601,8 @@ mod tests {
         )
         .await;
 
-        let first = tokio::time::timeout(Duration::from_millis(500), result_rx.recv())
-            .await
-            .expect("first send did not happen in time")
-            .expect("channel open");
-        let second = tokio::time::timeout(Duration::from_millis(500), result_rx.recv())
-            .await
-            .expect("second send did not happen in time")
-            .expect("channel open");
+        let first = result_rx.recv().await.expect("channel open");
+        let second = result_rx.recv().await.expect("channel open");
 
         assert_eq!(
             first, b"overtakes",
@@ -5625,7 +5621,8 @@ mod tests {
         let relay = Arc::new(RelayState::default());
         let clock = AtomicU64::new(0);
         let (tx, rx) = mpsc::unbounded_channel();
-        let now = Instant::now();
+        // Every deadline is already due; this case proves release order.
+        let now = Instant::now() - Duration::from_secs(1);
         for (deadline_ms, position, data) in [
             (2, (1, 40), b"before-mark".as_slice()),
             (4, (2, 0), b"after-mark".as_slice()),
@@ -5662,7 +5659,8 @@ mod tests {
         let relay = Arc::new(RelayState::default());
         let clock = AtomicU64::new(0);
         let (tx, rx) = mpsc::unbounded_channel();
-        let now = Instant::now();
+        // Every deadline is already due; this case proves release order.
+        let now = Instant::now() - Duration::from_secs(1);
         tx.send(test_delayed_packet(
             now + Duration::from_millis(20),
             0,
@@ -5749,11 +5747,7 @@ mod tests {
 
         let mut overshoots = Vec::with_capacity(deadlines.len());
         for expected_deadline in deadlines {
-            let (delivered_at, _data) =
-                tokio::time::timeout(Duration::from_millis(500), result_rx.recv())
-                    .await
-                    .expect("delivery did not happen in time")
-                    .expect("channel open");
+            let (delivered_at, _data) = result_rx.recv().await.expect("channel open");
             // No tolerance on this one: delivering early is a correctness bug in
             // the injector, not a scheduling artifact.
             assert!(
@@ -5795,14 +5789,15 @@ mod tests {
     /// takes in arrivals before each commit instead. One that arrives mid-run
     /// with a deadline ahead of the rest of the run is released in its turn,
     /// not after the run drains.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test]
     async fn earlier_deadline_arrival_is_released_before_a_committed_run() {
         const RUN: u64 = 300;
         const SPACING: Duration = Duration::from_micros(100);
         let relay = Arc::new(RelayState::default());
         let clock = AtomicU64::new(0);
         let (tx, rx) = mpsc::unbounded_channel();
-        let start = Instant::now() + Duration::from_millis(10);
+        // Due deadlines keep every iteration on the committed path.
+        let start = Instant::now() - Duration::from_secs(1);
         let run_deadline = |index: u64| start + SPACING * u32::try_from(index).expect("small");
         for index in 0..RUN {
             tx.send(test_delayed_packet(
@@ -5815,38 +5810,27 @@ mod tests {
             ))
             .expect("delay line is open");
         }
-        let (released_tx, mut released_rx) = mpsc::unbounded_channel();
-        let drain = tokio::spawn(drain_reordered(
-            rx,
-            None,
-            true,
-            move |packet: DelayedPacket| {
-                let released_tx = released_tx.clone();
-                async move {
-                    let _ = released_tx.send(packet.data);
-                }
-            },
+        let arrival_deadline = run_deadline(50) + SPACING / 2;
+        let mut arrival = Some((
+            tx,
+            test_delayed_packet(arrival_deadline, RUN, false, b"arrival", &relay, &clock),
         ));
-
-        tokio::time::sleep_until(start + Duration::from_millis(5)).await;
-        // Later than anything the drain can have committed by now, which is at
-        // most one spin margin ahead of the clock, and earlier than the rest.
-        let arrival_deadline = Instant::now() + SPIN_MARGIN + Duration::from_millis(5);
-        assert!(
-            arrival_deadline + Duration::from_millis(5) < run_deadline(RUN - 1),
-            "the arrival came too late in the run to test anything",
-        );
-        tx.send(test_delayed_packet(
-            arrival_deadline,
-            RUN,
-            false,
-            b"arrival",
-            &relay,
-            &clock,
-        ))
-        .expect("delay line is open");
-        drop(tx);
-        drain.await.expect("drain task completes");
+        let (released_tx, mut released_rx) = mpsc::unbounded_channel();
+        drain_reordered(rx, None, true, move |packet: DelayedPacket| {
+            // Admit during the run, after a known release and before the next
+            // choice, so the arrival must join the run rather than wait for
+            // the committed run to drain.
+            if packet.data == 50u64.to_be_bytes()
+                && let Some((tx, packet)) = arrival.take()
+            {
+                tx.send(packet).expect("delay line is open");
+            }
+            let released_tx = released_tx.clone();
+            async move {
+                let _ = released_tx.send(packet.data);
+            }
+        })
+        .await;
 
         let mut released = Vec::new();
         while let Ok(data) = released_rx.try_recv() {
@@ -6483,7 +6467,7 @@ mod partition_tests {
 
     /// The stalled-path scope: what exists answers again, and a browser cannot
     /// dial around it.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_browser_dial_partition_admits_no_browser_and_cuts_nothing() {
         let partition = Partition::default();
         partition.arm(Duration::from_millis(40), PartitionScope::BrowserDials);
@@ -6496,7 +6480,7 @@ mod partition_tests {
             "a daemon that lost its tunnel dials again"
         );
 
-        tokio::time::sleep(Duration::from_millis(80)).await;
+        tokio::time::advance(Duration::from_millis(40)).await;
         assert!(
             !partition.blocks_admission(Role::Browser),
             "clears itself at the deadline"
@@ -6507,7 +6491,7 @@ mod partition_tests {
     /// rather than a flag precisely so a test arms it once and does not have to
     /// race a second control message to end it — the shape that made timed
     /// impairment reliable in the first place.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_partition_blackholes_until_its_deadline_then_clears() {
         let partition = Partition::default();
         assert!(!partition.blocks(ANY, Role::Browser), "idle by default");
@@ -6515,7 +6499,7 @@ mod partition_tests {
         partition.arm(Duration::from_millis(40), PartitionScope::Everything);
         assert!(partition.blocks(ANY, Role::Browser));
 
-        tokio::time::sleep(Duration::from_millis(80)).await;
+        tokio::time::advance(Duration::from_millis(40)).await;
         assert!(
             !partition.blocks(ANY, Role::Browser),
             "clears itself at the deadline"
@@ -6523,21 +6507,21 @@ mod partition_tests {
         assert!(!partition.blocks(ANY, Role::Browser), "and stays clear");
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn re_arming_extends_rather_than_stacking() {
         let partition = Partition::default();
         partition.arm(Duration::from_millis(30), PartitionScope::Everything);
-        tokio::time::sleep(Duration::from_millis(15)).await;
+        tokio::time::advance(Duration::from_millis(15)).await;
         // The later deadline replaces the earlier one rather than queueing
         // behind it, so a repeated control message is idempotent-ish rather
         // than cumulative.
         partition.arm(Duration::from_millis(60), PartitionScope::Everything);
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        tokio::time::advance(Duration::from_millis(30)).await;
         assert!(
             partition.blocks(ANY, Role::Browser),
             "the later deadline wins"
         );
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::advance(Duration::from_millis(30)).await;
         assert!(!partition.blocks(ANY, Role::Browser));
     }
 
@@ -6547,7 +6531,7 @@ mod partition_tests {
     /// bounded by the outage and the promotion path is unreachable. `Established`
     /// is the interface-change case: the carrier in use is dead for good while a
     /// fresh dial succeeds at once.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn an_established_partition_cuts_only_what_existed_when_it_was_armed() {
         let partition = Partition::default();
         partition.arm(
@@ -6571,7 +6555,7 @@ mod partition_tests {
             "the replacement has to be able to create relay state"
         );
 
-        tokio::time::sleep(Duration::from_millis(80)).await;
+        tokio::time::advance(Duration::from_millis(60)).await;
         assert!(
             !partition.blocks(7, Role::Browser),
             "clears itself at the deadline"
@@ -6580,7 +6564,7 @@ mod partition_tests {
 
     /// A whole-path partition must refuse admission too. Admitting a new client
     /// would leave relay state for a connection the partition exists to prevent.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_whole_path_partition_refuses_new_connections() {
         let partition = Partition::default();
         assert!(
@@ -6590,7 +6574,7 @@ mod partition_tests {
         partition.arm(Duration::from_millis(40), PartitionScope::Everything);
         assert!(partition.blocks_admission(Role::Browser));
         assert!(partition.blocks_admission(Role::Daemon));
-        tokio::time::sleep(Duration::from_millis(80)).await;
+        tokio::time::advance(Duration::from_millis(40)).await;
         assert!(
             !partition.blocks_admission(Role::Browser),
             "clears itself at the deadline"

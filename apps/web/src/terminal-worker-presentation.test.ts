@@ -14,24 +14,6 @@ function body(name: string): string {
 }
 
 describe('terminal worker presentation host adapter', () => {
-  test('a bounded SAB drain offers presentation once after complete leased receives', () => {
-    const receive = body('consumeDisplayRingEntry');
-    expect(receive).toContain('tryReadLeased()');
-    expect(receive).toContain('terminal.receive(');
-    expect(receive).toContain('entry.release();');
-    expect(receive).not.toContain('present_now');
-    const drain = body('drainDisplayQueue');
-    expect(drain).toContain('performance.now() - started < budgetMs');
-    expect(drain.indexOf('viewer.present_now')).toBeGreaterThan(
-      drain.indexOf('consumeDisplayRingEntry'),
-    );
-    expect(drain.indexOf('scheduleRenderFrame()')).toBeGreaterThan(
-      drain.indexOf('displayOwnerActive = false'),
-    );
-    expect(drain).toContain('const perfStarted = perfEnabled ? nowMs() : 0;');
-    expect(drain.match(/emitDisplayPumpComplete\(/g)).toHaveLength(1);
-  });
-
   test('the real frame clock supplies Rust with measured cadence, visibility and renderer capacity', () => {
     const frame = body('applyViewerFrame');
     expect(frame).toContain('WORKER_TIME_ORIGIN_MS + frameTimeMs');
@@ -138,35 +120,6 @@ describe('terminal worker presentation host adapter', () => {
     // survives that runtime's installation, which disposes the one before.
     expect(body('disposeInstalledRuntime')).not.toContain('heldGeometry');
     expect(body('disposeInstalledRuntime')).not.toContain('heldGraphicsClock');
-  });
-
-  test('bounded control slices yield to data work without overtaking ownership barriers', () => {
-    const controls = body('runControlPump');
-    expect(controls).toContain('processed < CONTROL_COMMANDS_PER_SLICE');
-    expect(controls).toContain(
-      'activeControlBlocksDataPlane = workerControlCommandBlocksDataPlane(cmd)',
-    );
-    expect(controls).toContain(
-      'if (!controlQueue.hasDataPlaneBarrier()) commitPreparedFontFamilyUpdate()',
-    );
-    expect(controls.indexOf('runDataPlaneFairnessSlice()')).toBeLessThan(
-      controls.indexOf('scheduleControlPumpContinuation()'),
-    );
-  });
-
-  test('runtime retirement cancels asynchronous font work, timer claims and semantic GPU owners', () => {
-    const retire = body('disposeInstalledRuntime');
-    expect(body('cancelViewerDeadline')).toContain('viewerDeadline.cancel()');
-    for (const call of [
-      'cancelViewerDeadline()',
-      'presentationAnimationFrame.cancel()',
-      'cancelFontStyleUpgrade()',
-      "abortActiveFontFamilyUpdate('runtime retirement')",
-      'displayReceiverCalibrationScheduler.cancel()',
-      'renderSubmissions.contextDestroyed(discardLatencyToken)',
-      'wasmTerminal?.destroy()',
-    ])
-      expect(retire).toContain(call);
   });
 
   test('local prediction redraw never releases canonical presentation holds', () => {

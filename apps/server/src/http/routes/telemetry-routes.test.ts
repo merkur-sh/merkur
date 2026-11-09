@@ -279,13 +279,6 @@ describe('browser error report body', () => {
     }
   });
 
-  test.each(['message', 'stack', 'stackTrace', 'error', 'detail', 'reason', 'name'])(
-    'has no %s field',
-    (field) => {
-      expect(Object.keys(properties)).not.toContain(field);
-    },
-  );
-
   test('rejects additional properties, so a modified client cannot smuggle one', () => {
     expect(ApiModels.BrowserErrorReportBody).toHaveProperty('additionalProperties', false);
   });

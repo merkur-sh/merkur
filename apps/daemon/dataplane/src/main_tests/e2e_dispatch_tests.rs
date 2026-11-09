@@ -1923,9 +1923,7 @@ fn drain_acks(
 /// Exact allocation oracle for the ack's send path up to carrier
 /// admission: frame on the stack, sealed into a stack array, wrapped
 /// inline. Bracketed by the process-wide counting allocator, so it runs
-/// alone (`--exact`). The superseded arm — the shape the daemon shipped
-/// before this work: a `Vec` frame sealed into a fresh `Vec` — is measured
-/// in the same process so the delta is observed rather than asserted.
+/// alone (`--exact`).
 #[test]
 #[ignore = "exact allocation oracle; the counting allocator is process-wide"]
 fn sealing_an_input_ack_allocates_nothing() {
@@ -1967,31 +1965,6 @@ fn sealing_an_input_ack_allocates_nothing() {
             allocated_bytes: 0,
         },
         "encoding, sealing and wrapping an input ack must not touch the heap"
-    );
-
-    // Superseded: `encode_proto_frame` allocated the 8-byte frame and
-    // `seal_stream` allocated the 32-byte ciphertext — 2 allocations,
-    // 40 bytes per ack, the baseline recorded for HEAD 2e88c40.
-    test_allocations::begin();
-    let superseded_record = peer
-        .seal_stream(
-            CHANNEL_PTY,
-            &encode_proto_frame(MSG_TYPE_INPUT_ACK, &(SAMPLES as u32 + 2).to_be_bytes()),
-        )
-        .expect("established transport");
-    let superseded = test_allocations::end();
-    assert_eq!(
-        superseded,
-        test_allocations::Tally {
-            allocations: 2,
-            allocated_bytes: INPUT_ACK_FRAME_BYTES + INLINE_RELIABLE_PAYLOAD_BYTES,
-        },
-        "the superseded arm allocated the frame and the ciphertext"
-    );
-    assert_eq!(
-        superseded_record.len(),
-        INLINE_RELIABLE_PAYLOAD_BYTES,
-        "both arms produce the same-sized ciphertext"
     );
 }
 

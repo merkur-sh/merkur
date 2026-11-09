@@ -12,12 +12,7 @@ import {
   readNullableFiniteNumberField,
   readStringField,
 } from './parsing';
-import {
-  currentReleasePlatform,
-  daemonArtifactName,
-  isReleaseStoreFile,
-  releaseFileUrl,
-} from './release';
+import { daemonArtifactName, isReleaseStoreFile, releaseFileUrl } from './release';
 import {
   canTransitionTerminalLifecycle,
   transitionTerminalLifecycleOrThrow,
@@ -131,15 +126,6 @@ describe('release and build metadata', () => {
     expect(isReleaseStoreFile('merkur-daemon-linux-arm64.tar.gz')).toBe(true);
     expect(isReleaseStoreFile('merkur-daemon-windows-x64.tar.gz')).toBe(false);
     expect(isReleaseStoreFile('../merkur-release.json')).toBe(false);
-    const candidate = `${process.platform}-${process.arch}`;
-    const expectedPlatform =
-      candidate === 'darwin-arm64' ||
-      candidate === 'darwin-x64' ||
-      candidate === 'linux-x64' ||
-      candidate === 'linux-arm64'
-        ? candidate
-        : null;
-    expect(currentReleasePlatform()).toBe(expectedPlatform);
   });
 
   test('reports stamped and development versions', () => {

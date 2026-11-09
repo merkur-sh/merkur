@@ -156,6 +156,8 @@ describe('server app error contract', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(Value.Check(ReleaseResponse, body)).toBe(true);
     expect(body).toEqual({ release: 'dev' });
+    expectSecurityHeaders(response);
+    expect(response.headers.get('access-control-allow-origin')).toBeNull();
   });
 
   test('serves exactly the signed files of a stored release, and nothing else', async () => {
@@ -228,15 +230,6 @@ describe('server app error contract', () => {
     expect(body).not.toContain('hunter2');
     expect(JSON.parse(body)).toEqual({ error: 'internal_error' });
     expectSecurityHeaders(response);
-  });
-
-  test('serves an unauthenticated route without an auth challenge', async () => {
-    const response = await handle(new Request('https://merkur.test/api/release'));
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toHaveProperty('release');
-    expectSecurityHeaders(response);
-    expect(response.headers.get('access-control-allow-origin')).toBeNull();
   });
 });
 

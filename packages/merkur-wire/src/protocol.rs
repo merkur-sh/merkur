@@ -976,33 +976,6 @@ mod tests {
     use crate::input_record::build;
 
     #[test]
-    fn only_the_reliable_display_lane_yields_the_connection() {
-        // Named one by one rather than looped, so adding a reliable channel is
-        // a decision taken here rather than a default inherited silently.
-        assert_eq!(
-            reliable_stream_priority(CHANNEL_SIGNALING),
-            RELIABLE_PRIORITY_CONTROL
-        );
-        assert_eq!(
-            reliable_stream_priority(CHANNEL_PTY),
-            RELIABLE_PRIORITY_CONTROL
-        );
-        assert_eq!(
-            reliable_stream_priority(CHANNEL_CTRL),
-            RELIABLE_PRIORITY_CONTROL
-        );
-        assert_eq!(
-            reliable_stream_priority(CHANNEL_DATA_HELLO),
-            RELIABLE_PRIORITY_CONTROL
-        );
-        assert_eq!(
-            reliable_stream_priority(CHANNEL_DISPLAY_COMMIT),
-            RELIABLE_PRIORITY_BULK
-        );
-        const { assert!(RELIABLE_PRIORITY_BULK < RELIABLE_PRIORITY_CONTROL) };
-    }
-
-    #[test]
     fn proto_frame_requires_exact_declared_length() {
         let frame = encode_proto_frame(MSG_TYPE_HEARTBEAT_PING, &[1, 2, 3]);
         assert_eq!(

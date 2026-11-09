@@ -575,23 +575,30 @@ describe('session-routes /sessions/request edge fields', () => {
         });
       },
     };
+    const retired = Effect.runSync(Deferred.make<void>());
+    const coordination = createFakeCoordination({
+      removedSessionIds,
+      presence: {
+        daemonId: 'daemon-1',
+        userId: TEST_USER_ID,
+        connectionId: 'connection-1',
+        ownerInstanceId: 'instance-test',
+        presenceId: 'presence-1',
+        claimSeq: 1,
+        state: 'online',
+        updatedAt: Date.now(),
+        zone: null,
+      },
+    });
+    const control = createFakeControl(sentDaemonMessages, false, coordination);
     const app = buildApp({
       config: createFakeConfig(),
-      coordination: createFakeCoordination({
-        removedSessionIds,
-        presence: {
-          daemonId: 'daemon-1',
-          userId: TEST_USER_ID,
-          connectionId: 'connection-1',
-          ownerInstanceId: 'instance-test',
-          presenceId: 'presence-1',
-          claimSeq: 1,
-          state: 'online',
-          updatedAt: Date.now(),
-          zone: null,
-        },
-      }),
-      sentDaemonMessages,
+      coordination,
+      control: {
+        ...control,
+        cancelSession: (input) =>
+          control.cancelSession(input).pipe(Effect.tap(() => Deferred.succeed(retired, undefined))),
+      },
       sessionIssuance,
     });
 
@@ -601,7 +608,7 @@ describe('session-routes /sessions/request edge fields', () => {
       issuanceId: 'issuance-new',
       supersedesIssuanceId: 'issuance-old',
     });
-    await Bun.sleep(0);
+    await Effect.runPromise(Deferred.await(retired));
 
     expect(response.status).toBe(200);
     expect(events).toEqual(['supersede:issuance-old', 'issue:issuance-new']);

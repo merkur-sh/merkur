@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { createTaskWake, type TaskWake } from '../lib/task-wake';
 import {
   createInputRingWriter,
@@ -33,10 +33,7 @@ describe('ring wake readers by mode', () => {
     const channel = new MessageChannel();
     const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
     const taskWake = countingTaskWake();
-    let portMessages = 0;
-    channel.port2.onmessage = () => {
-      portMessages += 1;
-    };
+    const portMessages = spyOn(channel.port1, 'postMessage');
     const writer = createFrameRingWriterForMode('native', sab, channel.port1);
     const reader = createFrameRingReaderForMode('native', sab, taskWake);
 
@@ -45,15 +42,14 @@ describe('ring wake readers by mode', () => {
     expect(writer.write(Uint8Array.of(1), FRAME_KIND_DISPLAY, false)).toBe(true);
     await parked;
     expect(reader.tryRead()?.payload).toEqual(Uint8Array.of(1));
-    // Let any port delivery that might have been queued run before asserting.
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    expect(portMessages).toBe(0);
+    expect(portMessages).not.toHaveBeenCalled();
     expect(taskWake.waits()).toBe(0);
 
     const again = reader.waitAsync();
     if (again === 'not-equal') throw new Error('drained frame reader did not park');
     expect(wakeFrameRingReader(sab)).toBe(1);
     await again;
+    portMessages.mockRestore();
     channel.port1.close();
     channel.port2.close();
   });

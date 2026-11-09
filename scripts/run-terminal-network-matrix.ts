@@ -605,10 +605,6 @@ export const REQUIRED_TEST_EVIDENCE: Readonly<
       title: 'a rebound carrier keeps its display generation and is repaired, not repainted',
     },
     {
-      file: 'carrier-rebind.e2e.ts',
-      title: 'recovery takes the rebind path without a server round trip',
-    },
-    {
       file: 'display-resync-recovery.e2e.ts',
       title: 'a forced profiling resync completes through an authoritative GPU-fenced snapshot',
     },

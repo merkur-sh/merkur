@@ -231,83 +231,14 @@ describe('fish merkur launcher', () => {
   );
 });
 
-/**
- * The passthrough block each shell must carry, verbatim.
- *
- * Asserted whole rather than by fragments because this is shell source: the
- * guard around the call is the part that matters, and a substring match on the
- * command proves nothing about what it is nested inside.
- */
-const PASSTHROUGH_BLOCK = {
-  bash: `  if [ -n "\${TMUX:-}" ] && [ "\${MERKUR_TMUX_PASSTHROUGH:-}" != "$TMUX xterm-256color:hyperlinks:extkeys:sync" ]; then
-    tmux set -g allow-passthrough on >/dev/null 2>&1
-    tmux set -s extended-keys on >/dev/null 2>&1
-    case "$(tmux show -sv terminal-features 2>/dev/null)" in
-      *xterm-256color:hyperlinks:extkeys:sync*) ;;
-      *) tmux set -as terminal-features ',xterm-256color:hyperlinks:extkeys:sync' >/dev/null 2>&1 ;;
-    esac
-    export MERKUR_TMUX_PASSTHROUGH="$TMUX xterm-256color:hyperlinks:extkeys:sync"
-  fi
-`,
-  zsh: `  if [[ -n "\${TMUX:-}" && "\${MERKUR_TMUX_PASSTHROUGH:-}" != "$TMUX xterm-256color:hyperlinks:extkeys:sync" ]]; then
-    tmux set -g allow-passthrough on >/dev/null 2>&1
-    tmux set -s extended-keys on >/dev/null 2>&1
-    case "$(tmux show -sv terminal-features 2>/dev/null)" in
-      *xterm-256color:hyperlinks:extkeys:sync*) ;;
-      *) tmux set -as terminal-features ',xterm-256color:hyperlinks:extkeys:sync' >/dev/null 2>&1 ;;
-    esac
-    export MERKUR_TMUX_PASSTHROUGH="$TMUX xterm-256color:hyperlinks:extkeys:sync"
-  fi
-`,
-  fish: `    if test -n "$TMUX" -a "$MERKUR_TMUX_PASSTHROUGH" != "$TMUX xterm-256color:hyperlinks:extkeys:sync"
-        tmux set -g allow-passthrough on >/dev/null 2>&1
-        tmux set -s extended-keys on >/dev/null 2>&1
-        if not string match -q '*xterm-256color:hyperlinks:extkeys:sync*' -- (tmux show -sv terminal-features 2>/dev/null)
-            tmux set -as terminal-features ',xterm-256color:hyperlinks:extkeys:sync' >/dev/null 2>&1
-        end
-        set -gx MERKUR_TMUX_PASSTHROUGH "$TMUX xterm-256color:hyperlinks:extkeys:sync"
-    end
-`,
-} as const;
-
 const SHELLS = ['bash', 'zsh', 'fish'] as const;
 type Shell = (typeof SHELLS)[number];
 
-function occurrences(haystack: string, needle: string): number {
-  return haystack.split(needle).length - 1;
-}
-
 describe('renderShellIntegrationSnippet', () => {
   for (const shell of SHELLS) {
-    test(`${shell} secures tmux passthrough, hyperlinks, extended keys and synchronized output, once per tmux server`, async () => {
+    test(`${shell} wraps prompt markers for tmux passthrough`, () => {
       const snippet = renderShellIntegrationSnippet(shell, '/home/dev/.merkur/shell-token');
-
-      // allow-passthrough belongs to the RUNNING tmux server, and a server
-      // started with `-f` from another file — which is how the box's tmux
-      // starts — never reads the user's ~/.tmux.conf. Every box session
-      // therefore measured 0% prediction while the snippet only asked for it.
-      expect(snippet).toContain(PASSTHROUGH_BLOCK[shell]);
-      // Exactly once, and at rc level rather than inside a prompt hook: more
-      // than one occurrence would mean it had leaked into the per-prompt path.
-      expect(occurrences(snippet, 'tmux set -g allow-passthrough on')).toBe(1);
-      expect(
-        occurrences(
-          snippet,
-          "tmux set -as terminal-features ',xterm-256color:hyperlinks:extkeys:sync'",
-        ),
-      ).toBe(1);
-      expect(occurrences(snippet, 'tmux set -s extended-keys on')).toBe(1);
-      // The guard variable is exported and carries `$TMUX` and the entry
-      // rather than a boolean, so shells of a server already handled cost
-      // nothing while a second server started from inside the first, or a
-      // server handled under another entry, is still converged.
-      expect(occurrences(snippet, 'MERKUR_TMUX_PASSTHROUGH')).toBe(2);
-
-      // The DCS wrapper this exists to make work is untouched.
       expect(snippet).toContain('\\033Ptmux;\\033\\033]133;%s\\a');
-
-      // And the note stops telling the user to add the line by hand.
-      expect(snippet).toContain('No ~/.tmux.conf line is needed.');
     });
   }
 

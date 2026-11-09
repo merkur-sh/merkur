@@ -1,14 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import {
-  findEdgeSpanFieldViolations,
-  findSpanAttributeViolations,
-  scanSpanAttributes,
-} from './check-span-attributes';
-
-test('the repository goes around the typed attribute map nowhere', () => {
-  expect(scanSpanAttributes()).toEqual([]);
-});
+import { findEdgeSpanFieldViolations, findSpanAttributeViolations } from './check-span-attributes';
 
 test('a bare attributes literal is refused', () => {
   const source = `

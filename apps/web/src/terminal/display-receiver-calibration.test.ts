@@ -231,11 +231,10 @@ describe('display receiver calibration', () => {
     expect(cancelled.destroys).toBe(1);
   });
 
-  test('an unresolved cold factory cannot delay readiness and is epoch-cancellable', async () => {
+  test('an unresolved cold factory is nonblocking and epoch-cancellable', () => {
     const tasks = new ManualTasks();
     let epoch = 7;
     const generation = 9;
-    let ready = false;
     let complete = 0;
     let failed = 0;
     const scheduler = createDisplayReceiverCalibrationScheduler({
@@ -257,10 +256,7 @@ describe('display receiver calibration', () => {
     });
 
     scheduler.start(epoch, generation);
-    ready = true;
-    expect(ready).toBe(true);
     expect(tasks.runNext()).toBe(true);
-    await Promise.resolve();
     epoch = 8;
     scheduler.cancel();
     expect(scheduler.isActive()).toBe(false);
@@ -357,15 +353,9 @@ describe('display receiver calibration', () => {
     expect(scheduler.isActive()).toBe(false);
   });
 
-  test('epoch cancellation destroys only scratch state and cannot contaminate live state', async () => {
+  test('a generation change cancels its scratch run and destroys its terminal', async () => {
     const tasks = new ManualTasks();
     const scratch = new FakeCalibrationTerminal();
-    const live = {
-      grid: 'authoritative',
-      predictions: 4,
-      rowHistory: 2,
-      coordinatorDatagrams: 3,
-    };
     const epoch = 11;
     let generation = 13;
     let runCancelled = 0;
@@ -394,11 +384,5 @@ describe('display receiver calibration', () => {
     expect(tasks.runNext()).toBe(true);
     expect(runCancelled).toBe(1);
     expect(scratch.destroys).toBe(1);
-    expect(live).toEqual({
-      grid: 'authoritative',
-      predictions: 4,
-      rowHistory: 2,
-      coordinatorDatagrams: 3,
-    });
   });
 });

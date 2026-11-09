@@ -200,10 +200,26 @@ const NO_EGRESS: HarnessEgress = {
 };
 
 function createHarness(recordCapacity: number, egress: HarnessEgress = NO_EGRESS) {
-  const worker = new Worker(new URL('./telemetry-worker.ts', import.meta.url).href, {
+  // Every drain in this harness has an explicit request/response barrier. A real
+  // periodic tick could flush the partial tail while those barriers are in flight.
+  const source = `
+    globalThis.setInterval = () => 0;
+    globalThis.clearInterval = () => {};
+    await import(${JSON.stringify(new URL('./telemetry-worker.ts', import.meta.url).href)});
+    self.postMessage({ kind: 'harness_ready' });
+  `;
+  const worker = new Worker(new URL(`data:text/javascript,${encodeURIComponent(source)}`), {
     type: 'module',
   });
   activeWorkers.push(worker);
+  const ready = new Promise<void>((resolve) => {
+    const onReady = (message: MessageEvent<{ kind: string }>): void => {
+      if (message.data.kind !== 'harness_ready') return;
+      worker.removeEventListener('message', onReady);
+      resolve();
+    };
+    worker.addEventListener('message', onReady);
+  });
   const terminalPerfRing = createPerfRingBuffer(recordCapacity);
   const perfStrings = createPerfStringTableBuffer();
   const writer = createPerfRingWriter(terminalPerfRing);
@@ -212,19 +228,21 @@ function createHarness(recordCapacity: number, egress: HarnessEgress = NO_EGRESS
     writer,
     interner,
     init(): void {
-      worker.postMessage({
-        kind: 'init',
-        terminalPerfRing,
-        transportPerfRing: createPerfRingBuffer(1),
-        mainPerfRing: createPerfRingBuffer(1),
-        perfStrings,
-        origin: egress.origin,
-        accessToken: egress.accessToken,
-        byteBudget: egress.byteBudget,
-        preparationRequestId: 0,
-        observationEpoch: 1,
-        observationStartedAtMs: 0,
-      } satisfies TelemetryWorkerCommand);
+      void ready.then(() =>
+        worker.postMessage({
+          kind: 'init',
+          terminalPerfRing,
+          transportPerfRing: createPerfRingBuffer(1),
+          mainPerfRing: createPerfRingBuffer(1),
+          perfStrings,
+          origin: egress.origin,
+          accessToken: egress.accessToken,
+          byteBudget: egress.byteBudget,
+          preparationRequestId: 0,
+          observationEpoch: 1,
+          observationStartedAtMs: 0,
+        } satisfies TelemetryWorkerCommand),
+      );
     },
     request(
       command: TelemetryWorkerCommand,
@@ -242,7 +260,7 @@ function createHarness(recordCapacity: number, egress: HarnessEgress = NO_EGRESS
           resolve(message.data);
         };
         worker.addEventListener('message', onMessage);
-        worker.postMessage(command);
+        void ready.then(() => worker.postMessage(command));
       });
     },
   };

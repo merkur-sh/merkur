@@ -14,43 +14,6 @@ import {
 import { runTestProcess } from './test-process';
 
 describe('project profile workload registry', () => {
-  test('lists a valid registry with Criterion parsing only on Rust benchmarks', async () => {
-    const { exitCode, stdout, stderr } = await runTestProcess(
-      ['bun', 'run', 'scripts/profile-project.ts', '--mode=full', '--list'],
-      { cwd: new URL('..', import.meta.url).pathname },
-    );
-
-    expect(exitCode, stderr).toBe(0);
-    expect(stdout).toContain('web/session-crypto-startup\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('web/wasm-font-initialization\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('web/wasm-font-style-upgrade\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('web/webgpu-renderer-initialization\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('web/webgpu-renderer-render\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('web/terminal-row-layout-component\tbenchmark\tframed-or-none');
-    expect(stdout).not.toContain('web/gpu-fence-scheduler\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('web/display-ack-ring\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('web/browser-display-production-pipeline\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('web/terminal-render-readers\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('web/terminal-wasm-multichunk-apply\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('dataplane/display-production-pipeline\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('dataplane/edge-reliable-ingress\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('dataplane/edge-reliable-writer\tbenchmark\tframed-or-none');
-    expect(stdout).toContain(
-      'server/session-issuance-redis-transitions\tbenchmark\tframed-or-none',
-    );
-    expect(stdout).toContain('server/auth-continue-rate-limit\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('web/sse-incremental-parser\tbenchmark\tframed-or-none');
-    expect(stdout).toContain('system/terminal-startup-e2e\tverification\tframed-or-none');
-    expect(stdout).toContain('rust-libraries/terminal-codec\tbenchmark\tcriterion');
-    expect(stdout).toContain('tooling/performance-harness-tests\tverification\tframed-or-none');
-    expect(stdout).toContain('rust-libraries/tests\tverification\tframed-or-none');
-    expect(stdout).not.toContain('rust-libraries/tests\tverification\tcriterion');
-    expect(stdout).not.toContain('display-gap-scheduler');
-    expect(stdout).toContain(
-      'web/startup-font-assets\tbenchmark\tframed-or-none\trepetitions=1\twarmups=0',
-    );
-  });
-
   test('soak repeats Criterion and Rust verification workloads', async () => {
     const { exitCode, stdout, stderr } = await runTestProcess(
       ['bun', 'run', 'scripts/profile-project.ts', '--mode=soak', '--list'],

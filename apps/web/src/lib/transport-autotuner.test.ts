@@ -8,9 +8,41 @@ const CONTEXT = 'device-1:8:200';
 const SAVE_DELAY_MS = 5_000;
 
 const originalIndexedDb = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
+let completedWrites: Array<() => void> = [];
+
+async function nextWrites(count = 1): Promise<void> {
+  await Promise.all(
+    Array.from(
+      { length: count },
+      () => new Promise<void>((resolve) => completedWrites.push(resolve)),
+    ),
+  );
+}
+
+function observedFactory(): IDBFactory {
+  const factory = new IDBFactory();
+  const open = factory.open.bind(factory);
+  factory.open = (...args) => {
+    const request = open(...args);
+    request.addEventListener('success', () => {
+      const database = request.result;
+      const transaction = database.transaction.bind(database);
+      database.transaction = (...args) => {
+        const pending = transaction(...args);
+        if (pending.mode === 'readwrite') {
+          pending.addEventListener('complete', () => completedWrites.shift()?.(), { once: true });
+        }
+        return pending;
+      };
+    });
+    return request;
+  };
+  return factory;
+}
 
 beforeEach(() => {
-  Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: new IDBFactory() });
+  completedWrites = [];
+  Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: observedFactory() });
   jest.useFakeTimers();
 });
 
@@ -47,46 +79,48 @@ async function storedSampleCount(): Promise<number | null> {
   }
 }
 
-/**
- * Lets IndexedDB work through what is queued (it runs on `setImmediate`, which the
- * fake timers leave alone) until the stored count is `expected`, and answers the
- * count it last saw.
- */
-async function storedCountOnceSettled(expected: number): Promise<number | null> {
-  let seen: number | null = null;
-  for (let turn = 0; turn < 200 && seen !== expected; turn += 1) {
-    await new Promise((resolve) => setImmediate(resolve));
-    seen = await storedSampleCount();
-  }
-  return seen;
-}
-
 describe('transport autotuner persistence', () => {
   test('two tabs in one context add up their samples instead of overwriting each other', async () => {
+    const firstReady = nextWrites();
     const first = createTransportAutotuner(CONTEXT);
-    expect(await storedCountOnceSettled(0)).toBe(0);
+    await firstReady;
+    expect(await storedSampleCount()).toBe(0);
+    const secondReady = nextWrites();
     const second = createTransportAutotuner(CONTEXT);
+    await secondReady;
 
     for (let sample = 0; sample < 3; sample += 1) first.observeAndMaybeSample(40, 'direct');
     for (let sample = 0; sample < 2; sample += 1) second.observeAndMaybeSample(400, 'relay');
+    const saved = nextWrites(2);
     jest.advanceTimersByTime(SAVE_DELAY_MS);
-    expect(await storedCountOnceSettled(5)).toBe(5);
+    await saved;
+    expect(await storedSampleCount()).toBe(5);
 
     // The first tab's next save starts from what the second stored, not from its own copy.
     first.observeAndMaybeSample(40, 'direct');
+    const updated = nextWrites();
     jest.advanceTimersByTime(SAVE_DELAY_MS);
-    expect(await storedCountOnceSettled(6)).toBe(6);
+    await updated;
+    expect(await storedSampleCount()).toBe(6);
   });
 
   test('a new tab starts from what the context learned before', async () => {
+    const earlierReady = nextWrites();
     const earlier = createTransportAutotuner(CONTEXT);
+    await earlierReady;
     for (let sample = 0; sample < 4; sample += 1) earlier.observeAndMaybeSample(400, 'relay');
+    const saved = nextWrites();
     jest.advanceTimersByTime(SAVE_DELAY_MS);
-    expect(await storedCountOnceSettled(4)).toBe(4);
+    await saved;
+    expect(await storedSampleCount()).toBe(4);
 
+    const laterReady = nextWrites();
     const later = createTransportAutotuner(CONTEXT);
+    await laterReady;
     later.observeAndMaybeSample(400, 'relay');
+    const updated = nextWrites();
     jest.advanceTimersByTime(SAVE_DELAY_MS);
-    expect(await storedCountOnceSettled(5)).toBe(5);
+    await updated;
+    expect(await storedSampleCount()).toBe(5);
   });
 });

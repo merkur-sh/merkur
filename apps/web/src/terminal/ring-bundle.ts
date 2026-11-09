@@ -1,12 +1,9 @@
 import { createPerfRingBuffer } from '../perf/perf-ring';
 import { createPerfStringTableBuffer } from '../perf/perf-string-table';
 import { INPUT_RING_SIZE } from '../transport/input-ring';
-import {
-  createPredictionAdmissionBuffer,
-  PREDICTION_ADMISSION_SIZE,
-} from '../transport/prediction-admission';
+import { createPredictionAdmissionBuffer } from '../transport/prediction-admission';
 import { createDisplayReceiverProfileBuffer } from './display-receiver-profile';
-import { createPredictionFastPathBuffer, PREDICTION_FAST_PATH_SIZE } from './prediction-fast-path';
+import { createPredictionFastPathBuffer } from './prediction-fast-path';
 import { createPresentationCadenceBuffer } from './presentation-cadence';
 import type { TerminalDisplayRingWakeMode } from './runtime-policy';
 import { FRAME_RING_SIZE } from './shared-ring';
@@ -93,5 +90,3 @@ export function createTerminalRingBundle(
     displayRingWakeMode,
   };
 }
-
-export { PREDICTION_ADMISSION_SIZE, PREDICTION_FAST_PATH_SIZE };

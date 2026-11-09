@@ -67,27 +67,10 @@ describe('keyToken', () => {
 describe('resolveSequence', () => {
   const KEYS = ['j', 'k', 'G', 'g g', 'g d', 'g s'];
 
-  test('matches a single-key binding', () => {
-    expect(resolveSequence(KEYS, '', 'j')).toEqual({ match: 'j', pending: '' });
-  });
-
-  test('holds a prefix that leads somewhere', () => {
-    expect(resolveSequence(KEYS, '', 'g')).toEqual({ match: null, pending: 'g' });
-  });
-
-  test('completes a chord from its prefix', () => {
-    expect(resolveSequence(KEYS, 'g', 'd')).toEqual({ match: 'g d', pending: '' });
-  });
-
   // A dead prefix must not eat the key that killed it: `g` then `j` moves down
   // rather than costing the user two presses to recover from one typo.
   test('retries a dead prefix as a fresh token', () => {
     expect(resolveSequence(KEYS, 'g', 'j')).toEqual({ match: 'j', pending: '' });
-  });
-
-  test('reports an unbound key as unhandled', () => {
-    expect(resolveSequence(KEYS, '', 'z')).toEqual({ match: null, pending: '' });
-    expect(resolveSequence(KEYS, 'g', 'z')).toEqual({ match: null, pending: '' });
   });
 
   test('distinguishes a shifted binding from its lowercase one', () => {

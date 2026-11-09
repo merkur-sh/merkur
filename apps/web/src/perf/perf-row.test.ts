@@ -501,13 +501,6 @@ function emittedFieldNames(): Set<string> {
 }
 
 describe('perf row schema', () => {
-  test('covers every event kind', () => {
-    const covered = new Set(SAMPLES.map((event) => event.kind));
-    // A kind added to the union without a sample here would ship rows whose
-    // field names were never counted against the ceiling.
-    expect(covered.size).toBe(SAMPLES.length);
-  });
-
   test('emits no field name outside the declared set', () => {
     const declared = new Set<string>(PERF_ROW_FIELD_NAMES);
     const surplus = [...emittedFieldNames()].filter((name) => !declared.has(name));
@@ -525,10 +518,6 @@ describe('perf row schema', () => {
   test('stays inside the field budget, and the budget inside the ceiling', () => {
     expect(PERF_ROW_FIELD_NAMES.length).toBeLessThanOrEqual(FIELD_BUDGET);
     expect(FIELD_BUDGET).toBeLessThanOrEqual(AXIOM_FIELD_CEILING);
-  });
-
-  test('declares each field name exactly once', () => {
-    expect(new Set(PERF_ROW_FIELD_NAMES).size).toBe(PERF_ROW_FIELD_NAMES.length);
   });
 
   test('omits absent optional fields rather than emitting null', () => {

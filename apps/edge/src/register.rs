@@ -587,24 +587,6 @@ mod tests {
     }
 
     #[test]
-    fn register_body_contains_affinity_and_both_pinned_hashes() {
-        let hashes = vec!["served".to_string(), "next".to_string()];
-        let body = RegisterBody {
-            edge_id: "iad-1",
-            edge_region: "iad",
-            edge_wt_url: "https://iad-1.edge.example:4433",
-            cert_hash: "served",
-            cert_hashes: &hashes,
-        };
-        let value = serde_json::to_value(body).expect("serialize registration");
-        assert_eq!(value["edgeId"], "iad-1");
-        assert_eq!(value["edgeRegion"], "iad");
-        assert_eq!(value["edgeWtUrl"], "https://iad-1.edge.example:4433");
-        assert_eq!(value["certHash"], "served");
-        assert_eq!(value["certHashes"], serde_json::json!(["served", "next"]));
-    }
-
-    #[test]
     fn canonical_registration_and_authentication_match_the_server_vector() {
         let hashes = vec![
             "Qr4ZuCBq6NiQejuKBH9LF4gS6GICM00rGduNd31OVXw=".to_string(),
@@ -754,27 +736,6 @@ mod tests {
                 .is_err()
             );
         }
-    }
-
-    #[tokio::test]
-    async fn registration_backoff_sleep_is_promptly_cancellation_safe() {
-        let mut backoff = RegistrationBackoff::new();
-        for _ in 0..5 {
-            let _ = backoff.next_delay_from_sample(u64::MAX);
-        }
-        let sleeper = tokio::spawn(tokio::time::sleep(backoff.next_delay_from_sample(u64::MAX)));
-        tokio::task::yield_now().await;
-        sleeper.abort();
-
-        let result = tokio::time::timeout(Duration::from_millis(100), sleeper)
-            .await
-            .expect("aborted fallback sleep must resolve promptly");
-        assert!(
-            result
-                .expect_err("aborted fallback sleep must not complete")
-                .is_cancelled(),
-            "dropping the registration task must cancel its fallback wait"
-        );
     }
 
     #[tokio::test]

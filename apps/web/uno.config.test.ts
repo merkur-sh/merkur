@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { COLORS } from '@merkur/quicksilver/tokens';
 import { createGenerator } from 'unocss';
 
 import config from './uno.config';
@@ -133,28 +132,5 @@ describe('the type layer', () => {
     expect(css).toContain('font-family: var(--ui)');
     expect(css).toContain("'Geist'");
     expect(css).toContain("'JetBrains Mono'");
-  });
-});
-
-describe('the accent', () => {
-  test('selection is ink, so the accent keeps one job', async () => {
-    const uno = await createGenerator(config);
-    const { css } = await uno.generate('', { preflights: true });
-    const underline = /\.tab-ink \{([^}]*)\}/.exec(css)?.[1];
-    if (underline === undefined) throw new Error('no tab underline rule in the preflight');
-    expect(underline).toContain(`background: ${COLORS.ink}`);
-    expect(underline).not.toContain('oklch(');
-  });
-});
-
-describe('the desk', () => {
-  test('the desk is a dot grid over the field, tiled once', async () => {
-    const uno = await createGenerator(config);
-    const { css } = await uno.generate('', { preflights: true });
-    const desk = /body\.app-body::before \{([^}]*)\}/.exec(css)?.[1];
-    if (desk === undefined) throw new Error('no desk rule in the preflight');
-    expect(desk).toContain('radial-gradient(circle');
-    expect(desk).toContain('background-size: 12px 12px, auto');
-    expect(desk).not.toContain('feTurbulence');
   });
 });

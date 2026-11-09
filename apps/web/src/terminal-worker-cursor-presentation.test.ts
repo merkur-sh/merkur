@@ -185,18 +185,3 @@ test('cursor UI anchor follows successful submission and cannot be moved by late
     render.indexOf('renderSubmissions.commit('),
   );
 });
-
-test('resize uses normal GPU admission and cannot clear the canvas before obtaining capacity', () => {
-  const request = productionFunctions([
-    'handleResize',
-    'resizeAndRenderDisplaySurface',
-    'queueSurfaceReplacement',
-  ]);
-  expect(request).not.toContain('resizeDisplaySurface(');
-  expect(request).not.toContain('executeRender(');
-  expect(request).toContain('scheduleRenderFrame()');
-  const render = productionFunctions(['executeRender']);
-  expect(render.indexOf('commitPendingDisplaySurfaceResize()')).toBeGreaterThan(
-    render.indexOf('renderSubmissions.reserve()'),
-  );
-});

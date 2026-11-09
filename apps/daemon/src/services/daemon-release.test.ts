@@ -15,7 +15,8 @@ import {
   encodeReleaseSignature,
   signReleaseManifest,
 } from '@merkur/shared/release-signature';
-import { Effect, Predicate } from 'effect';
+import { Effect, Fiber } from 'effect';
+import { TestClock } from 'effect/testing';
 
 import { buildDaemonServiceProgramArguments } from '../cli/install';
 import { createLogger } from '../logger';
@@ -38,53 +39,6 @@ import {
 } from './daemon-release';
 
 const logger = createLogger('daemon-release-test');
-
-async function profileRelease<A>(workload: string, operation: Effect.Effect<A, Error>) {
-  const fetchSpy = spyOn(globalThis, 'fetch');
-  const operations = {
-    access: spyOn(filesystem, 'access'),
-    mkdir: spyOn(filesystem, 'mkdir'),
-    open: spyOn(filesystem, 'open'),
-    readdir: spyOn(filesystem, 'readdir'),
-    rename: spyOn(filesystem, 'rename'),
-    rm: spyOn(filesystem, 'rm'),
-    stat: spyOn(filesystem, 'stat'),
-    symlink: spyOn(filesystem, 'symlink'),
-  };
-  let metadataReads = 0;
-  let metadataBytes = 0;
-  const file = Bun.file.bind(Bun);
-  const fileSpy = spyOn(Bun, 'file').mockImplementation((filename, options) => {
-    if (!Predicate.isString(filename)) throw new Error('release profile expects file paths');
-    const result = file(filename, options);
-    const bytes = result.bytes.bind(result);
-    spyOn(result, 'bytes').mockImplementation(async () => {
-      const value = await bytes();
-      metadataReads += 1;
-      metadataBytes += value.byteLength;
-      return value;
-    });
-    return result;
-  });
-  try {
-    await Effect.runPromise(operation);
-    process.stdout.write(
-      `${JSON.stringify({
-        workload,
-        metadataReads,
-        metadataBytes,
-        fetchCalls: fetchSpy.mock.calls.length,
-        filesystemCalls: Object.fromEntries(
-          Object.entries(operations).map(([name, spy]) => [name, spy.mock.calls.length]),
-        ),
-      })}\n`,
-    );
-  } finally {
-    fileSpy.mockRestore();
-    fetchSpy.mockRestore();
-    for (const spy of Object.values(operations)) spy.mockRestore();
-  }
-}
 
 describe('the service unit', () => {
   test('runs current, which every update moves, beside its dataplane', () => {
@@ -190,7 +144,15 @@ describe('release convergence', () => {
       );
     };
     expect(
-      await Effect.runPromise(fetchServerReleaseEffect('https://merkur.test', fetchImpl)),
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const lookup = yield* fetchServerReleaseEffect('https://merkur.test', fetchImpl).pipe(
+            Effect.forkChild({ startImmediately: true }),
+          );
+          yield* TestClock.adjust('200 millis');
+          return yield* Fiber.join(lookup);
+        }).pipe(Effect.provide(TestClock.layer())),
+      ),
     ).toBe('v9.8.7');
     expect(requested).toEqual([
       'https://merkur.test/api/release',
@@ -253,8 +215,7 @@ describe('release convergence', () => {
         ['v1.1.0', 2],
         ['v1.2.0', 3],
       ] as const) {
-        await profileRelease(
-          `fresh-stage-${sequence}`,
+        await Effect.runPromise(
           stageVerifiedReleaseEffect({
             installRoot,
             candidate: candidate(version, sequence),
@@ -263,12 +224,10 @@ describe('release convergence', () => {
         );
       }
       // A second stager of a staged release finds it complete and changes nothing.
-      await profileRelease(
-        'cached-verified-stage',
+      await Effect.runPromise(
         stageVerifiedReleaseEffect({ installRoot, candidate: candidate('v1.2.0', 3), artifactUrl }),
       );
-      await profileRelease(
-        'cached-stage',
+      await Effect.runPromise(
         stageReleaseEffect({
           installRoot,
           origin: 'https://merkur.test',
@@ -279,8 +238,7 @@ describe('release convergence', () => {
       // Another stager's directory, still being filled.
       await Bun.write(path.join(installRoot, 'versions', '.staging-other', 'merkur'), 'partial');
 
-      await profileRelease(
-        'cached-activation',
+      await Effect.runPromise(
         activateReleaseEffect({
           logger,
           installRoot,
@@ -343,11 +301,13 @@ describe('daemon updater HTTP reliability', () => {
 
   test('passes Effect cancellation into fetch as an AbortSignal', async () => {
     const observed: { signal?: AbortSignal | null } = {};
+    const started = Promise.withResolvers<void>();
     const fetchImpl: DaemonUpdateFetch = (_input, init) =>
       new Promise<Response>((_resolve, reject) => {
         const signal = init?.signal ?? null;
         observed.signal = signal;
         signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        started.resolve();
       });
     const controller = new AbortController();
 
@@ -355,7 +315,7 @@ describe('daemon updater HTTP reliability', () => {
       downloadEffect('https://merkur.test/releases/hung', fetchImpl),
       { signal: controller.signal },
     ).catch(() => undefined);
-    await waitFor(() => observed.signal != null);
+    await started.promise;
     controller.abort(new Error('test cancellation'));
     await request;
 
@@ -500,8 +460,16 @@ describe('daemon updater HTTP reliability', () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'merkur-update-stream-'));
     const destination = path.join(directory, 'release.tar.gz');
     const observed: { signal?: AbortSignal | null } = {};
+    const started = Promise.withResolvers<void>();
+    const removed = Promise.withResolvers<void>();
+    const remove = filesystem.rm;
+    const removeSpy = spyOn(filesystem, 'rm').mockImplementation(async (file, options) => {
+      await remove(file, options);
+      if (path.dirname(String(file)) === directory) removed.resolve();
+    });
     const fetchImpl: DaemonUpdateFetch = (_input, init) => {
       observed.signal = init?.signal ?? null;
+      started.resolve();
       return Promise.resolve(
         new Response(
           new ReadableStream<Uint8Array>({
@@ -529,14 +497,15 @@ describe('daemon updater HTTP reliability', () => {
         ),
         { signal: controller.signal },
       ).catch(() => undefined);
-      await waitFor(() => observed.signal != null);
+      await started.promise;
       controller.abort(new Error('test cancellation'));
       await request;
-      await waitFor(async () => (await readdir(directory)).length === 0);
+      await removed.promise;
 
       expect(observed.signal?.aborted).toBe(true);
       expect(await readdir(directory)).toEqual([]);
     } finally {
+      removeSpy.mockRestore();
       await rm(directory, { recursive: true, force: true });
     }
   });
@@ -855,14 +824,6 @@ function sha512ForTest(bytes: Uint8Array): string {
   const hasher = new Bun.CryptoHasher('sha512');
   hasher.update(bytes);
   return hasher.digest('hex');
-}
-
-async function waitFor(predicate: () => boolean | Promise<boolean>): Promise<void> {
-  for (let attempt = 0; attempt < 1_000; attempt += 1) {
-    if (await predicate()) return;
-    await Bun.sleep(1);
-  }
-  throw new Error('condition was not reached');
 }
 
 test('a trust writer killed while holding its lock does not strand the next writer', async () => {

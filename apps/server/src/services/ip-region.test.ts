@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
 import { IP_ZONES, type IpZone, zoneForEdgeRegion, zoneForIp, zonesByProximity } from './ip-region';
-import { IPV4_ZONE_TABLE } from './ip-region-table.generated';
 
 describe('IPv4 zone resolution', () => {
   /**
@@ -61,11 +60,6 @@ describe('IPv4 zone resolution', () => {
     for (const value of malformed) {
       expect(zoneForIp(value)).toBeNull();
     }
-  });
-
-  test('the generated table is exactly one letter per /8', () => {
-    expect(IPV4_ZONE_TABLE).toHaveLength(256);
-    expect(IPV4_ZONE_TABLE).toMatch(/^[nsefa?]+$/);
   });
 });
 

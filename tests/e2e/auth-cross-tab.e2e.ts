@@ -50,6 +50,18 @@ async function openRegisteredTab(page: Page, identity: TestIdentity): Promise<vo
   await expectLoggedIn(page);
 }
 
+/** Waits until `page` is queued behind another tab's held refresh lock. */
+async function expectQueuedOnRefreshLock(page: Page): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const locks = await navigator.locks.query();
+        return locks.pending?.some((lock) => lock.name === 'merkur-auth-refresh') ?? false;
+      }),
+    )
+    .toBe(true);
+}
+
 test.describe('cross-tab refresh credential', () => {
   test('concurrent tab refreshes serialize instead of tripping reuse detection', async ({
     baseURL,
@@ -82,17 +94,27 @@ test.describe('cross-tab refresh credential', () => {
 
       // Hold the first tab's refresh open so the second tab is guaranteed to
       // boot while it is still in flight, rather than relying on scheduling.
+      const refreshHeld = Promise.withResolvers<void>();
+      const releaseRefresh = Promise.withResolvers<void>();
       await firstPage.route(
         `**${REFRESH_PATH}`,
         async (route) => {
           const response = await route.fetch();
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          refreshHeld.resolve();
+          await releaseRefresh.promise;
           await route.fulfill({ response });
         },
         { times: 1 },
       );
 
-      await Promise.all([firstPage.reload(), secondPage.goto('/')]);
+      try {
+        await firstPage.reload();
+        await refreshHeld.promise;
+        await secondPage.goto('/');
+        await expectQueuedOnRefreshLock(secondPage);
+      } finally {
+        releaseRefresh.resolve();
+      }
 
       // Without the cross-tab lock the second tab would post the same one-use
       // cookie, take a 401, and revoke the family out from under both tabs.
@@ -208,14 +230,7 @@ test('password change rewraps the root, revokes other browsers and serializes a 
     });
     try {
       await sibling.goto('/');
-      await expect
-        .poll(() =>
-          sibling.evaluate(async () => {
-            const locks = await navigator.locks.query();
-            return locks.pending?.some((lock) => lock.name === 'merkur-auth-refresh') ?? false;
-          }),
-        )
-        .toBe(true);
+      await expectQueuedOnRefreshLock(sibling);
       expect(refreshStarted).toBe(false);
     } finally {
       releaseResponse();

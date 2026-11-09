@@ -1,5 +1,6 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import { Deferred, Effect, Fiber, Redacted, Result } from 'effect';
+import { TestClock } from 'effect/testing';
 import { BoxHostError, BoxHostUnconfiguredError, createBoxHostService } from './box-host-service';
 
 const options = {
@@ -48,15 +49,17 @@ describe('BoxHostService cancellation', () => {
   });
 
   test('the deadline includes body consumption and aborts the fetch', async () => {
-    const { state, fetchSpy } = pendingResponseBody();
+    const { state, bodyStarted, fetchSpy } = pendingResponseBody();
     try {
       const result = await Effect.runPromise(
-        Effect.result(
-          createBoxHostService({
-            ...options,
-            boxHost: { ...options.boxHost, timeoutMs: 10 },
-          }).start('box-1'),
-        ),
+        Effect.gen(function* () {
+          const pending = yield* createBoxHostService(options)
+            .start('box-1')
+            .pipe(Effect.result, Effect.forkChild);
+          yield* Deferred.await(bodyStarted);
+          yield* TestClock.adjust(options.boxHost.timeoutMs);
+          return yield* Fiber.join(pending);
+        }).pipe(Effect.provide(TestClock.layer())),
       );
       expect(Result.isFailure(result)).toBe(true);
       if (Result.isFailure(result)) {

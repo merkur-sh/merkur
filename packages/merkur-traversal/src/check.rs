@@ -631,7 +631,7 @@ mod tests {
             Arc::new(Semaphore::new(MAX_CHECKS_PER_PEER)),
         )
         .unwrap();
-        let (events, _at_daemon) = mpsc::channel(512);
+        let (events, mut at_daemon) = mpsc::channel(512);
         let task = tokio::spawn(binding.run(
             vec![initial.local_addr().unwrap()],
             |_| true,
@@ -639,6 +639,12 @@ mod tests {
             events,
         ));
         let key = hmac::Key::new(hmac::HMAC_SHA256, &[3; 32]);
+        let mut packet = [0; 512];
+        tokio::time::timeout(Duration::from_secs(2), initial.recv_from(&mut packet))
+            .await
+            .unwrap()
+            .unwrap();
+        let mut reached = 1;
         let mut clients = Vec::new();
         for index in 0..u32::try_from(MAX_PAIRS).unwrap() {
             let client = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -650,27 +656,43 @@ mod tests {
                 .send_to(request.as_bytes(), daemon_address)
                 .await
                 .unwrap();
-            clients.push(client);
-            // Let the daemon drain each request before the queue bound
-            // would drop the next.
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let mut packet = [0; 512];
-        let mut reached = usize::from(initial.try_recv(&mut packet).is_ok());
-        for client in &clients {
-            let mut requested = false;
-            while let Ok(len) = client.try_recv(&mut packet) {
-                if message::parse_binding_request(&packet[..len]).is_ok() {
-                    requested = true;
-                } else {
-                    assert!(requested, "an answer arrived before this side's request");
-                }
+            // One Checking event proves this authenticated request left the
+            // socket's incoming queue; no timer stands in for queue capacity.
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while !matches!(
+                    at_daemon.recv().await.expect("binding remains live"),
+                    Event::Checking
+                ) {}
+            })
+            .await
+            .unwrap();
+            if index + 1 < u32::try_from(MAX_PAIRS).unwrap() {
+                let mut requested = false;
+                tokio::time::timeout(Duration::from_secs(2), async {
+                    loop {
+                        let (len, _) = client.recv_from(&mut packet).await.unwrap();
+                        if message::parse_binding_request(&packet[..len]).is_ok() {
+                            requested = true;
+                        } else {
+                            assert!(requested, "an answer arrived before this side's request");
+                            assert!(message::parse_success(&packet[..len], &transaction).is_some());
+                            break;
+                        }
+                    }
+                })
+                .await
+                .unwrap();
+                reached += usize::from(requested);
             }
-            reached += usize::from(requested);
+            clients.push(client);
         }
+        // Join the owner after the last request's Checking event. Its refusal
+        // branch has completed before the closed event receiver can stop it,
+        // so an erroneous opening/answer is observable without a silence wait.
+        drop(at_daemon);
+        task.await.unwrap();
+        assert!(clients.last().unwrap().try_recv(&mut packet).is_err());
         assert_eq!(reached, MAX_PAIRS, "the initial endpoint and 199 sources");
-        task.abort();
     }
 
     #[test]

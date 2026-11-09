@@ -5,6 +5,8 @@ import { EventStreamHttpError, type SseEvent } from './lib/authenticated-transpo
 
 const encoder = new TextEncoder();
 const seen: { authorization: string | null; since: string | null }[] = [];
+const activityObserved = Promise.withResolvers<void>();
+const presenceObserved = Promise.withResolvers<void>();
 
 const server = Bun.serve({
   port: 0,
@@ -28,9 +30,9 @@ const server = Bun.serve({
       new ReadableStream<Uint8Array>({
         async start(controller) {
           controller.enqueue(encoder.encode(`:${' '.repeat(64)}\n\n`));
-          await Bun.sleep(5);
+          await activityObserved.promise;
           controller.enqueue(encoder.encode('event: presence\ndata: []\n\n'));
-          await Bun.sleep(5);
+          await presenceObserved.promise;
           controller.enqueue(encoder.encode('event: snapshot\ndata: {"seq":0}\n\n'));
           controller.close();
         },
@@ -56,8 +58,12 @@ describe('event streams read in the worker', () => {
       },
       onActivity: () => {
         activity += 1;
+        activityObserved.resolve();
       },
-      onEvent: (event) => events.push(event),
+      onEvent: (event) => {
+        events.push(event);
+        if (event.event === 'presence') presenceObserved.resolve();
+      },
     });
 
     expect(opened).toBe(1);

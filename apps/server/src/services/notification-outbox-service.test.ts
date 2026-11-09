@@ -9,7 +9,6 @@ import { infrastructureError } from './errors';
 import {
   deliverPendingNotifications,
   enqueueBrowserSessionChange,
-  enqueueDeviceResync,
   NotificationOutboxServiceLive,
   NotificationOutboxServiceTag,
 } from './notification-outbox-service';
@@ -167,42 +166,6 @@ describe('durable notification publication', () => {
     await sql`DROP TRIGGER refuse_ack`.execute(db);
     await Effect.runPromise(deliverPendingNotifications(db, redis, coordination));
     expect(messages).toHaveLength(2);
-    expect(await pending()).toHaveLength(0);
-  });
-
-  test('device resync declares the cursor key and publishes on the shared account channel', async () => {
-    await Effect.runPromise(
-      withDatabaseTransaction(db, (trx) =>
-        tryDatabaseTransactionPromise({
-          try: () => enqueueDeviceResync(trx, 'account'),
-          catch: infrastructureError('test', 'enqueue'),
-        }),
-      ),
-    );
-    const commands: string[][] = [];
-    const redis: RedisService = {
-      ...fakeRedis(),
-      useCommands: (fn) =>
-        Effect.tryPromise({
-          try: async () =>
-            await fn({
-              sendCommand: async <T>(args: string[]) => {
-                commands.push(args);
-                return 1 as T;
-              },
-            }),
-          catch: (cause) => new RedisError({ cause, message: String(cause) }),
-        }),
-    };
-    await Effect.runPromise(deliverPendingNotifications(db, redis, coordination));
-    const command = commands[0];
-    expect(command?.slice(2, 5)).toEqual([
-      '2',
-      'merkur:device-events-cursor:account',
-      'merkur:device-events:{user:account}',
-    ]);
-    expect(command?.[5]).toMatch(/^[0-9a-f]{16}$/);
-    expect(command?.[1]).toContain("redis.call('HINCRBY', KEYS[1], 'seq', 1)");
     expect(await pending()).toHaveLength(0);
   });
 

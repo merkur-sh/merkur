@@ -25,6 +25,7 @@ function deferred<T>() {
 
 function fakeDevice() {
   const lost = deferred<{ reason: string; message: string }>();
+  const pipelineRequested = deferred<void>();
   const completions: ReturnType<typeof deferred<void>>[] = [];
   const events: string[] = [];
   const writes: {
@@ -56,7 +57,6 @@ function fakeDevice() {
     pipelines: object[];
     scissors: number[][];
   }[] = [];
-  const shaderCodes: string[] = [];
   const emptySubmissions: (readonly object[])[] = [];
   let errorListener: ((event: { error: Error }) => void) | undefined;
   let pipelineGate: Promise<object> | null = null;
@@ -151,12 +151,12 @@ function fakeDevice() {
     createBindGroup() {
       return {};
     },
-    createShaderModule(descriptor: GPUShaderModuleDescriptor) {
-      shaderCodes.push(descriptor.code);
+    createShaderModule() {
       return {};
     },
     createRenderPipelineAsync(descriptor: GPURenderPipelineDescriptor) {
       pipelines.push(descriptor);
+      pipelineRequested.resolve();
       const pipeline = {};
       pipelinePrimitives.set(pipeline, descriptor.primitive?.topology ?? 'triangle-list');
       return pipelineGate === null ? Promise.resolve(pipeline) : pipelineGate.then(() => pipeline);
@@ -206,6 +206,7 @@ function fakeDevice() {
   return {
     device,
     lost,
+    pipelineRequested,
     completions,
     events,
     writes,
@@ -215,8 +216,14 @@ function fakeDevice() {
     buffers,
     pipelines,
     passes,
-    shaderCodes,
     emptySubmissions,
+    async complete(index: number) {
+      const completion = completions[index];
+      if (completion === undefined) throw new Error(`missing completion ${index}`);
+      completion.resolve();
+      // The renderer registered its synchronous completion handler first.
+      await completion.promise;
+    },
     emitError: (error: Error) => errorListener?.({ error }),
     delayPipelines: (promise: Promise<object>) => {
       pipelineGate = promise;
@@ -291,11 +298,19 @@ function harness(devices = [fakeDevice()], preferredFormat: GPUTextureFormat = '
   const completed: number[] = [];
   const errors: Error[] = [];
   const lifecycle: string[] = [];
+  const restored = deferred<void>();
+  const failed = deferred<Error>();
   const renderer = new WebGpuRenderer(
-    () => lifecycle.push('restored'),
+    () => {
+      lifecycle.push('restored');
+      restored.resolve();
+    },
     () => lifecycle.push('lost'),
     (id) => completed.push(id),
-    (error) => errors.push(error),
+    (error) => {
+      errors.push(error);
+      failed.resolve(error);
+    },
   );
   renderers.push(renderer);
   return {
@@ -306,6 +321,8 @@ function harness(devices = [fakeDevice()], preferredFormat: GPUTextureFormat = '
     completed,
     errors,
     lifecycle,
+    restored,
+    failed,
   };
 }
 
@@ -325,9 +342,6 @@ function scene(viewport: [number, number] = [1600, 960]): GeometryRenderState {
   state.viewport[1] = viewport[1];
   return state;
 }
-async function flush() {
-  for (let i = 0; i < 12; i += 1) await Promise.resolve();
-}
 function draw(renderer: WebGpuRenderer, state = scene(), preview?: TerminalPreviewGeometry) {
   return renderer.render(memory, state, preview);
 }
@@ -337,7 +351,7 @@ async function ready(h: ReturnType<typeof harness>) {
 }
 
 describe('WebGPU terminal renderer', () => {
-  test('one text pass preserves geometry layouts, linear-light blending and cursor shapes', async () => {
+  test('one text pass preserves geometry layouts and linear-light blending', async () => {
     const fake = fakeDevice();
     const h = harness([fake]);
     await ready(h);
@@ -360,7 +374,6 @@ describe('WebGPU terminal renderer', () => {
       true,
     );
     expect(fake.pipelines.every((p) => p.primitive?.topology === 'triangle-strip')).toBe(true);
-    expect(fake.shaderCodes[0]).toContain('coverage * v.alpha');
     expect(fake.pipelines.map((p) => p.fragment?.targets[0]?.format)).toEqual([
       'bgra8unorm-srgb',
       'bgra8unorm',
@@ -376,9 +389,6 @@ describe('WebGPU terminal renderer', () => {
       false,
       true,
     ]);
-    expect(fake.shaderCodes[0]).toContain('v.local.x <= 0.14');
-    expect(fake.shaderCodes[0]).toContain('v.local.y >= 0.9');
-    expect(fake.shaderCodes[0]).toContain('var inside = 0.55');
     expect(draw(h.renderer)).toBe(1);
     // Two: the geometry-free present `init` submits so the canvas holds the
     // terminal background rather than an unpresented opaque surface, then the
@@ -405,8 +415,7 @@ describe('WebGPU terminal renderer', () => {
     expect(draw(h.renderer, state)).toBe(1);
     expect(fake.passes[1]?.draws).toEqual([2, 3, 2, 3, 2, 3, 1]);
     expect(fake.writes.map((w) => [w.offset, w.dataOffset, w.size])).toContainEqual([0, 1024, 36]);
-    fake.completions[0]?.resolve();
-    await flush();
+    await fake.complete(0);
     // Unchanged versions upload nothing; a retracted overlay draws nothing.
     const writes = fake.writes.length;
     Object.assign(state.overlay, buffer(1024, 0, 2));
@@ -421,20 +430,17 @@ describe('WebGPU terminal renderer', () => {
     await ready(h);
     const state = scene();
     draw(h.renderer, state);
-    fake.completions[0]?.resolve();
-    await flush();
+    await fake.complete(0);
     const tableBuffer = fake.buffers[1];
     Object.assign(state.glyphs, { ptr: 4096, count: 5, epoch: 1 });
     draw(h.renderer, state);
     expect(fake.writes.at(-1)).toMatchObject({ offset: 24, dataOffset: 4096 + 24, size: 36 });
-    fake.completions[1]?.resolve();
-    await flush();
+    await fake.complete(1);
     Object.assign(state.glyphs, { ptr: 4096, count: 3, epoch: 2 });
     draw(h.renderer, state);
     expect(fake.writes.at(-1)).toMatchObject({ offset: 0, dataOffset: 4096, size: 36 });
     expect(fake.buffers[1]).toBe(tableBuffer);
-    fake.completions[2]?.resolve();
-    await flush();
+    await fake.complete(2);
     // Outgrowing the buffer replaces it and uploads the whole table.
     const big = new ArrayBuffer(65536);
     Object.assign(state.glyphs, { ptr: 0, count: 400, epoch: 2 });
@@ -449,7 +455,7 @@ describe('WebGPU terminal renderer', () => {
     const gate = deferred<object>();
     fake.delayPipelines(gate.promise);
     const initialized = h.renderer.init(h.canvas, 8, 8, [10, 20, 30]);
-    await flush();
+    await fake.pipelineRequested.promise;
 
     // The point of the present is *where* it is. WebKit composites an
     // `alphaMode: 'opaque'` canvas as black from `configure` until its first
@@ -515,8 +521,7 @@ describe('WebGPU terminal renderer', () => {
     // It owns no frame identity, so it takes no render credit.
     expect(fake.completions).toHaveLength(1);
     expect(h.renderer.canSubmitFrame()).toBe(true);
-    fake.completions[0]?.resolve();
-    await flush();
+    await fake.complete(0);
     h.renderer.requestCompletion();
     expect(fake.emptySubmissions).toHaveLength(2);
   });
@@ -528,17 +533,13 @@ describe('WebGPU terminal renderer', () => {
     for (let id = 1; id <= MAX_IN_FLIGHT_RENDER_FRAMES; id++) expect(draw(h.renderer)).toBe(id);
     expect(h.renderer.canSubmitFrame()).toBe(false);
     expect(() => draw(h.renderer)).toThrow('admission budget');
-    fake.completions[1]?.resolve();
-    await flush();
+    await fake.complete(1);
     expect(h.completed).toEqual([2]);
     expect(h.renderer.canSubmitFrame()).toBe(true);
     expect(draw(h.renderer)).toBe(MAX_IN_FLIGHT_RENDER_FRAMES + 1);
-    fake.completions[0]?.resolve();
-    await flush();
+    await fake.complete(0);
     expect(h.completed).toEqual([2, 1]);
-    for (let index = 2; index < fake.completions.length; index++)
-      fake.completions[index]?.resolve();
-    await flush();
+    for (let index = 2; index < fake.completions.length; index++) await fake.complete(index);
     expect(h.completed).toEqual([
       2,
       1,
@@ -567,8 +568,7 @@ describe('WebGPU terminal renderer', () => {
     expect(() => h.renderer.uploadAtlas(new Uint8Array(64), [0, 0, 8, 8], [8, 8])).toThrow(
       'admission budget',
     );
-    fake.completions[0]?.resolve();
-    await flush();
+    await fake.complete(0);
     expect(h.renderer.canSubmitFrame()).toBe(true);
     draw(h.renderer);
   });
@@ -580,13 +580,11 @@ describe('WebGPU terminal renderer', () => {
     const atlas = new Uint8Array(8192 * 4096);
     h.renderer.uploadAtlas(atlas, [0, 0, 8192, 4096], [8192, 4096]);
     draw(h.renderer);
-    fake.completions[0]?.resolve();
-    await flush();
+    await fake.complete(0);
     h.renderer.uploadAtlas(new Uint8Array(64), [0, 0, 8, 8], [8, 8]);
     draw(h.renderer);
     expect(h.renderer.canSubmitFrame()).toBe(false);
-    fake.completions[1]?.resolve();
-    await flush();
+    await fake.complete(1);
     expect(h.renderer.canSubmitFrame()).toBe(true);
   });
 
@@ -595,15 +593,13 @@ describe('WebGPU terminal renderer', () => {
     const h = harness([fake]);
     await ready(h);
     draw(h.renderer);
-    fake.completions[0]?.resolve();
-    await flush();
+    await fake.complete(0);
     // One changed cell record uploads its twelve bytes.
     const state = scene();
     Object.assign(state.cells, { version: 2, dirtyOffset: 1, dirtyCount: 1 });
     draw(h.renderer, state);
     expect(fake.writes.at(-1)).toMatchObject({ offset: 12, dataOffset: 12, size: 12 });
-    fake.completions[1]?.resolve();
-    await flush();
+    await fake.complete(1);
     const oldBuffer = fake.buffers[2];
     Object.assign(state.cells, { ptr: 1024, count: 16 });
     draw(h.renderer, state);
@@ -637,8 +633,7 @@ describe('WebGPU terminal renderer', () => {
     const h = harness([fake]);
     await ready(h);
     draw(h.renderer);
-    fake.completions[0]?.resolve();
-    await flush();
+    await fake.complete(0);
     const bufferCount = fake.buffers.length;
     h.renderer.resize(1200, 800);
     h.renderer.setClearColor([51, 102, 153]);
@@ -678,8 +673,7 @@ describe('WebGPU terminal renderer', () => {
     expect(() => draw(h.renderer, scene(), { ...preview, cellCount: 12 })).toThrow(
       'bounded capacity',
     );
-    fake.completions[0]?.resolve();
-    await flush();
+    await fake.complete(0);
     const writes = fake.writes.length;
     draw(h.renderer, scene(), {
       ...preview,
@@ -698,19 +692,17 @@ describe('WebGPU terminal renderer', () => {
     await ready(h);
     draw(h.renderer);
     first.lost.resolve({ reason: 'unknown', message: 'test loss' });
-    await flush();
+    await h.restored.promise;
     expect(h.lifecycle).toEqual(['lost', 'restored']);
     expect(h.renderer.frameInFlight()).toBe(false);
-    first.completions[0]?.resolve();
-    await flush();
+    await first.complete(0);
     expect(h.completed).toEqual([]);
     expect(() => draw(h.renderer)).toThrow('atlas must be uploaded');
     h.renderer.uploadAtlas(new Uint8Array(64), [2, 2, 1, 1], [8, 8]);
     expect(second.textureWrites[0]?.size).toEqual({ width: 8, height: 8 });
     expect(draw(h.renderer)).toBe(2);
     expect(second.writes).toHaveLength(4);
-    second.completions[0]?.resolve();
-    await flush();
+    await second.complete(0);
     expect(h.completed).toEqual([2]);
   });
 
@@ -721,8 +713,7 @@ describe('WebGPU terminal renderer', () => {
     draw(h.renderer);
     h.renderer.destroy();
     h.renderer.destroy();
-    fake.completions[0]?.resolve();
-    await flush();
+    await fake.complete(0);
     expect(h.completed).toEqual([]);
     expect(h.renderer.canSubmitFrame()).toBe(false);
     expect(fake.device.destroyed).toBe(1);
@@ -736,7 +727,7 @@ describe('WebGPU terminal renderer', () => {
     fake.delayPipelines(gate.promise);
     const h = harness([fake]);
     const initializing = h.renderer.init(h.canvas, 8, 8);
-    await flush();
+    await fake.pipelineRequested.promise;
     h.renderer.destroy();
     gate.resolve({});
     await expect(initializing).rejects.toThrow('cancelled');
@@ -751,7 +742,6 @@ describe('WebGPU terminal renderer', () => {
     await ready(h);
     draw(h.renderer);
     fake.emitError(new Error('validation failed'));
-    await flush();
     expect(h.errors.map((e) => e.message)).toEqual(['validation failed']);
     expect(h.lifecycle).toEqual(['lost']);
     expect(h.completed).toEqual([]);
@@ -767,17 +757,16 @@ describe('WebGPU terminal renderer', () => {
     await ready(h);
     draw(h.renderer);
     first.completions[0]?.reject(new Error('queue rejected before loss notification'));
-    await flush();
+    await h.restored.promise;
     expect(h.lifecycle).toEqual(['lost', 'restored']);
     expect(h.completed).toEqual([]);
     expect(h.errors).toEqual([]);
     first.lost.resolve({ reason: 'unknown', message: 'late notification' });
-    await flush();
+    await first.lost.promise;
     expect(h.lifecycle).toEqual(['lost', 'restored']);
     h.renderer.uploadAtlas(new Uint8Array(64), [0, 0, 8, 8], [8, 8]);
     expect(draw(h.renderer)).toBe(2);
-    second.completions[0]?.resolve();
-    await flush();
+    await second.complete(0);
     expect(h.completed).toEqual([2]);
   });
 
@@ -788,9 +777,9 @@ describe('WebGPU terminal renderer', () => {
     await ready(h);
     draw(h.renderer);
     first.completions[0]?.reject(new Error('lost'));
-    await flush();
+    await h.restored.promise;
     second.lost.resolve({ reason: 'unknown', message: 'replacement lost' });
-    await flush();
+    await h.failed.promise;
     expect(h.errors.map((error) => error.message)).toEqual([
       'WebGPU device failed before recovery completed',
     ]);
@@ -815,6 +804,7 @@ test('image copies share submission completion and retain backing pages across s
   const fake = fakeDevice();
   const h = harness([fake]);
   await ready(h);
+  const graphicsReady = deferred<void>();
   const uploaded: string[] = [];
   const tile = {
     key: 'image',
@@ -842,10 +832,10 @@ test('image copies share submission completion and retain backing pages across s
   }));
   h.renderer.setGraphicsScene(
     { tiles: [tile], quads },
-    () => {},
+    () => graphicsReady.resolve(),
     (key) => uploaded.push(key),
   );
-  await flush();
+  await graphicsReady.promise;
   let closed = 0;
   const bitmap = {
     width: 3,
@@ -879,11 +869,9 @@ test('image copies share submission completion and retain backing pages across s
   // Returning to text-only presentation must remove every image pipeline bind,
   // not merely draw zero image instances while retaining per-frame image work.
   expect(fake.passes.at(-1)?.pipelines).toHaveLength(4);
-  fake.completions[0]?.resolve();
-  await flush();
+  await fake.complete(0);
   expect(uploaded).toEqual(['image']);
-  fake.completions[1]?.resolve();
-  await flush();
+  await fake.complete(1);
   // The page remains bounded and reusable across authenticated scene resets.
   h.renderer.setGraphicsScene(
     { tiles: [tile], quads },
@@ -909,6 +897,7 @@ test('late packed tiles update only one mapping without reuploading scene geomet
   const fake = fakeDevice();
   const h = harness([fake]);
   await ready(h);
+  const graphicsReady = deferred<void>();
   const tiles = ['first', 'second'].map((key) => ({
     key,
     asset: 'tile' as const,
@@ -935,15 +924,14 @@ test('late packed tiles update only one mapping without reuploading scene geomet
   }));
   h.renderer.setGraphicsScene(
     { tiles, quads },
-    () => {},
+    () => graphicsReady.resolve(),
     () => {},
   );
-  await flush();
+  await graphicsReady.promise;
   const bitmap = { width: 3, height: 3, close() {} } as ImageBitmap;
   h.renderer.offerGraphicsTile('first', bitmap);
   draw(h.renderer);
-  fake.completions[0]?.resolve();
-  await flush();
+  await fake.complete(0);
   fake.writes.length = 0;
   h.renderer.offerGraphicsTile('second', bitmap);
   draw(h.renderer);
@@ -957,6 +945,7 @@ test('whole-scene atlas admission rolls back over-budget reservations before fet
   const fake = fakeDevice();
   const h = harness([fake]);
   await ready(h);
+  const graphicsReady = deferred<void>();
   const demand = (key: string, size: number) => ({
     key,
     asset: 'tile' as const,
@@ -975,7 +964,7 @@ test('whole-scene atlas admission rolls back over-budget reservations before fet
         tiles: Array.from({ length: 241 }, (_, i) => demand(`large${i}`, 258)),
         quads: [],
       },
-      () => {},
+      () => graphicsReady.resolve(),
       () => {},
     ),
   ).toBe(false);
@@ -987,12 +976,11 @@ test('whole-scene atlas admission rolls back over-budget reservations before fet
       () => {},
     ),
   ).toBe(true);
-  await flush();
+  await graphicsReady.promise;
   const bitmap = { width: 3, height: 3, close() {} } as ImageBitmap;
   h.renderer.offerGraphicsTile('small1', bitmap);
   draw(h.renderer);
-  fake.completions[0]?.resolve();
-  await flush();
+  await fake.complete(0);
   h.renderer.offerGraphicsTile('small0', bitmap);
   draw(h.renderer);
   // Reservation order, rather than network arrival order, determines placement.
@@ -1011,6 +999,7 @@ test('animation tiles commit atomically, retain complete frames and only rewrite
   const fake = fakeDevice();
   const h = harness([fake]);
   await ready(h);
+  const graphicsReady = deferred<void>();
   const bitmap = { width: 3, height: 3, close() {} } as ImageBitmap;
   const quads = [0, 1].map((x) => ({
     key: `slot${x}`,
@@ -1052,16 +1041,15 @@ test('animation tiles commit atomically, retain complete frames and only rewrite
   const install = (frame: number) =>
     h.renderer.setGraphicsScene(
       scene(frame),
-      () => {},
+      () => graphicsReady.resolve(),
       () => {},
     );
   const flushFrame = async () => {
     draw(h.renderer);
-    fake.completions.at(-1)?.resolve();
-    await flush();
+    await fake.complete(fake.completions.length - 1);
   };
   expect(install(0)).toBe(true);
-  await flush();
+  await graphicsReady.promise;
   h.renderer.offerGraphicsTile('0:0', bitmap);
   await flushFrame();
   expect(fake.passes.at(-1)?.draws).toEqual([2, 2, 2, 1]);
@@ -1094,6 +1082,7 @@ test('running animation admission proves a full successor fits before publishing
   const fake = fakeDevice();
   const h = harness([fake]);
   await ready(h);
+  const graphicsReady = deferred<void>();
   const quads = Array.from({ length: 120 }, (_, x) => ({
     key: `slot:${x}`,
     layer: 2,
@@ -1131,19 +1120,18 @@ test('running animation admission proves a full successor fits before publishing
   const install = (next: ReturnType<typeof scene>) =>
     h.renderer.setGraphicsScene(
       next,
-      () => {},
+      () => graphicsReady.resolve(),
       () => {},
     );
   // 15 pages * 16 layers = 240 full tiles: 121 + 121 cannot be admitted.
   expect(install(scene(121, 0, true))).toBe(false);
   expect(install(scene(120, 0, true))).toBe(true);
-  await flush();
+  await graphicsReady.promise;
   const bitmap = { width: 258, height: 258, close() {} } as ImageBitmap;
   for (let x = 0; x < 120; x++) {
     h.renderer.offerGraphicsTile(`0:${x}`, bitmap);
     draw(h.renderer);
-    fake.completions.at(-1)?.resolve();
-    await flush();
+    await fake.complete(fake.completions.length - 1);
   }
   expect(install(scene(120, 1, true))).toBe(true);
   expect(h.renderer.hasGraphicsTile('0:0')).toBe(true);

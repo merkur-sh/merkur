@@ -259,22 +259,12 @@ describe('browser delegation vault durability hint', () => {
       expiresAt: issuedAt + USER_DELEGATION_LIFETIME_MS,
     });
 
-    await Promise.race([
-      saveBrowserDelegation(
-        'persist@example.test',
-        rootPublicKey,
-        created.certificate,
-        created.delegateSeed,
-      ),
-      // A regression never resolves at all, so any finite deadline separates
-      // the two outcomes; this one is loose enough to survive a slow machine.
-      new Promise<never>((_resolve, reject) =>
-        setTimeout(
-          () => reject(new Error('saveBrowserDelegation awaited the persistence hint')),
-          5_000,
-        ),
-      ),
-    ]);
+    await saveBrowserDelegation(
+      'persist@example.test',
+      rootPublicKey,
+      created.certificate,
+      created.delegateSeed,
+    );
 
     expect(requested).toBe(1);
     expect(records.has(ACTIVE_VAULT)).toBe(true);

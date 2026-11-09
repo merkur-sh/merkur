@@ -59,7 +59,13 @@ describe('transport worker redirects', () => {
     expect(() => transportWorkerPrelude([{ ...EDGE, to: EDGE.from }])).toThrow(
       'edge proxy cannot target itself',
     );
-    expect(() => transportWorkerPrelude([{ ...EDGE, to: 80 }])).toThrow('invalid edge proxy port');
+    for (const port of [0, -1, 80, 1023, 65536, Number.NaN, 4000.5]) {
+      for (const field of ['from', 'to'] as const) {
+        expect(() => transportWorkerPrelude([{ ...EDGE, [field]: port }])).toThrow(
+          'invalid edge proxy port',
+        );
+      }
+    }
   });
 });
 

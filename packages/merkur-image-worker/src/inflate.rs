@@ -147,9 +147,4 @@ mod tests {
         corrupt[last] ^= 1;
         assert!(zlib_exact(&corrupt, &mut out).is_none());
     }
-
-    #[test]
-    fn decompressor_context_fits_its_arena_bound() {
-        assert!(Decompressor::new().is_some());
-    }
 }

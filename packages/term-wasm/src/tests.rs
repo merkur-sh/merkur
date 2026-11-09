@@ -1091,12 +1091,15 @@ fn predictions_do_not_move_the_row_hashes() {
     const COLS: u16 = 16;
     const ROWS: u16 = 8;
     let mut terminal = Terminal::new(COLS, ROWS);
-    let snapshot = text_rows_frame(FrameKind::Snapshot, COLS, ROWS, &distinct_rows(ROWS));
+    let mut rows = distinct_rows(ROWS);
+    rows[0] = (0, ' ');
+    let snapshot = text_rows_frame(FrameKind::Snapshot, COLS, ROWS, &rows);
     assert!(terminal.apply_presented_state_seq(&snapshot, 1));
     let _ = terminal.refresh_row_hashes();
     let before = terminal.row_hashes.clone();
 
-    terminal.predict_printable(u32::from(b'z'), 0.0, 1, true);
+    assert_ne!(terminal.predict_printable(u32::from(b'z'), 0.0, 1, true), 0);
+    assert!(terminal.has_predictions());
     let _ = terminal.refresh_row_hashes();
 
     assert_eq!(terminal.row_hashes, before);
@@ -6531,9 +6534,11 @@ fn a_wide_glyph_at_the_cursor_refuses_anchor_seeding() {
 
 #[test]
 fn an_anchor_at_the_last_column_refuses_seeding() {
-    // `cursor` is indexed directly, so the one-past-the-end position must
-    // not be accepted.
+    // A printable needs room for its advancing cursor, so the final column
+    // cannot seed a line even when the prompt anchor and cursor agree.
     let mut terminal = terminal_with_prompt_and_autosuggestion();
+    let cursor = test_cursor_frame(40, 2, 39, 0, CURSOR_SHAPE_BLOCK, 1);
+    assert!(terminal.apply_presented_delta_seq(&cursor, 2));
     terminal.set_presented_editor_anchor(1, 0, 39, 1);
     assert_eq!(terminal.predict_printable(u32::from('x'), 0.0, 1, true), 0);
 }

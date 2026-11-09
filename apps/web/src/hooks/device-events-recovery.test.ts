@@ -137,12 +137,26 @@ function deltaEvent(seq: number, status: Device['status']): { event: string; dat
 }
 
 const activeHarnesses: Array<() => void> = [];
+const progressListeners = new Set<() => void>();
+
+function publishProgress(): void {
+  for (const listener of [...progressListeners]) listener();
+}
 
 function createHarness(overrides: Partial<DeviceEventsIo> = {}): AtomRegistry.AtomRegistry {
   const registry = AtomRegistry.make();
   registry.set(deviceEventsIoAtom, {
-    openEventStream: openAuthenticatedEventStreamMock,
-    refreshAuthentication: refreshAccessTokenMock,
+    openEventStream: (token, path, options) => {
+      options.signal.addEventListener('abort', publishProgress, { once: true });
+      const pending = openAuthenticatedEventStreamMock(token, path, options);
+      publishProgress();
+      return pending;
+    },
+    refreshAuthentication: () => {
+      const pending = refreshAccessTokenMock();
+      publishProgress();
+      return pending;
+    },
     createNetworkMonitor: (listener) => {
       network.publishChange = (kind) => listener({ kind });
       return { destroy: () => {} };
@@ -155,7 +169,17 @@ function createHarness(overrides: Partial<DeviceEventsIo> = {}): AtomRegistry.At
     ...overrides,
   });
   const unmount = registry.mount(deviceEventsAtom);
+  const unsubscribe = [
+    registry.subscribe(browserPresenceAtom, publishProgress),
+    registry.subscribe(browserSessionsChangedAtom, publishProgress),
+    registry.subscribe(deviceListStatusAtom, publishProgress),
+    registry.subscribe(deviceEventsErrorAtom, publishProgress),
+    registry.subscribe(deviceEventsRejectedTokenAtom, publishProgress),
+    registry.subscribe(deviceEventsStreamFailureAtom, publishProgress),
+    registry.subscribe(deviceCursorAtom, publishProgress),
+  ];
   activeHarnesses.push(() => {
+    for (const stop of unsubscribe) stop();
     stopDeviceEvents(registry);
     unmount();
     registry.dispose();
@@ -178,24 +202,21 @@ function streamTokens(): string[] {
   return openAuthenticatedEventStreamMock.mock.calls.map((call) => call[0]);
 }
 
-async function waitForCalls(count: number, timeoutMs = 1_000): Promise<void> {
-  const startedAt = Date.now();
-  while (openAuthenticatedEventStreamMock.mock.calls.length < count) {
-    if (Date.now() - startedAt >= timeoutMs) {
-      throw new Error(
-        `expected ${count} stream calls, saw ${openAuthenticatedEventStreamMock.mock.calls.length}`,
-      );
-    }
-    await sleep(5);
-  }
+function waitForCalls(count: number): Promise<void> {
+  return waitForCondition(() => openAuthenticatedEventStreamMock.mock.calls.length >= count);
 }
 
-async function waitForCondition(condition: () => boolean, timeoutMs = 1_000): Promise<void> {
-  const startedAt = Date.now();
-  while (!condition()) {
-    if (Date.now() - startedAt >= timeoutMs) throw new Error('condition timed out');
-    await sleep(5);
-  }
+function waitForCondition(condition: () => boolean): Promise<void> {
+  if (condition()) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const check = () => {
+      if (!condition()) return;
+      progressListeners.delete(check);
+      resolve();
+    };
+    progressListeners.add(check);
+    check();
+  });
 }
 
 function capturingStream(
@@ -222,6 +243,7 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const dispose of activeHarnesses.splice(0, activeHarnesses.length)) dispose();
+  progressListeners.clear();
 });
 
 test('account consent precedes device boot, survives reconnect and rotation, and ends with its lifetime', async () => {
@@ -673,7 +695,7 @@ describe('device events recovery loop', () => {
 
     const startedAt = performance.now();
     network.publishChange?.('online');
-    await waitForCalls(3, 200);
+    await waitForCalls(3);
 
     expect(performance.now() - startedAt).toBeLessThan(DEVICE_EVENTS_RECONNECT_BASE_MS);
     expect(refreshAccessTokenMock).not.toHaveBeenCalled();
@@ -778,16 +800,11 @@ describe('device events recovery loop', () => {
     if (currentStream === undefined) throw new Error('stream options missing');
 
     // Stopping is the owner declaring the boot wait lost. It fails the barrier.
-    // Bounded: if stop ever stopped settling the wait, an unbounded await would
-    // hang the suite instead of reporting which invariant broke.
     stopDeviceEvents(registry);
-    const settledAs = await Promise.race([
-      started.then(
-        () => 'resolved' as const,
-        () => 'rejected' as const,
-      ),
-      sleep(500).then(() => 'pending' as const),
-    ]);
+    const settledAs = await started.then(
+      () => 'resolved' as const,
+      () => 'rejected' as const,
+    );
     expect(settledAs).toBe('rejected');
     expect(AsyncResult.isFailure(registry.get(deviceEventsBootAtom))).toBe(true);
 
@@ -843,7 +860,7 @@ describe('device events recovery loop', () => {
     const started = start(registry, 'current-token');
     await started;
     const snapshotAtMs = performance.now();
-    await waitForCalls(3, 500);
+    await waitForCalls(3);
 
     // Without the reset the third attempt would sit on the 250 ms fallback.
     expect(performance.now() - snapshotAtMs).toBeLessThan(DEVICE_EVENTS_RECONNECT_BASE_MS);
@@ -941,7 +958,7 @@ describe('device events recovery loop', () => {
     // Bytes, faithfully, forever — and not one frame.
     const heartbeats = setInterval(() => streams[0]?.onActivity?.(), 15);
     try {
-      await waitForCalls(2, 2_000);
+      await waitForCalls(2);
     } finally {
       clearInterval(heartbeats);
     }

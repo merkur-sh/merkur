@@ -782,16 +782,21 @@ mod tests {
         let expired = credential(Instant::now() - Duration::from_secs(1));
         assert!(expired.is_expired(Instant::now()));
 
-        let started = std::time::Instant::now();
-        let outcome = probe(&test_socket().1, &expired).await;
+        use std::future::Future;
+        use std::task::{Context, Poll, Waker};
+
+        let (_endpoint, socket) = test_socket();
+        let mut context = Context::from_waker(Waker::noop());
+        let Poll::Ready(outcome) = std::pin::pin!(probe(&socket, &expired))
+            .as_mut()
+            .poll(&mut context)
+        else {
+            panic!("an expired credential must be refused on the first poll");
+        };
         assert!(matches!(
             outcome.as_ref().err().map(String::as_str),
             Some("STUN credential expired")
         ));
-        assert!(
-            started.elapsed() < STUN_TIMEOUT,
-            "the refusal must be immediate, not a timeout"
-        );
     }
 
     #[test]
@@ -914,19 +919,6 @@ mod live_stun_tests {
 #[cfg(test)]
 mod ipv6_reachability_tests {
     use super::*;
-
-    #[test]
-    fn the_verdict_has_no_negative_state_by_construction() {
-        // If a `Filtered` variant is ever added, this fails to compile and the
-        // author has to read why it is absent: no mechanism selects on a v6
-        // negative — the pinhole and the punch both run regardless — so a v6
-        // negative could only ever become a suppression.
-        match Ipv6Reachability::Unknown {
-            Ipv6Reachability::Reachable | Ipv6Reachability::Unknown => {}
-        }
-        assert_eq!(Ipv6Reachability::Reachable.as_str(), "reachable");
-        assert_eq!(Ipv6Reachability::Unknown.as_str(), "unknown");
-    }
 
     #[tokio::test]
     async fn an_expired_credential_is_refused_without_touching_the_network() {

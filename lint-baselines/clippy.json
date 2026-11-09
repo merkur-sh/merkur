@@ -109,7 +109,7 @@
     "apps/daemon/dataplane/src/edge_tunnel.rs": {
       "clippy::cast_possible_truncation": 12,
       "clippy::cast_sign_loss": 3,
-      "clippy::let_underscore_must_use": 5,
+      "clippy::let_underscore_must_use": 4,
       "clippy::map_err_ignore": 8,
       "clippy::too_many_lines": 2,
       "clippy::wildcard_enum_match_arm": 4
@@ -135,8 +135,7 @@
     },
     "apps/daemon/dataplane/src/ipc/events.rs": {
       "clippy::let_underscore_must_use": 4,
-      "clippy::unwrap_in_result": 2,
-      "clippy::wildcard_enum_match_arm": 1
+      "clippy::unwrap_in_result": 2
     },
     "apps/daemon/dataplane/src/ipc/mod.rs": {
       "clippy::map_err_ignore": 1
@@ -152,7 +151,7 @@
       "clippy::too_many_lines": 1
     },
     "apps/daemon/dataplane/src/main_tests/e2e_dispatch_tests.rs": {
-      "clippy::cast_possible_truncation": 2,
+      "clippy::cast_possible_truncation": 1,
       "clippy::too_many_lines": 3,
       "clippy::unwrap_in_result": 1,
       "clippy::wildcard_enum_match_arm": 1
@@ -166,7 +165,7 @@
     "apps/daemon/dataplane/src/network/daemon_io_profile.rs": {
       "clippy::cast_possible_truncation": 4,
       "clippy::cast_sign_loss": 1,
-      "clippy::too_many_lines": 3
+      "clippy::too_many_lines": 2
     },
     "apps/daemon/dataplane/src/network/path_watch.rs": {
       "clippy::let_underscore_must_use": 1
@@ -176,7 +175,7 @@
       "clippy::cast_sign_loss": 1
     },
     "apps/daemon/dataplane/src/perf_timing.rs": {
-      "clippy::cast_possible_truncation": 22,
+      "clippy::cast_possible_truncation": 21,
       "clippy::let_underscore_must_use": 1
     },
     "apps/daemon/dataplane/src/pty/dimensions.rs": {
@@ -820,10 +819,6 @@
     },
     "packages/merkur-codec/src/wire.rs": {
       "clippy::wildcard_enum_match_arm": 1
-    },
-    "packages/merkur-codec/tests/cell_repr_equivalence.rs": {
-      "clippy::cast_possible_truncation": 1,
-      "clippy::cast_sign_loss": 2
     },
     "packages/merkur-codec/tests/kernel_profile.rs": {
       "clippy::cast_possible_truncation": 11,

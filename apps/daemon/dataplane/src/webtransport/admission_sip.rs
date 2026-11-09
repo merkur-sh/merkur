@@ -706,16 +706,9 @@ mod tests {
         acquiring.abort();
         assert!(matches!(acquiring.await, Err(error) if error.is_cancelled()));
         late.send(()).unwrap();
-        // The acquisition task's completion is the barrier, not a guessed delay.
-        while !retirement
-            .tasks
-            .lock()
-            .unwrap()
-            .iter()
-            .any(JoinHandle::is_finished)
-        {
-            tokio::task::yield_now().await;
-        }
+        // Acquisition was tracked before the renewal owners it creates.
+        let acquisition = retirement.tasks.lock().unwrap().remove(0);
+        acquisition.await.unwrap();
         assert_eq!(media.lock().unwrap().as_ref().unwrap().len(), 2);
         assert!(UdpSocket::bind(address).is_err());
         drop(media.lock().unwrap().take());

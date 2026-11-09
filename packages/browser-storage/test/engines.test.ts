@@ -94,8 +94,8 @@ for (const [engine, browserType] of ENGINES) {
       if (browser === null) throw new Error(`${engine} did not launch`);
       const context = await browser.newContext();
       const page = await context.newPage();
+      // The document's load event follows execution of its module script.
       await page.goto(origin(), { waitUntil: 'load' });
-      await page.waitForFunction(() => 'storageConformance' in globalThis);
       return { context, page };
     }
 
@@ -163,7 +163,6 @@ for (const [engine, browserType] of ENGINES) {
           const pages = await Promise.all([context.newPage(), context.newPage()]);
           for (const page of pages) {
             await page.goto(origin(), { waitUntil: 'load' });
-            await page.waitForFunction(() => 'storageConformance' in globalThis);
           }
           const database = `two-tabs-${crypto.randomUUID()}`;
           const increment = (page: (typeof pages)[number], times: number) =>

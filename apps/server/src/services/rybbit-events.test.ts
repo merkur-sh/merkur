@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { type Duration, Effect, Exit, Redacted, Scope } from 'effect';
+import { TestClock } from 'effect/testing';
 
 import type { Logger } from '../logger';
 import { createRybbitEvents } from './rybbit-events';
@@ -84,8 +85,14 @@ describe('RybbitEvents', () => {
     cleanups.push(async () => answer.resolve(new Response(null, { status: 204 })));
     const { events, log } = await createEvents(rybbit.origin, '50 millis');
 
-    await Effect.runPromise(events.send('waitlist_joined'));
-    const record = await log.next();
+    const record = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* events.send('waitlist_joined');
+        yield* Effect.promise(() => rybbit.arrival(1));
+        yield* TestClock.adjust('50 millis');
+        return yield* Effect.promise(() => log.next());
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
 
     expect(record.message).toBe('rybbit_event_failed');
     expect(record.context).toMatchObject({ event: 'waitlist_joined', status: null });

@@ -890,7 +890,6 @@ MODULES = {
         "src/http/routes/auth-routes.test.ts": [
             "//apps/server:node_modules/effect",
             "//apps/server:node_modules/elysia",
-            "//apps/server:node_modules/kysely",
             "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
             ":src/http/api-errors.ts.module",
@@ -1380,6 +1379,16 @@ MODULES = {
             ":package.json.module",
             ":tsconfig.json.module",
         ],
+        "src/observability/telemetry.ts": [
+            "//apps/server:node_modules/effect",
+            "//packages/logger:src/index.ts.module",
+            "//packages/shared:src/index.ts.module",
+            ":package.json.module",
+            ":src/config.ts.module",
+            ":src/observability/metrics.ts.module",
+            ":src/observability/tail-sampling-tracer.ts.module",
+            ":tsconfig.json.module",
+        ],
         "src/observability/trace-topology.test.ts": [
             "//apps/server:node_modules/effect",
             "//apps/server:node_modules/elysia",
@@ -1398,6 +1407,38 @@ MODULES = {
             "//apps/server:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
+            ":tsconfig.json.module",
+        ],
+        "src/runtime.ts": [
+            "//apps/server:node_modules/effect",
+            "//packages/config:src/index.ts.module",
+            "//packages/logger:src/index.ts.module",
+            ":package.json.module",
+            ":src/config.ts.module",
+            ":src/db/client.ts.module",
+            ":src/observability/telemetry.ts.module",
+            ":src/services/account-telemetry-service.ts.module",
+            ":src/services/auth-service.ts.module",
+            ":src/services/box-access-service.ts.module",
+            ":src/services/box-host-service.ts.module",
+            ":src/services/box-waitlist-service.ts.module",
+            ":src/services/browser-session-presence.ts.module",
+            ":src/services/daemon-control-service.ts.module",
+            ":src/services/daemon-link-claim-service.ts.module",
+            ":src/services/daemon-release-store.ts.module",
+            ":src/services/device-events-service.ts.module",
+            ":src/services/device-service.ts.module",
+            ":src/services/edge-registry-service.ts.module",
+            ":src/services/health-service.ts.module",
+            ":src/services/keyboard-settings-service.ts.module",
+            ":src/services/notification-outbox-service.ts.module",
+            ":src/services/push-notification-service.ts.module",
+            ":src/services/rate-limit-service.ts.module",
+            ":src/services/realtime-coordination-service.ts.module",
+            ":src/services/redis-service.ts.module",
+            ":src/services/rybbit-events.ts.module",
+            ":src/services/session-issuance-service.ts.module",
+            ":src/services/session-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/account-deletion-sweep.test.ts": [
@@ -1902,7 +1943,6 @@ MODULES = {
         ],
         "src/services/ip-region.test.ts": [
             ":package.json.module",
-            ":src/services/ip-region-table.generated.ts.module",
             ":src/services/ip-region.ts.module",
             ":tsconfig.json.module",
         ],
@@ -2287,7 +2327,6 @@ MODULES = {
             ":src/blog/kit/lines.ts.module",
             ":tsconfig.json.module",
         ],
-        "index.html": [],
         "package.json": [],
         "server/build.test.ts": [
             ":package.json.module",
@@ -2484,7 +2523,6 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/vite/structured-data.test.ts": [
-            ":index.html.module",
             ":package.json.module",
             ":src/vite/structured-data.ts.module",
             ":tsconfig.json.module",
@@ -4732,9 +4770,6 @@ MODULES = {
         "src/terminal/ring-bundle.test.ts": [
             ":package.json.module",
             ":src/terminal/ring-bundle.ts.module",
-            ":src/terminal/shared-ring.ts.module",
-            ":src/terminal/viewer-output-ring.ts.module",
-            ":src/transport/input-ring.ts.module",
             ":tsconfig.json.module",
         ],
         "src/terminal/ring-bundle.ts": [
@@ -4804,11 +4839,6 @@ MODULES = {
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/lib/spsc-ring-wake.ts.module",
-            ":tsconfig.json.module",
-        ],
-        "src/terminal/speculative-glyph-atlas.test.ts": [
-            ":package.json.module",
-            ":src/terminal/speculative-glyph-atlas.ts.module",
             ":tsconfig.json.module",
         ],
         "src/terminal/speculative-glyph-atlas.ts": [
@@ -5132,7 +5162,6 @@ MODULES = {
         ],
         "uno.config.test.ts": [
             "//apps/web:node_modules/unocss",
-            "//packages/quicksilver:src/tokens.ts.module",
             ":package.json.module",
             ":src/App.tsx.module",
             ":src/api.refresh.test.ts.module",
@@ -5477,7 +5506,6 @@ MODULES = {
             ":src/terminal/session-epoch-command.ts.module",
             ":src/terminal/shared-ring.test.ts.module",
             ":src/terminal/shared-ring.ts.module",
-            ":src/terminal/speculative-glyph-atlas.test.ts.module",
             ":src/terminal/speculative-glyph-atlas.ts.module",
             ":src/terminal/status-presentation.test.ts.module",
             ":src/terminal/status-presentation.ts.module",
@@ -5976,6 +6004,7 @@ MODULES = {
         "src/trace-correlation.test.ts": [
             "//packages/logger:node_modules/effect",
             ":package.json.module",
+            ":src/effect-logger.ts.module",
             ":src/index.ts.module",
             ":tsconfig.json.module",
         ],
@@ -6859,6 +6888,14 @@ MODULES = {
             ":perf/harness.ts.module",
             ":tsconfig.json.module",
         ],
+        "bench-input-ring.ts": [
+            "//:package.json.module",
+            "//apps/web:src/transport/input-ring.ts.module",
+            ":perf/client-session-fixture.ts.module",
+            ":perf/harness.ts.module",
+            ":perf/pty-input-lane.ts.module",
+            ":tsconfig.json.module",
+        ],
         "bench-input-send-path.test.ts": [
             "//:package.json.module",
             ":bench-input-send-path.ts.module",
@@ -7461,7 +7498,6 @@ MODULES = {
         ],
         "generate-docs.test.ts": [
             "//:package.json.module",
-            ":gate-policy.ts.module",
             ":generate-docs.ts.module",
             ":tsconfig.json.module",
         ],
@@ -7618,6 +7654,10 @@ MODULES = {
             "//:package.json.module",
             ":tsconfig.json.module",
         ],
+        "perf/pty-input-lane.ts": [
+            "//:package.json.module",
+            ":tsconfig.json.module",
+        ],
         "perf/render-admission-bench.test.ts": [
             "//:package.json.module",
             ":perf/render-admission-bench.ts.module",
@@ -7648,11 +7688,7 @@ MODULES = {
         ],
         "perf/row-layout-plan.test.ts": [
             "//:package.json.module",
-            "//:sources",
-            "//:test_node_modules",
-            "//:wasm_packages",
             ":perf/row-layout-plan.ts.module",
-            ":test-process.ts.module",
             ":tsconfig.json.module",
         ],
         "perf/row-layout-plan.ts": [
@@ -9707,7 +9743,6 @@ TYPE_INPUTS = {
             "src/terminal/session-epoch-command.ts",
             "src/terminal/shared-ring.test.ts",
             "src/terminal/shared-ring.ts",
-            "src/terminal/speculative-glyph-atlas.test.ts",
             "src/terminal/speculative-glyph-atlas.ts",
             "src/terminal/status-presentation.test.ts",
             "src/terminal/status-presentation.ts",

@@ -21,27 +21,26 @@ fn start_session_payload(session_id: &str, browser_node_id: &str) -> Vec<u8> {
 
 #[test]
 fn start_session_requires_exact_per_session_coordinates() {
-    assert!(
-        serde_json::from_value::<StartSessionCmd>(serde_json::json!({
-            "session_id": "session-1",
-            "browser_node_id": "browser-1",
-        }))
-        .is_err()
-    );
+    let valid: serde_json::Value =
+        serde_json::from_slice(&start_session_payload("session-1", "browser-1")).unwrap();
+    assert!(serde_json::from_value::<StartSessionCmd>(valid.clone()).is_ok());
+    for field in ["edge_wt_url", "edge_cert_hashes"] {
+        let mut missing = valid.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(
+            serde_json::from_value::<StartSessionCmd>(missing).is_err(),
+            "{field}"
+        );
+    }
 }
 
 #[test]
 fn start_session_requires_the_browser_identity() {
-    assert!(
-        serde_json::from_value::<StartSessionCmd>(serde_json::json!({
-            "session_id": "session-1",
-            "edge_wt_url": "https://edge.example",
-            "edge_cert_hashes": [
-                base64::engine::general_purpose::STANDARD.encode([7_u8; 32])
-            ],
-        }))
-        .is_err()
-    );
+    let mut missing: serde_json::Value =
+        serde_json::from_slice(&start_session_payload("session-1", "browser-1")).unwrap();
+    assert!(serde_json::from_value::<StartSessionCmd>(missing.clone()).is_ok());
+    missing.as_object_mut().unwrap().remove("browser_node_id");
+    assert!(serde_json::from_value::<StartSessionCmd>(missing).is_err());
 }
 
 fn test_edge_config() -> edge_tunnel::EdgeConfig {

@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test';
-import { createSocket, type Socket } from 'node:dgram';
+import { describe, expect, spyOn, test } from 'bun:test';
+import { createSocket, Socket } from 'node:dgram';
 import { requestProxyImpairmentStats } from './edge-network-control';
 import {
   PROXY_CONTROL_CHUNK_PAYLOAD_BYTES,
@@ -51,6 +51,21 @@ describe('delay proxy chunked control client', () => {
     const responsesByAttempt: Buffer[][] = [];
     let resetApplicationCount = 0;
     let cachedResponses: Buffer[] = [];
+    const setInterval = globalThis.setInterval;
+    let retry: (() => void) | undefined;
+    // SAFETY: the stub passes its callback, delay and arguments to the real
+    // setInterval and returns that timer, so it answers every overload alike.
+    const interval = spyOn(globalThis, 'setInterval').mockImplementation(((
+      callback: (...callbackArgs: unknown[]) => void,
+      delay?: number,
+      ...args: unknown[]
+    ) => {
+      const timer = setInterval(callback, delay, ...args);
+      clearInterval(timer);
+      retry = () => callback(...args);
+      return timer;
+    }) as typeof setInterval);
+    const close = spyOn(Socket.prototype, 'close');
     try {
       server.on('message', (request, remote) => {
         const rawRequest = request.toString('utf8');
@@ -82,12 +97,15 @@ describe('delay proxy chunked control client', () => {
           server.send(response, remote.port, remote.address);
         }
         responsesByAttempt.push(sentThisAttempt);
+        if (requests.length === 1) {
+          if (retry === undefined) throw new Error('control retry was not armed');
+          retry();
+        }
       });
 
       const result = await requestProxyImpairmentStats(server.address().port, 'reset');
-      // Let one client retry interval pass: resolution must have closed the
-      // socket, and a late retry must not mutate the native reset epoch.
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(close.mock.contexts[0]).not.toBe(server);
       expect(result.epoch).toBe(1);
       expect(resetApplicationCount).toBe(1);
       expect(requests.length).toBeGreaterThanOrEqual(2);
@@ -98,6 +116,8 @@ describe('delay proxy chunked control client', () => {
       expect(responsesByAttempt[1]).toEqual(cachedResponses);
       expect(new Set(sentResponseIds)).toEqual(new Set([31]));
     } finally {
+      interval.mockRestore();
+      close.mockRestore();
       await closeSocket(server);
     }
   });

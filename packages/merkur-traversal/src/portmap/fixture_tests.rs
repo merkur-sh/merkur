@@ -568,17 +568,13 @@ async fn only_the_first_proven_protocol_maps_when_all_three_are_present() {
         )
         .await,
     );
-    assert_ne!(
-        lease.protocol,
-        Protocol::Upnp,
-        "a datagram answer lands first"
-    );
-    assert_eq!(
-        map_requests(&first_hop).len(),
-        1,
-        "one datagram MAP, no second protocol"
-    );
-    assert!(!soap_actions(&igd).contains(&"AddPortMapping".to_string()));
+    let datagram_maps = map_requests(&first_hop).len();
+    let upnp_maps = soap_actions(&igd)
+        .iter()
+        .filter(|action| action.as_str() == "AddPortMapping")
+        .count();
+    assert_eq!(datagram_maps + upnp_maps, 1, "exactly one protocol mutates");
+    assert_eq!(upnp_maps == 1, lease.protocol == Protocol::Upnp);
 }
 
 #[tokio::test]

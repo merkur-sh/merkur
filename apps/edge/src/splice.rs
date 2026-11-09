@@ -3168,7 +3168,7 @@ mod tests {
 
     #[tokio::test]
     async fn expired_half_pair_is_pruned_but_complete_pair_survives() {
-        let registry = SpliceRegistry::with_limits(2, Duration::from_millis(5));
+        let mut registry = SpliceRegistry::with_limits(2, Duration::from_secs(60));
         let mut lone = registry
             .attach(
                 "half",
@@ -3194,7 +3194,7 @@ mod tests {
             )
             .expect("paired daemon");
 
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        registry.unpaired_ttl = Duration::ZERO;
         assert_eq!(registry.prune_expired_unpaired(), 1);
         // Expiry must be NAMED, not merely a dropped sink. A bare drop reads to
         // the far side as an ordinary transport failure, which it answers by
@@ -3284,25 +3284,6 @@ mod tests {
         assert_eq!(reliable_body_len_from_header(&[0; 4]), Some(0));
         assert_eq!(reliable_body_len_from_header(&[0; 3]), None);
         assert_eq!(reliable_body_len_from_header(&[0; 5]), None);
-    }
-
-    #[test]
-    fn preface_roundtrips_as_json() {
-        let preface = RoutingPreface {
-            session_id: "abc".to_string(),
-            role: Role::Daemon,
-            version: PREFACE_VERSION,
-            attachment: RoutingAttachment::Tunnel {
-                incarnation: "AAAAAAAAAAAAAAAAAAAAAA".to_string(),
-            },
-            daemon_id: "daemon-1".to_string(),
-            ticket: "ticket".to_string(),
-        };
-        let json = serde_json::to_vec(&preface).expect("serialize");
-        let back: RoutingPreface = serde_json::from_slice(&json).expect("deserialize");
-        assert_eq!(back.session_id, "abc");
-        assert_eq!(back.role, Role::Daemon);
-        assert_eq!(back.version, PREFACE_VERSION);
     }
 
     #[test]

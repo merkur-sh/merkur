@@ -48,11 +48,4 @@ describe('direct network constructor translation', () => {
       ),
     ).toThrow('unexpected direct backend candidate');
   });
-
-  test('validates exact ports before installing any interception', () => {
-    for (const port of [0, -1, 1023, 65536, Number.NaN, 4000.5]) {
-      expect(() => directProxyWorkerPrelude(port, 54321)).toThrow('invalid direct proxy port');
-    }
-    expect(() => directProxyWorkerPrelude(44433, 44433)).toThrow('cannot target itself');
-  });
 });

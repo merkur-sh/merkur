@@ -24,14 +24,21 @@ describe('task wake', () => {
     wake.wake();
 
     await wake.wait(60_000);
-    const next = wake.wait(60_000);
-    const early = await Promise.race([
-      next.then(() => 'settled'),
-      new Promise<'parked'>((resolve) => setTimeout(() => resolve('parked'), 5)),
-    ]);
-    expect(early).toBe('parked');
-    wake.wake();
-    await expect(next).resolves.toBeUndefined();
+    let settled = false;
+    const next = wake.wait(60_000).then(() => {
+      settled = true;
+    });
+    try {
+      // A latched duplicate would return an already-resolved promise. Its reaction
+      // would run before this checkpoint, without waiting on a wall-clock delay.
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      wake.wake();
+      await next;
+      expect(settled).toBe(true);
+    } finally {
+      wake.dispose();
+    }
   });
 
   test('an old watchdog cannot settle a successor waiter', async () => {

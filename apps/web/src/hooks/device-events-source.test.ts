@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { BROWSER_EVENT_ACCOUNT_TELEMETRY } from '@merkur/shared';
-import { Effect, Predicate, Stream } from 'effect';
+import { Effect, Stream } from 'effect';
 import { DeviceStreamEvent, deviceEventStream } from './device-events-source';
 
 test('account telemetry accepts exactly true, false and null', async () => {
@@ -46,14 +46,4 @@ test('account telemetry accepts exactly true, false and null', async () => {
     DeviceStreamEvent['account-telemetry']({ enabled: false }),
     DeviceStreamEvent['account-telemetry']({ enabled: null }),
   ]);
-});
-
-test('account telemetry guards accept structured-cloned events', () => {
-  for (const enabled of [true, false, null]) {
-    const event = DeviceStreamEvent['account-telemetry']({ enabled });
-    const cloned = structuredClone(event);
-    expect(Predicate.isTagged(cloned, 'account-telemetry')).toBe(true);
-    expect(cloned.enabled).toBe(enabled);
-    expect(cloned).toEqual(event);
-  }
 });

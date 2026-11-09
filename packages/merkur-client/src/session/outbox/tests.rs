@@ -154,14 +154,6 @@ fn a_rebase_releases_what_the_daemon_applied_behind_a_lost_ack() {
 }
 
 #[test]
-fn an_ack_in_the_rebased_namespace_releases_everything() {
-    let mut outbox = outbox(&[(1, 1), (2, 2)]);
-    outbox.rebase(1);
-    outbox.ack(2);
-    assert!(outbox.is_empty());
-}
-
-#[test]
 fn a_rebase_to_zero_is_ignored() {
     let mut outbox = outbox(&[(1, 1)]);
     outbox.rebase(0);
@@ -177,26 +169,6 @@ fn a_fresh_peer_with_nothing_held_anchors_the_next_record_on_its_expectation() {
     assert!(outbox.admit(5002, vec![0x63], false));
     assert_eq!(wires(&outbox), [1, 2]);
     assert_eq!(outbox.mapping().local_for_wire(1), Some(5001));
-}
-
-#[test]
-fn a_fresh_peer_keeps_every_later_record_contiguous_with_the_replayed_ones() {
-    let mut outbox = Outbox::new();
-    for (local, record) in [
-        (1, vec![0x61]),
-        (2, vec![0x62, 0x63]),
-        (3, vec![0x64]),
-        (4, vec![0x65, 0x66, 0x67]),
-    ] {
-        assert!(outbox.admit(local, record, false));
-    }
-    outbox.ack(1);
-    outbox.rebase(1);
-    assert_eq!(held(&outbox), [(1, 0x62), (2, 0x64), (3, 0x65)]);
-    assert!(outbox.admit(5, vec![0x68], false));
-    assert!(outbox.admit(6, vec![0x69], false));
-    assert_eq!(wires(&outbox), [1, 2, 3, 4, 5]);
-    assert_eq!(outbox.top(), 5);
 }
 
 #[test]

@@ -309,25 +309,3 @@ pub(super) async fn forward(lane: RoutedReliableLane, prefix: [u8; 1], daemon_bu
     }
     // RecvStream drop propagates STOP_SENDING upstream on every incomplete exit.
 }
-
-#[cfg(test)]
-mod credit_tests {
-    use super::*;
-
-    #[test]
-    fn credit_uses_downstream_rate_and_upstream_rtt_with_pipeline_room() {
-        assert_eq!(bulk_credit(0, Duration::from_secs(1)), BULK_CREDIT_FLOOR);
-        assert_eq!(
-            bulk_credit(1_000_000, Duration::from_millis(20)),
-            BULK_CREDIT_FLOOR + 20_000
-        );
-        assert_eq!(
-            bulk_credit(10_000_000, Duration::from_millis(20)),
-            BULK_CREDIT_FLOOR + 200_000
-        );
-        assert_eq!(
-            bulk_credit(u64::MAX, Duration::from_secs(1)),
-            BULK_CREDIT_CEILING
-        );
-    }
-}

@@ -1152,24 +1152,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn transport_hint_updates_peer_adaptive_state() {
-        let mut peer = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
-
-        peer.apply_transport_hint(TransportHint {
-            profile: 1,
-            chunk_bytes: 32768,
-            snapshot_bytes: 4194304,
-            receive_queue_datagrams: 256,
-            presentation_period_ms: 1_000.0 / 120.0,
-        });
-
-        assert_eq!(peer.adaptive.profile, 1);
-        assert_eq!(peer.adaptive.chunk_target_bytes, 32768);
-        assert_eq!(peer.adaptive.snapshot_target_bytes, 4194304);
-        assert_eq!(peer.adaptive.presentation_period_ms, 1_000.0 / 120.0);
-    }
-
     fn receive_transport_hint(mut peer: PeerDisplayState, profile: u8) -> PeerDisplayState {
         let peer_id = Arc::clone(&peer.peer_id);
         for transport in [PeerTransport::WebTransport, PeerTransport::Edge] {

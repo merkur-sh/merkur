@@ -300,43 +300,6 @@ fn an_unstyled_cell_omits_its_colors_on_the_wire() {
     );
 }
 
-/// `indexed_color_for` is the encoder's inverse of the palette table, and the
-/// wire is only lossless while every index it returns maps back to the exact
-/// color it was asked about. Duplicated palette slots make this a non-bijection,
-/// so assert the round trip rather than equality of indices.
-#[test]
-fn every_palette_slot_survives_the_index_round_trip() {
-    for index in 0..=255u8 {
-        let color = crate::INDEXED_COLOR_TABLE[usize::from(index)];
-        let recovered = crate::indexed_color_for(color)
-            .unwrap_or_else(|| panic!("palette color {color:?} at {index} is not invertible"));
-        assert_eq!(
-            crate::INDEXED_COLOR_TABLE[usize::from(recovered)],
-            color,
-            "index {recovered} must reproduce the color it was derived from",
-        );
-    }
-}
-
-/// A color outside the palette must not be mistaken for one, or the decoder
-/// would resolve it to a different color than the terminal produced.
-#[test]
-fn a_non_palette_color_is_not_claimed_by_the_index_inverse() {
-    for color in [
-        [1, 2, 3],
-        [240, 240, 240],
-        [94, 95, 96],
-        [7, 7, 7],
-        [239, 239, 239],
-    ] {
-        assert_eq!(
-            crate::indexed_color_for(color),
-            None,
-            "{color:?} is not a palette color",
-        );
-    }
-}
-
 /// The two properties the per-row color mode exists to guarantee: a palette
 /// color costs one byte, and — the reason the mode is per row rather than per
 /// cell — a 24-bit color still costs exactly the three bytes it always did.

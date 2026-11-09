@@ -121,7 +121,7 @@
   "tests/e2e/app.e2e.ts": 2,
   "tests/e2e/auth-cross-tab.e2e.ts": 3,
   "tests/e2e/auth-resilience.e2e.ts": 1,
-  "tests/e2e/carrier-rebind.e2e.ts": 17,
+  "tests/e2e/carrier-rebind.e2e.ts": 13,
   "tests/e2e/display-resync-recovery.e2e.ts": 1,
   "tests/e2e/edge-handshake-reorder.e2e.ts": 1,
   "tests/e2e/edge-topology.e2e.ts": 1,

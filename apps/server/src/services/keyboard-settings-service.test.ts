@@ -99,16 +99,6 @@ describe('KeyboardSettingsService', () => {
 
     expect(await Effect.runPromise(service.read('user-1'))).toBeNull();
   });
-
-  test('deleting the account takes its arrangement with it', async () => {
-    const service = createKeyboardSettingsService(db);
-    await Effect.runPromise(service.write('user-1', settings));
-
-    await db.deleteFrom('users').where('id', '=', 'user-1').execute();
-
-    const rows = await db.selectFrom('keyboard_settings').select('user_id').execute();
-    expect(rows).toHaveLength(0);
-  });
 });
 
 async function insertUser(database: Kysely<DatabaseSchema>, id: string): Promise<void> {

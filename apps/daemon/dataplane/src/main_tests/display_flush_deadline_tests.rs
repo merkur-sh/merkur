@@ -59,6 +59,4 @@ async fn a_lifecycle_completion_amid_sparse_reads_keeps_one_original_deadline() 
 
     tokio::time::advance(original_deadline - tokio::time::Instant::now()).await;
     flush_sleep.as_mut().await;
-    let send_count = 1;
-    assert_eq!(send_count, 1, "the anchored tail produces one timer send");
 }

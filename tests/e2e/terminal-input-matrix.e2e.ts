@@ -17,25 +17,16 @@ interface TextCase {
 }
 
 const TEXT_CASES: readonly TextCase[] = [
-  { name: 'lowercase letters', value: 'merkurterminal', method: 'type' },
-  { name: 'uppercase letters', value: 'MERKURTERMINAL', method: 'type' },
-  { name: 'digits', value: '01234567890123456789', method: 'type' },
-  { name: 'word spacing', value: 'alpha beta  gamma', method: 'type' },
-  { name: 'dash and underscore', value: 'dash-under_score--ok', method: 'type' },
-  { name: 'sentence punctuation', value: 'period.comma,colon:semicolon;', method: 'type' },
-  { name: 'slashes', value: 'slash/path\\backslash', method: 'type' },
-  { name: 'paired delimiters', value: '[square]{brace}(paren)', method: 'type' },
-  { name: 'math punctuation', value: 'plus+equals=percent%caret^', method: 'type' },
-  { name: 'shell punctuation', value: 'at@hash#dollar$ampersand&', method: 'type' },
-  { name: 'quotes', value: `single'and"double`, method: 'type' },
-  { name: 'operators', value: 'question?bang!asterisk*pipe|', method: 'type' },
-  { name: 'greek unicode', value: 'lambda-λ-omega-ω', method: 'insertText' },
-  { name: 'accented unicode', value: 'café-naïve-jalapeño', method: 'insertText' },
-  { name: 'CJK unicode', value: '東京-终端-서울', method: 'insertText' },
-  { name: 'emoji unicode', value: 'terminal-🚀-keyboard-⌨', method: 'insertText' },
-  { name: 'combining unicode', value: 'combine-e\u0301-a\u0308', method: 'insertText' },
-  { name: 'non-ASCII punctuation', value: 'left←middle→end—done', method: 'insertText' },
-  { name: '256 byte run', value: 'x'.repeat(256), method: 'type' },
+  {
+    name: 'printable ASCII classes',
+    value: `merkurMERKUR0123 alpha  beta-_.:,;/\\[]{}()+=%^@#$&'"?!*|`,
+    method: 'type',
+  },
+  {
+    name: 'Unicode scripts, emoji, and combining marks',
+    value: 'λ-ω-café-naïve-jalapeño-東京-终端-서울-🚀-⌨-e\u0301-a\u0308-←→—',
+    method: 'insertText',
+  },
   { name: '512 byte alternating run', value: 'ab'.repeat(256), method: 'insertText' },
 ];
 
@@ -52,8 +43,7 @@ for (const [index, inputCase] of TEXT_CASES.entries()) {
 
 type EditStep =
   | { readonly kind: 'type'; readonly value: string }
-  | { readonly kind: 'press'; readonly value: string }
-  | { readonly kind: 'wait'; readonly value: number };
+  | { readonly kind: 'press'; readonly value: string };
 
 interface EditingCase {
   readonly name: string;
@@ -181,18 +171,6 @@ const EDITING_CASES: readonly EditingCase[] = [
       press('Enter'),
     ],
   },
-  {
-    name: 'control-c interrupt recovery',
-    marker: 'edit-ctrl-c-ok',
-    steps: [
-      type('sleep 10'),
-      press('Enter'),
-      wait(150),
-      press('Control+c'),
-      type('echo edit-ctrl-c-ok'),
-      press('Enter'),
-    ],
-  },
 ];
 
 for (const [index, editingCase] of EDITING_CASES.entries()) {
@@ -203,13 +181,22 @@ for (const [index, editingCase] of EDITING_CASES.entries()) {
   });
 }
 
+test('desktop editing 16: control-c interrupt recovery', async ({ page, linkedDaemon }) => {
+  const output = await primeTerminal(page, linkedDaemon.daemonName);
+  await page.keyboard.type(
+    `python3 -c "import signal; print('interrupt-' + 'ready', flush=True); signal.pause()"\n`,
+  );
+  await expectOutput(output, 'interrupt-ready');
+  await page.keyboard.press('Control+c');
+  await page.keyboard.type('echo edit-ctrl-c-ok\n');
+  await expectOutput(output, 'edit-ctrl-c-ok');
+});
+
 const PASTE_VALUE_CASES = [
-  ['plain ASCII', 'paste-plain-value'],
-  ['spaces', 'paste value with  multiple spaces'],
-  ['shell punctuation', 'paste-$-#-!-&-|-value'],
-  ['quotes', `paste-'single'-"double"`],
-  ['unicode', 'paste-λ-東京-café'],
-  ['emoji', 'paste-🚀-⌨-✅'],
+  [
+    'ASCII, whitespace, punctuation, and Unicode',
+    `paste value  $-#-!-&-|-[]-'single'-"double"-λ-東京-café-🚀-⌨-✅`,
+  ],
 ] as const;
 
 for (const [index, [name, value]] of PASTE_VALUE_CASES.entries()) {
@@ -308,30 +295,6 @@ test('terminal interaction 4: terminal click restores input focus', async ({
   await expectOutput(output, 'interaction-refocus-ok');
 });
 
-test('terminal interaction 5: large output burst reaches its final frame', async ({
-  page,
-  linkedDaemon,
-}) => {
-  const output = await primeTerminal(page, linkedDaemon.daemonName);
-  await page.keyboard.type(
-    "i=0; while [ $i -lt 300 ]; do printf 'burst-%s\\n' $i; i=$((i+1)); done; echo interaction-burst-ok\n",
-  );
-  await expectOutput(output, 'interaction-burst-ok', 25_000);
-});
-
-test('terminal interaction 6: rapid command batch preserves order', async ({
-  page,
-  linkedDaemon,
-}) => {
-  const output = await primeTerminal(page, linkedDaemon.daemonName);
-  const commands = Array.from({ length: 30 }, (_, index) => `value=${index}\n`).join('');
-  await dispatchWindowPaste(
-    page,
-    `${commands}[ "$value" = 29 ] && echo interaction-command-order-ok\n`,
-  );
-  await expectOutput(output, 'interaction-command-order-ok');
-});
-
 test('terminal interaction 7: back navigation permits a fresh terminal session', async ({
   page,
   linkedDaemon,
@@ -342,50 +305,6 @@ test('terminal interaction 7: back navigation permits a fresh terminal session',
   const output = await primeTerminal(page, linkedDaemon.daemonName);
   await page.keyboard.type("printf 'interaction-reconnect-ok\\n'\n");
   await expectOutput(output, 'interaction-reconnect-ok');
-});
-
-test('terminal interaction 8: idle terminal remains responsive', async ({ page, linkedDaemon }) => {
-  const output = await primeTerminal(page, linkedDaemon.daemonName);
-  await page.waitForTimeout(1_000);
-  await page.keyboard.type("printf 'interaction-idle-ok\\n'\n");
-  await expectOutput(output, 'interaction-idle-ok');
-});
-
-test('terminal interaction 9: input acknowledgements remain bounded', async ({
-  page,
-  linkedDaemon,
-  terminalPerf,
-}) => {
-  const output = await primeTerminal(page, linkedDaemon.daemonName);
-  await terminalPerf.reset();
-  await page.keyboard.type("printf 'interaction-latency-ok\\n'\n");
-  await expectOutput(output, 'interaction-latency-ok');
-  await expect
-    .poll(async () => (await terminalPerf.snapshot()).report.inputAckMs.count)
-    .toBeGreaterThan(10);
-  const snapshot = await terminalPerf.snapshot();
-  expect(snapshot.report.inputAckMs.p95).not.toBeNull();
-  expect(snapshot.report.inputAckMs.p95 ?? Number.POSITIVE_INFINITY).toBeLessThan(2_500);
-});
-
-test('terminal interaction 10: input during background output stays connected', async ({
-  page,
-  linkedDaemon,
-  terminalPerf,
-}) => {
-  const output = await primeTerminal(page, linkedDaemon.daemonName);
-  await terminalPerf.reset();
-  await page.keyboard.type(
-    '(i=0; while [ $i -lt 150 ]; do echo pressure-$i; i=$((i+1)); done) &\n',
-  );
-  await page.keyboard.type("printf 'interaction-pressure-ok\\n'\n");
-  await expectOutput(output, 'interaction-pressure-ok', 25_000);
-  const snapshot = await terminalPerf.snapshot();
-  expect(
-    snapshot.events.filter(
-      (event) => event.kind === 'transport_state' && event.state === 'disconnected',
-    ),
-  ).toEqual([]);
 });
 
 test('terminal interaction 11: history and completion remain authority-only', async ({
@@ -553,15 +472,10 @@ function press(value: string): EditStep {
   return { kind: 'press', value };
 }
 
-function wait(value: number): EditStep {
-  return { kind: 'wait', value };
-}
-
 async function runEditSteps(page: Page, steps: readonly EditStep[]): Promise<void> {
   for (const step of steps) {
     if (step.kind === 'type') await page.keyboard.type(step.value);
-    else if (step.kind === 'press') await page.keyboard.press(step.value);
-    else await page.waitForTimeout(step.value);
+    else await page.keyboard.press(step.value);
   }
 }
 

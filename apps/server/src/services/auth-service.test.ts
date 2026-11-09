@@ -174,8 +174,19 @@ describe('AuthService user-root OPAQUE flows', () => {
 
   test('round-trips real OPAQUE identifiers and reuses an active stored delegation', async () => {
     const registered = await registerAccount(OLD_PASSWORD, 0x22, 'delegation-existing');
-    await Bun.sleep(5);
-    const login = await startClientAndServerLogin(OLD_PASSWORD);
+    const client = opaque.client.startLogin({ password: OLD_PASSWORD });
+    const registration = opaque.client.startRegistration({ password: OLD_PASSWORD });
+    const started = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(registered.certificate.issuedAt + 1);
+        return yield* service.startAuth(
+          USERNAME,
+          client.startLoginRequest,
+          registration.registrationRequest,
+        );
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+    const login = { client, server: started.login };
 
     expect(
       opaque.client.finishLogin({

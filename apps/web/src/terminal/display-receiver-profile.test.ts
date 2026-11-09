@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 
 import {
   createDisplayReceiverProfileBuffer,
@@ -13,27 +13,33 @@ describe('display receiver profile mailbox', () => {
     const writer = createDisplayReceiverProfileWriter(mailbox);
     const reader = createDisplayReceiverProfileReader(mailbox);
 
-    writer.recordRaw(1_500, 4);
-    writer.recordCompressed(1_500, 500, 10);
-    writer.recordCompressed(1_500, 400, 14);
-    writer.publish(375);
+    const clock = spyOn(Date, 'now').mockReturnValue(12_345);
+    try {
+      writer.recordRaw(1_500, 4);
+      writer.recordCompressed(1_500, 500, 10);
+      writer.recordCompressed(1_500, 400, 14);
+      writer.publish(375);
 
-    const profile = reader.readIfChanged();
-    expect(profile).not.toBeNull();
-    expect(profile?.serviceDebtUs).toBe(375);
-    expect(profile?.ageMs).toBeLessThan(100);
-    expect(profile?.buckets).toEqual([
-      {
-        sizeClass: 2,
-        ratioClass: 2,
-        sampleCount: 2,
-        wireRatioPpm: 300_000,
-        meanUs: 8,
-        varianceUs2: 8,
-        upperUs: 14,
-      },
-    ]);
-    expect(reader.readIfChanged()).toBeNull();
+      clock.mockReturnValue(14_345);
+      const profile = reader.readIfChanged();
+      expect(profile).not.toBeNull();
+      expect(profile?.serviceDebtUs).toBe(375);
+      expect(profile?.ageMs).toBe(2_000);
+      expect(profile?.buckets).toEqual([
+        {
+          sizeClass: 2,
+          ratioClass: 2,
+          sampleCount: 2,
+          wireRatioPpm: 300_000,
+          meanUs: 8,
+          varianceUs2: 8,
+          upperUs: 14,
+        },
+      ]);
+      expect(reader.readIfChanged()).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   test('retains only the newest 32 samples', () => {

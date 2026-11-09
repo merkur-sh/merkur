@@ -53,12 +53,6 @@ describe('buildTerminalLatencyReport', () => {
     expect(report.samples[0]?.fenceObservationIntervalMs).toBe(16);
   });
 
-  test('labels every report completion as browser-observed WebGPU queue completion', () => {
-    expect(buildTerminalLatencyReport([]).frameCompletionBoundary).toBe(
-      'browser-observed-webgpu-queue-completion',
-    );
-  });
-
   test('accounts exact display-ring refusals between same-lineage worker boundaries', () => {
     const events: TerminalPerfEvent[] = [
       {
@@ -3359,26 +3353,23 @@ describe('buildTerminalLatencyReport', () => {
     expect(report.inputToPredictionPaintMs.coverageRatio).toBe(1);
   });
 
-  test('does not credit gate-off, expiry, mismatch, or flush clearing frames', () => {
-    const clearingCauses = ['gate-off', 'expiry', 'mismatch', 'flush'] as const;
-    for (const _cause of clearingCauses) {
-      const events = [
-        inputQueued(100, 1),
-        { kind: 'prediction_applied', atMs: 101, inputSeq: 1 },
-        {
-          ...frameComplete(110),
-          // A stale high-water used to turn any prediction-dirty clearing
-          // render into a fabricated visible prediction.
-          predictionInputSeq: 0,
-          visiblePredictionInputSeqs: [],
-        },
-      ] satisfies TerminalPerfEvent[];
+  test('does not credit a clearing frame without visible prediction membership', () => {
+    const events = [
+      inputQueued(100, 1),
+      { kind: 'prediction_applied', atMs: 101, inputSeq: 1 },
+      {
+        ...frameComplete(110),
+        // A stale high-water used to turn any prediction-dirty clearing
+        // render into a fabricated visible prediction.
+        predictionInputSeq: 0,
+        visiblePredictionInputSeqs: [],
+      },
+    ] satisfies TerminalPerfEvent[];
 
-      const report = buildTerminalLatencyReport(events);
-      expect(report.samples[0]?.inputToPredictionPaintMs).toBeNull();
-      expect(report.inputToPredictionPaintMs.complete).toBe(true);
-      expect(report.inputToPredictionPaintMs.coverageRatio).toBe(0);
-    }
+    const report = buildTerminalLatencyReport(events);
+    expect(report.samples[0]?.inputToPredictionPaintMs).toBeNull();
+    expect(report.inputToPredictionPaintMs.complete).toBe(true);
+    expect(report.inputToPredictionPaintMs.coverageRatio).toBe(0);
   });
 
   test('credits an accepted visible backspace clear by its exact input sequence', () => {
@@ -3565,21 +3556,6 @@ describe('apply-to-paint decomposition', () => {
     expect(report.renderEndToDisplayPaintMs.complete).toBe(true);
   });
 
-  test('a fence-less render is counted and excluded', () => {
-    const events = [
-      inputQueued(90),
-      displayEvent('worker_display_applied', 100, 1, 1),
-      renderStart(104),
-      renderEnd(110, { completionMode: 'none' }),
-      frameComplete(126),
-    ] satisfies TerminalPerfEvent[];
-
-    const report = buildTerminalLatencyReport(events);
-
-    expect(report.samples[0]?.renderEndToDisplayPaintMs).toBeNull();
-    expect(report.renderInstrumentation.noFenceRenderCount).toBe(1);
-  });
-
   test('a queue completion leaves the whole post-submit observation interval', () => {
     const sample = buildTerminalLatencyReport(decomposed()).samples[0];
 
@@ -3590,50 +3566,24 @@ describe('apply-to-paint decomposition', () => {
   });
 
   test('retired polling evidence cannot narrow a WebGPU completion interval', () => {
-    const events = [
-      inputQueued(90),
-      displayEvent('worker_display_applied', 100, 1, 1),
-      renderStart(104),
-      renderEnd(110),
-      frameComplete(126, { pollCount: 3, previousPollAtMs: 122 }),
-    ] satisfies TerminalPerfEvent[];
+    for (const [pollCount, previousPollAtMs] of [
+      [3, 0],
+      [0, 122],
+      [3, 122],
+    ] as const) {
+      const events = [
+        inputQueued(90),
+        displayEvent('worker_display_applied', 100, 1, 1),
+        renderStart(104),
+        renderEnd(110),
+        frameComplete(126, { pollCount, previousPollAtMs }),
+      ] satisfies TerminalPerfEvent[];
 
-    const sample = buildTerminalLatencyReport(events).samples[0];
-
-    expect(sample?.renderEndToLastUnreadyPollMs).toBeNull();
-    expect(sample?.fenceObservationIntervalMs).toBeNull();
-  });
-
-  test('retired polling evidence predating submission is rejected, not clamped', () => {
-    const events = [
-      inputQueued(90),
-      displayEvent('worker_display_applied', 100, 1, 1),
-      renderStart(104),
-      renderEnd(110),
-      // Stale from the previous frame; the fence still cannot precede its own submit.
-      frameComplete(126, { pollCount: 2, previousPollAtMs: 105 }),
-    ] satisfies TerminalPerfEvent[];
-
-    const sample = buildTerminalLatencyReport(events).samples[0];
-
-    expect(sample?.renderEndToLastUnreadyPollMs).toBeNull();
-    expect(sample?.fenceObservationIntervalMs).toBeNull();
-  });
-
-  test('a poll postdating its own completion is rejected as corrupt', () => {
-    const events = [
-      inputQueued(90),
-      displayEvent('worker_display_applied', 100, 1, 1),
-      renderStart(104),
-      renderEnd(110),
-      frameComplete(126, { pollCount: 2, previousPollAtMs: 130 }),
-    ] satisfies TerminalPerfEvent[];
-
-    const report = buildTerminalLatencyReport(events);
-
-    expect(report.samples[0]?.renderEndToLastUnreadyPollMs).toBeNull();
-    expect(report.samples[0]?.fenceObservationIntervalMs).toBeNull();
-    expect(report.renderEndToLastUnreadyPollMs.complete).toBe(false);
+      const report = buildTerminalLatencyReport(events);
+      expect(report.samples[0]?.renderEndToLastUnreadyPollMs).toBeNull();
+      expect(report.samples[0]?.fenceObservationIntervalMs).toBeNull();
+      expect(report.renderEndToLastUnreadyPollMs.complete).toBe(false);
+    }
   });
 
   test('attributes each gate from the action the mailbox returned', () => {

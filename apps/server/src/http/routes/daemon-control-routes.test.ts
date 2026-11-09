@@ -122,16 +122,10 @@ describe('Elysia WebSocket ping dispatch', () => {
       const { promise: opened, resolve: resolveOpened } = Promise.withResolvers<void>();
       socket.addEventListener('open', () => resolveOpened());
 
-      await Promise.race([
-        opened,
-        Bun.sleep(2_000).then(() => Promise.reject(new Error('client never opened'))),
-      ]);
+      await opened;
       socket.send('hello');
       socket.ping();
-      const pingArgument = await Promise.race([
-        pinged,
-        Bun.sleep(2_000).then(() => Promise.reject(new Error('ping hook never fired'))),
-      ]);
+      const pingArgument = await pinged;
       socket.close();
 
       // The ping hook cannot fire before the open hook, so this is settled.

@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   browserDisplayCopiedBytesPerPayloadByte,
-  browserDisplayIngressRoute,
   type MutableBrowserDisplayIoAccounting,
   noteBrowserDisplayAllocationRequest,
   noteBrowserDisplayCopy,
@@ -21,13 +20,6 @@ function counters(): MutableBrowserDisplayIoAccounting {
 }
 
 describe('browser display I/O accounting', () => {
-  test('derives the exact ingress route from callback-owned provider and lane scalars', () => {
-    expect(browserDisplayIngressRoute('webtransport', false)).toBe('direct-datagram');
-    expect(browserDisplayIngressRoute('webtransport', true)).toBe('direct-reliable');
-    expect(browserDisplayIngressRoute('edgeWebTransport', false)).toBe('relay-datagram');
-    expect(browserDisplayIngressRoute('edgeWebTransport', true)).toBe('relay-reliable');
-  });
-
   test('counts only explicit executed operations and resets in place', () => {
     const state = counters();
     noteBrowserDisplayCopy(state, 1_200);

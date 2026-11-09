@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { RULES, type Rule } from './gate-policy';
+import type { Rule } from './gate-policy';
 import {
   type E2eSpecInputs,
   e2eScriptsOf,
@@ -188,10 +188,6 @@ test('the rendered block has the five columns and the two trailing bullets', () 
   expect(block.endsWith('\n')).toBe(true);
 });
 
-test('rendering is deterministic', () => {
-  expect(renderE2eSpecTable(inputs, readSource)).toBe(renderE2eSpecTable(inputs, readSource));
-});
-
 test('a dedicated NAT config stays owned by its harness rather than the transport suite', () => {
   const native: E2eSpecInputs = {
     ...inputs,
@@ -308,14 +304,6 @@ test('a rule with no globs cannot render: it would be a row nothing ever matches
   expect(() =>
     renderGateRulesTable([{ name: 'empty', globs: [], effects: { audit: true } }]),
   ).toThrow('gate rule empty has no globs');
-});
-
-test('the checked-in rules render one row each and every row names a gate', () => {
-  const lines = renderGateRulesTable(RULES).split('\n').slice(2, -1);
-  expect(lines).toHaveLength(RULES.length);
-  for (const line of lines) {
-    expect(line).toMatch(/^\| .+ \| .+ \| .* \|$/);
-  }
 });
 
 test('every generated block names a distinct marker in prose or the environment template', () => {

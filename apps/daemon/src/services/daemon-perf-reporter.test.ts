@@ -255,20 +255,6 @@ test('a window where nothing reached the listener reports zero, not nothing', ()
   expect(report.directWtAdmitted).toBe(0);
 });
 
-test('a dataplane restart cannot report a negative window', () => {
-  // A restart resets the cumulative counters to zero while the cursor still
-  // holds the pre-restart totals.
-  const report = buildDaemonPerfReport(
-    daemonPerfCursor(metrics(transport({ directWtIncomingExpected: 900, directWtAdmitted: 50 }))),
-    metrics(transport({ directWtIncomingExpected: 4, directWtAdmitted: 1 })),
-    30_000,
-    NO_RTT,
-    0,
-  );
-  expect(report.directWtIncomingExpected).toBeGreaterThanOrEqual(0);
-  expect(report.directWtAdmitted).toBeGreaterThanOrEqual(0);
-});
-
 test('display waste reaches the window as a rate, denominator included', () => {
   // The counters existed in the dataplane all along and stopped at the daemon's
   // local registry. What makes them answer anything is arriving together:

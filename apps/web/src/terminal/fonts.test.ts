@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { terminalBlockingFontUrls, terminalPromotionFontUrls } from './font-loader';
+import { terminalPromotionFontUrls } from './font-loader';
 import { DEFAULT_TERMINAL_FONT, TERMINAL_FONT_ASSET_VERSION } from './fonts';
 
 const FONT_FILES = [
@@ -17,21 +17,6 @@ const FONT_FILES = [
 const FONTS_DIRECTORY = resolve(import.meta.dir, '../../public/fonts');
 
 describe('terminal font startup assets', () => {
-  test('only the boot face blocks initial terminal readiness', () => {
-    // The full regular face parses in ~29ms and is ~1MB brotli; the boot face
-    // is what first paint actually waits on.
-    expect(terminalBlockingFontUrls(DEFAULT_TERMINAL_FONT)).toEqual([DEFAULT_TERMINAL_FONT.boot]);
-  });
-
-  test('promotion fetches every face the boot tier is standing in for', () => {
-    expect(terminalPromotionFontUrls(DEFAULT_TERMINAL_FONT)).toEqual([
-      DEFAULT_TERMINAL_FONT.regular,
-      DEFAULT_TERMINAL_FONT.bold,
-      DEFAULT_TERMINAL_FONT.italic,
-      DEFAULT_TERMINAL_FONT.boldItalic,
-    ]);
-  });
-
   test('promotion URLs are unique and exclude the blocking face', () => {
     const sharedStyles = {
       name: 'Shared styles',

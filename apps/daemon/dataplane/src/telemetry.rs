@@ -655,22 +655,6 @@ mod tests {
     }
 
     #[test]
-    fn deltas_are_per_interval_not_cumulative() {
-        let mut cursor = QuicCursor::default();
-        let mut stats = ConnectionStats::default();
-
-        stats.path.sent_packets = 100;
-        let mut first = PathStatsEvt::default();
-        cursor.advance(7, &stats, &mut first);
-        assert_eq!(first.quic_sent_packets, 100);
-
-        stats.path.sent_packets = 175;
-        let mut second = PathStatsEvt::default();
-        cursor.advance(7, &stats, &mut second);
-        assert_eq!(second.quic_sent_packets, 75);
-    }
-
-    #[test]
     fn display_datagram_outcomes_are_per_path_interval_deltas() {
         let mut peer = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
         peer.display_cache.datagram_outcomes.edge = DisplayDatagramOutcomeCounters {

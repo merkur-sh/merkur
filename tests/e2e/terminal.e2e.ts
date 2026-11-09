@@ -1,5 +1,6 @@
 import { expectConnected } from './app-state';
 import { expect, test } from './fixtures/daemon-process';
+import { primeTerminal, waitForTerminalLog } from './terminal-e2e-helpers';
 
 async function connectTerminal(
   page: import('@playwright/test').Page,
@@ -38,13 +39,7 @@ test('desktop typing, editing, unicode, and paste paths preserve exact terminal 
   linkedDaemon,
   terminalPerf,
 }) => {
-  await connectTerminal(page, linkedDaemon.daemonName);
-  const output = page.getByRole('log', { name: 'Terminal output' });
-
-  // The first accessibility refresh establishes a silent baseline. Prime it so
-  // every subsequent marker is an assertion on newly applied terminal output.
-  await page.keyboard.type("printf 'typing-baseline\\n'\n");
-  await page.waitForTimeout(750);
+  const output = await primeTerminal(page, linkedDaemon.daemonName);
   await terminalPerf.reset();
 
   await page.keyboard.type("printf 'typing-printable-ok\\n'\n");
@@ -77,8 +72,8 @@ test('desktop typing, editing, unicode, and paste paths preserve exact terminal 
   // the final command inside a comment and the marker never appears. Keep each
   // line below the PTY's canonical-line limit and suppress echo so this measures
   // input transport rather than a 40 KB display flood.
-  await page.keyboard.type('stty -echo\n');
-  await page.waitForTimeout(250);
+  await page.keyboard.type("stty -echo; printf '%s%s\\n' typing-quiet- ready\n");
+  await waitForTerminalLog(page, 'typing-quiet-ready', 'line', 15_000);
   const commentLines = Array.from(
     { length: 104 },
     (_, index) => `#${'x'.repeat(380)}-${index}\n`,

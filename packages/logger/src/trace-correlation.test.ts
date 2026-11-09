@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
-import { Effect, Logger } from 'effect';
+import { Effect } from 'effect';
 
-import type { MerkurLoggerLayer } from './effect-logger';
+import { MerkurLoggerLayer } from './effect-logger';
 import { logEffect } from './index';
 import type { MerkurLogRecord } from './sink';
 
@@ -12,30 +12,31 @@ import type { MerkurLogRecord } from './sink';
  * reads the same source — so a line is pivotable to its trace wherever one exists, in both
  * places, or in neither. What must never happen is the two disagreeing.
  */
-function captureRecords(): { layer: typeof MerkurLoggerLayer; records: MerkurLogRecord[] } {
+async function captureRecords(program: Effect.Effect<void>): Promise<MerkurLogRecord[]> {
   const records: MerkurLogRecord[] = [];
-  const capturing = Logger.make((options) => {
-    const span = options.fiber.cache.span;
-    records.push({
-      ts: options.date.toISOString(),
-      level: 'info',
-      scope: 'test',
-      message: String(options.message),
-      context: {},
-      ...(span === undefined ? {} : { traceId: span.traceId, spanId: span.spanId }),
-    });
-  });
-  return { layer: Logger.layer([capturing]) as typeof MerkurLoggerLayer, records };
+  const originalWrite = process.stdout.write;
+  const originalLevel = process.env.LOG_LEVEL;
+  process.env.LOG_LEVEL = 'info';
+  // SAFETY: MerkurLoggerLayer writes each record as one string chunk and reads
+  // no return value beyond the boolean this stub gives.
+  process.stdout.write = ((chunk: string) => {
+    // SAFETY: every chunk is one JSON line the layer serialised from a MerkurLogRecord.
+    records.push(JSON.parse(chunk) as MerkurLogRecord);
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    await Effect.runPromise(program.pipe(Effect.provide(MerkurLoggerLayer)));
+    return records;
+  } finally {
+    process.stdout.write = originalWrite;
+    if (originalLevel === undefined) delete process.env.LOG_LEVEL;
+    else process.env.LOG_LEVEL = originalLevel;
+  }
 }
 
 test('a record logged inside a span carries that span trace identity', async () => {
-  const { layer, records } = captureRecords();
-
-  await Effect.runPromise(
-    logEffect('info', 'test', 'inside_a_span').pipe(
-      Effect.withSpan('session_request'),
-      Effect.provide(layer),
-    ),
+  const records = await captureRecords(
+    logEffect('info', 'test', 'inside_a_span').pipe(Effect.withSpan('session_request')),
   );
 
   expect(records).toHaveLength(1);
@@ -49,9 +50,7 @@ test('a record logged inside a span carries that span trace identity', async () 
  * to an unrelated request.
  */
 test('a record logged with no span carries no trace identity', async () => {
-  const { layer, records } = captureRecords();
-
-  await Effect.runPromise(logEffect('info', 'test', 'no_span').pipe(Effect.provide(layer)));
+  const records = await captureRecords(logEffect('info', 'test', 'no_span'));
 
   expect(records).toHaveLength(1);
   expect(records[0]?.traceId).toBeUndefined();
@@ -59,13 +58,11 @@ test('a record logged with no span carries no trace identity', async () => {
 });
 
 test('records from different spans carry different span ids under one trace', async () => {
-  const { layer, records } = captureRecords();
-
-  await Effect.runPromise(
+  const records = await captureRecords(
     Effect.gen(function* () {
       yield* logEffect('info', 'test', 'outer');
       yield* logEffect('info', 'test', 'inner').pipe(Effect.withSpan('redis.operation'));
-    }).pipe(Effect.withSpan('session_request'), Effect.provide(layer)),
+    }).pipe(Effect.withSpan('session_request')),
   );
 
   expect(records).toHaveLength(2);

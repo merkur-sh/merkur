@@ -841,6 +841,29 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn drain_until_pty_closed(
+        event_rx: &PtyEventReceiver,
+        terminal: &mut TerminalState,
+        terminal_event_rx: &crossbeam_channel::Receiver<TerminalEvent>,
+        writer: &mut dyn Write,
+    ) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!remaining.is_zero(), "PTY did not close after shell exit");
+            match event_rx.recv_timeout(remaining).unwrap() {
+                TerminalEvent::PtyBytes(bytes, _) => {
+                    apply_test_pty_output(terminal, terminal_event_rx, writer, &bytes);
+                }
+                TerminalEvent::PtyReadClosed | TerminalEvent::PtyReadError(_) => return,
+                TerminalEvent::PtyReaderStopped | TerminalEvent::PtyWrite(_) => {
+                    panic!("unexpected event while draining the exiting shell")
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
     fn receive_until_terminal_marker(
         event_rx: &PtyEventReceiver,
         terminal: &mut TerminalState,
@@ -1499,34 +1522,13 @@ mod tests {
         terminal.observe_user_input(false, TerminalState::bytes_leave_line_editor(b"\r"));
         writer.write_all(b"exit\n").unwrap();
         writer.flush().unwrap();
-        let exit_deadline = std::time::Instant::now() + Duration::from_secs(10);
-        loop {
-            if child.try_wait().unwrap().is_some() {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < exit_deadline,
-                "zsh did not exit after its terminal replies were drained"
-            );
-            match event_rx.recv_timeout(Duration::from_millis(10)) {
-                Ok(TerminalEvent::PtyBytes(bytes, _)) => apply_test_pty_output(
-                    &mut terminal,
-                    &terminal_event_rx,
-                    writer.as_mut(),
-                    &bytes,
-                ),
-                Ok(
-                    TerminalEvent::PtyReadClosed
-                    | TerminalEvent::PtyReadError(_)
-                    | TerminalEvent::PtyReaderStopped,
-                )
-                | Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
-                Ok(TerminalEvent::PtyWrite(_)) => {
-                    unreachable!("reader emits only output events")
-                }
-                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
-            }
-        }
+        drain_until_pty_closed(
+            &event_rx,
+            &mut terminal,
+            &terminal_event_rx,
+            writer.as_mut(),
+        );
+        child.wait().unwrap();
     }
 
     #[cfg(unix)]
@@ -1684,34 +1686,13 @@ mod tests {
         terminal.observe_user_input(false, TerminalState::bytes_leave_line_editor(b"\r"));
         writer.write_all(b"exit\n").unwrap();
         writer.flush().unwrap();
-        let exit_deadline = std::time::Instant::now() + Duration::from_secs(10);
-        loop {
-            if child.try_wait().unwrap().is_some() {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < exit_deadline,
-                "fish did not exit after its terminal replies were drained"
-            );
-            match event_rx.recv_timeout(Duration::from_millis(10)) {
-                Ok(TerminalEvent::PtyBytes(bytes, _)) => apply_test_pty_output(
-                    &mut terminal,
-                    &terminal_event_rx,
-                    writer.as_mut(),
-                    &bytes,
-                ),
-                Ok(
-                    TerminalEvent::PtyReadClosed
-                    | TerminalEvent::PtyReadError(_)
-                    | TerminalEvent::PtyReaderStopped,
-                )
-                | Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
-                Ok(TerminalEvent::PtyWrite(_)) => {
-                    unreachable!("reader emits only output events")
-                }
-                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
-            }
-        }
+        drain_until_pty_closed(
+            &event_rx,
+            &mut terminal,
+            &terminal_event_rx,
+            writer.as_mut(),
+        );
+        child.wait().unwrap();
         std::fs::remove_dir_all(&config_home).unwrap();
     }
 
@@ -2138,7 +2119,7 @@ mod tests {
             })
             .unwrap();
         let mut command = CommandBuilder::new("/bin/sh");
-        command.args(["-c", "printf ready; sleep 30"]);
+        command.args(["-c", "printf ready; IFS= read -r release"]);
         let mut child = pair.slave.spawn_command(command).unwrap();
         drop(pair.slave);
         let (event_tx, event_rx) = pty_event_channel(8);

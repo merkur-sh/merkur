@@ -325,13 +325,9 @@ fn keystroke_admission_profile() {
     let mut outstanding = 0usize;
     let mut drain = |writer: &mut PtyWriter, outstanding: &mut usize| {
         while *outstanding > 0 {
-            match completions.try_recv() {
-                Ok(completion) => {
-                    writer.finish(&completion);
-                    *outstanding -= 1;
-                }
-                Err(_) => std::thread::yield_now(),
-            }
+            let completion = completions.blocking_recv().expect("writer completion");
+            writer.finish(&completion);
+            *outstanding -= 1;
         }
     };
 

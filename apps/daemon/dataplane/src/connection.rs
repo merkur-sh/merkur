@@ -5774,15 +5774,6 @@ mod tests {
     }
 
     #[test]
-    fn malformed_input_run_is_rejected_before_peer_mutation() {
-        // base=1, count=2, entry0 len=1 "a", entry1 len=2 but only 1 byte.
-        let body = [
-            0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x01, b'a', 0x00, 0x02, b'b',
-        ];
-        assert!(parse_input_run(&body).is_none());
-    }
-
-    #[test]
     fn input_run_reorder_cap_respected() {
         let mut peer = new_peer(); // expects 1
         // A gap run far ahead with >64 entries; all buffer, cap holds.

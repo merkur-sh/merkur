@@ -1,5 +1,6 @@
 import { expectConnected } from './app-state';
 import { expect, test } from './fixtures/daemon-process';
+import { waitForMirrorBaseline, waitForTerminalLog } from './terminal-e2e-helpers';
 
 // Touch context: maxTouchPoints > 0 makes isTouchKeyboardEligible() true, so
 // the panel creates the touch-mode editing surface instead of the desktop
@@ -126,9 +127,10 @@ test('touch typing flows through the editing surface beforeinput path', async ({
 
   // Keys target the focused surface: the window fast path skips them and the
   // text arrives via `beforeinput insertText`; Enter via `insertLineBreak`.
-  await page.keyboard.type("printf 'touch-baseline\\n'");
+  await waitForMirrorBaseline(page, 15_000);
+  await page.keyboard.type("printf '%s%s\\n' touch-baseline- ready");
   await page.keyboard.press('Enter');
-  await page.waitForTimeout(750);
+  await waitForTerminalLog(page, 'touch-baseline-ready', 'line', 15_000);
   await page.keyboard.type("printf 'touch-typing-ok\\n'");
   await page.keyboard.press('Enter');
   await expectOutput(output, 'touch-typing-ok');
@@ -142,9 +144,10 @@ test('IME composition on the touch surface commits exactly once', async ({
   await enableKeyboardAndFocusSurface(page);
   const output = page.getByRole('log', { name: 'Terminal output' });
 
-  await page.keyboard.type("printf 'touch-ime-baseline\\n'");
+  await waitForMirrorBaseline(page, 15_000);
+  await page.keyboard.type("printf '%s%s\\n' touch-ime-baseline- ready");
   await page.keyboard.press('Enter');
-  await page.waitForTimeout(750);
+  await waitForTerminalLog(page, 'touch-ime-baseline-ready', 'line', 15_000);
 
   await page.keyboard.type('case "');
 
@@ -177,9 +180,10 @@ test('touch delete and surface paste preserve exact input', async ({ page, linke
   await enableKeyboardAndFocusSurface(page);
   const output = page.getByRole('log', { name: 'Terminal output' });
 
-  await page.keyboard.type("printf 'touch-edit-baseline\\n'");
+  await waitForMirrorBaseline(page, 15_000);
+  await page.keyboard.type("printf '%s%s\\n' touch-edit-baseline- ready");
   await page.keyboard.press('Enter');
-  await page.waitForTimeout(750);
+  await waitForTerminalLog(page, 'touch-edit-baseline-ready', 'line', 15_000);
 
   await page.keyboard.type("printf 'touch-delete-oX");
   await page.keyboard.press('Backspace');

@@ -261,14 +261,9 @@ fn presentation_received_contradiction_refuses_new_input_before_visual_grace_exp
         }
         assert!(!terminal.has_predictions());
         terminal.build_geometry();
-        assert_eq!(
-            terminal.drawn_text(),
-            if cursor_col == 7 {
-                terminal.drawn_text()
-            } else {
-                eligible
-            }
-        );
+        if cursor_col != 7 {
+            assert_eq!(terminal.drawn_text(), eligible);
+        }
         assert_eq!(
             terminal.presentation_row_version(0),
             if cursor_col == 7 { 2 } else { 1 }

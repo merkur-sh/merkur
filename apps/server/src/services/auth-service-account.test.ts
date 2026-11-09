@@ -37,7 +37,9 @@ describe('account suspension', () => {
       .execute();
 
     // The password is still correct; the account is simply not usable.
-    expect(loginWithNewDelegation(OLD_PASSWORD, 0x25, 'while-suspended')).rejects.toThrow();
+    await expect(
+      loginWithNewDelegation(OLD_PASSWORD, 0x25, 'while-suspended'),
+    ).rejects.toMatchObject({ code: 'account_suspended' });
 
     await db
       .updateTable('users')

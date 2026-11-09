@@ -1,25 +1,6 @@
 import { expect, test } from 'bun:test';
 import { gridConvergenceFailureDetail } from './grid-convergence-failure';
 
-test('retains failed probe provenance without hiding timeout or repair counts', () => {
-  expect(
-    gridConvergenceFailureDetail({
-      converged: false,
-      failureReason: 'timeout',
-      observationEpoch: 1,
-      probeId: 2,
-      attempts: 15,
-      selectiveRepairCount: 0,
-      generation: 2,
-      lastAdmittedDisplaySeq: 0,
-      rows: 37,
-      elapsedMs: 20003.98,
-    }),
-  ).toBe(
-    'converged=false failureReason=timeout observationEpoch=1 probeId=2 attempts=15 selectiveRepairCount=0 generation=2 lastAdmittedDisplaySeq=0 rows=37 elapsedMs=20003.98',
-  );
-});
-
 test('unavailable and rejected probes remain distinct', () => {
   expect(gridConvergenceFailureDetail(null)).toBe('result=unavailable');
   expect(gridConvergenceFailureDetail({ probeError: 'request-rejected' })).toBe(

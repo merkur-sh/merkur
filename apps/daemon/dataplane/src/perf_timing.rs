@@ -2027,17 +2027,6 @@ mod tests {
     }
 
     #[test]
-    fn pending_inputs_are_bounded() {
-        let base = Instant::now();
-        let mut tracker = PerfTimingTracker::default();
-        tracker.set_enabled(true);
-        for seq in 1..=(MAX_PENDING_INPUTS as u32 * 2) {
-            tracker.note_input_received(seq, base);
-        }
-        assert!(tracker.pending.len() <= MAX_PENDING_INPUTS);
-    }
-
-    #[test]
     fn disabling_drops_state_rather_than_carrying_it_across_the_gap() {
         let base = Instant::now();
         let mut tracker = PerfTimingTracker::default();

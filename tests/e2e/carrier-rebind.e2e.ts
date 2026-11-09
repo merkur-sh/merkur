@@ -306,8 +306,13 @@ test('a partitioned carrier rebinds in place and keeps its terminal', async ({
   test.skip(!partitioned, 'carrier rebind needs the delay proxy to partition the path');
 
   const closeCarriers = await observeBrowserCarriers(page);
+  let issuanceRequests = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/sessions/request') issuanceRequests += 1;
+  });
   await page.getByTitle(`Connect to ${linkedDaemon.daemonName}`).click();
   await expectConnected(page, 40_000);
+  const initialIssuances = issuanceRequests;
   await terminalPerf.reset();
 
   // Leave a mark that must survive the gap. If the daemon's peer were rebuilt
@@ -352,6 +357,7 @@ test('a partitioned carrier rebinds in place and keeps its terminal', async ({
     })
     .toBeGreaterThanOrEqual(1);
 
+  expect(issuanceRequests, 'rebind must retain the authorized session').toBe(initialIssuances);
   const snapshot = await terminalPerf.snapshot();
   expect(
     transportStates(snapshot.events).filter(
@@ -707,45 +713,6 @@ test('a rebound carrier keeps its display generation and is repaired, not repain
   expect(presentation.firstDisplayReceiveToCompletedPresentationFenceMs.count).toBe(1);
   expect(presentation.measurementWindowExposureMs.complete).toBe(true);
   expect(presentation.measurementWindowExposureMs.max).toBe(0);
-});
-
-test('recovery takes the rebind path without a server round trip', async ({
-  page,
-  linkedDaemon,
-  terminalPerf,
-}) => {
-  const partitioned = await partitionEdgeProxy(1).catch(() => false);
-  test.skip(!partitioned, 'carrier rebind needs the delay proxy to partition the path');
-
-  const closeCarriers = await observeBrowserCarriers(page);
-  await page.getByTitle(`Connect to ${linkedDaemon.daemonName}`).click();
-  await expectConnected(page, 40_000);
-  await terminalPerf.reset();
-
-  let issuanceRequests = 0;
-  page.on('request', (request) => {
-    if (request.url().includes('/api/sessions/request')) issuanceRequests += 1;
-  });
-
-  const logMark = linkedDaemon.logText().length;
-  await partitionEdgeProxy(PARTITION_MS);
-  await closeCarriers();
-  await page.keyboard.type('echo rebind-path-probe');
-  await page.keyboard.press('Enter');
-  await expect(page.locator('body')).toContainText('rebind-path-probe', {
-    timeout: PARTITION_MS + RECOVERY_BUDGET_MS,
-  });
-
-  expect(
-    committedRebinds(linkedDaemon.logText().slice(logMark)),
-    'the outage must be recovered by a rebind for the issuance count below to mean anything',
-  ).toBeGreaterThanOrEqual(1);
-  expect(
-    issuanceRequests,
-    'a carrier rebind must recover the session without asking the server for a new one',
-  ).toBe(0);
-  // Freeze a post-rebind terminal/transport artifact for the matrix sentinel.
-  await terminalPerf.snapshot();
 });
 
 /** Exercise budget exhaustion and the formerly listener-arming supersede branch. */

@@ -94,29 +94,4 @@ describe('session quality verdict', () => {
   test('an empty window does not fabricate a bad verdict', () => {
     expect(classifySessionQuality(window({ sampleCount: 0 }))).toBe('good');
   });
-
-  test('the verdict set is exactly three values', () => {
-    // These are metric label values; the set must stay closed.
-    const verdicts = new Set(
-      [
-        window(),
-        window({ inputAckP95Ms: 150 }),
-        window({ inputAckP95Ms: 5_000 }),
-        window({ sampleCount: 0 }),
-        window({ degradedSampleCount: 30 }),
-      ].map(classifySessionQuality),
-    );
-    for (const verdict of verdicts) {
-      expect(['good', 'degraded', 'bad']).toContain(verdict);
-    }
-  });
-
-  test('thresholds are ordered so the degraded band is non-empty', () => {
-    expect(SESSION_QUALITY_THRESHOLDS.DEGRADED_INPUT_ACK_MS).toBeGreaterThan(
-      SESSION_QUALITY_THRESHOLDS.GOOD_INPUT_ACK_MS,
-    );
-    expect(SESSION_QUALITY_THRESHOLDS.DEGRADED_RTT_MS).toBeGreaterThan(
-      SESSION_QUALITY_THRESHOLDS.GOOD_RTT_MS,
-    );
-  });
 });

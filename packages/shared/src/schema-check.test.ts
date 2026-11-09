@@ -74,10 +74,6 @@ const WRONG_VALUES: readonly unknown[] = [
 ];
 
 describe('compileCheck agrees with TypeBox', () => {
-  test('the contract is every schema the browser reads', () => {
-    expect(CONTRACT.length).toBeGreaterThan(18);
-  });
-
   for (const [name, schema] of SCHEMAS) {
     test(name, () => {
       const check = compileCheck(schema);

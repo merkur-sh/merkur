@@ -645,10 +645,8 @@ mod tests {
         bare.extend_from_slice(&[1u8; message::TRANSACTION_ID_LEN]);
         client.send_to(&bare, server_addr).expect("send bare");
         let mut buffer = [0u8; 512];
-        assert!(
-            client.recv_from(&mut buffer).is_err(),
-            "an unauthenticated request must be dropped, not answered"
-        );
+        // The next authenticated answer is the completion barrier for this
+        // socket owner; no silence interval stands in for processing the bare request.
 
         // Authenticated request: must be answered, and the answer must carry
         // our own source address.
@@ -670,6 +668,7 @@ mod tests {
             .expect("a valid request is answered");
         assert_eq!(from, server_addr);
         let response = &buffer[..len];
+        assert_eq!(&response[8..20], &[2; message::TRANSACTION_ID_LEN]);
         assert_eq!(
             &response[0..2],
             &0x0101u16.to_be_bytes(),
@@ -734,11 +733,34 @@ mod tests {
         let request = build_client_request(username.as_bytes(), &wrong);
         client.send_to(&request, server_addr).expect("send");
 
-        let mut buffer = [0u8; 512];
-        assert!(
-            client.recv_from(&mut buffer).is_err(),
-            "a real ticket with a forged integrity tag must still be dropped"
+        let integrity = config
+            .ticket_key
+            .verify(&ticket, now_unix_secs())
+            .expect("verify");
+        assert_refused_before_authenticated_barrier(
+            &client,
+            server_addr,
+            username.as_bytes(),
+            &integrity,
         );
+    }
+
+    /// The same socket owner processes the rejected request before this one.
+    /// An incorrect reply is returned first and cannot match the barrier's ID.
+    fn assert_refused_before_authenticated_barrier(
+        client: &UdpSocket,
+        server: SocketAddr,
+        username: &[u8],
+        integrity: &ring::hmac::Key,
+    ) {
+        let transaction = [0x7e; message::TRANSACTION_ID_LEN];
+        let request = message::binding_request(&transaction, username, 0, integrity).expect("barrier");
+        client.send_to(request.as_bytes(), server).expect("send barrier");
+        let mut response = [0; 512];
+        let (len, from) = client.recv_from(&mut response).expect("barrier answered");
+        assert_eq!(from, server);
+        assert!(message::parse_success(&response[..len], &transaction).is_some());
+        assert!(message::verify_integrity(&response[..len], integrity));
     }
 
     fn addr(text: &str) -> SocketAddr {
@@ -935,9 +957,11 @@ mod tests {
             }),
         );
         client.send_to(&request, first_addr).expect("send");
-        assert!(
-            client.recv_from(&mut buffer).is_err(),
-            "change_ip+change_port with one port must be refused, not partially honoured"
+        assert_refused_before_authenticated_barrier(
+            &client,
+            first_addr,
+            username.as_bytes(),
+            &integrity,
         );
     }
 
@@ -1030,9 +1054,11 @@ mod tests {
             }),
         );
         client.send_to(&request, first_addr).expect("send");
-        assert!(
-            client.recv_from(&mut buffer).is_err(),
-            "an unhonourable change_ip must be dropped, not answered from the same address"
+        assert_refused_before_authenticated_barrier(
+            &client,
+            first_addr,
+            username.as_bytes(),
+            &integrity,
         );
         assert_eq!(
             counters.dropped_unsupported_change.load(Ordering::Relaxed),

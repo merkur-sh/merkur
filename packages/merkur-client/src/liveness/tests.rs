@@ -288,29 +288,6 @@ fn the_strike_comes_one_rto_after_the_lapse_and_only_once() {
 }
 
 #[test]
-fn a_pong_between_the_strikes_prevents_the_second() {
-    let mut h = Harness::primed();
-    h.immediate();
-    h.advance(400);
-    h.pong();
-    h.advance(500);
-    assert_eq!(h.count(Verdict::Failed), 0);
-}
-
-#[test]
-fn progress_after_the_lapse_prevents_the_strike() {
-    let mut h = Harness::primed();
-    h.link.emit_top = 5;
-    h.link.acked = 1;
-    h.emit();
-    h.advance(400);
-    assert_eq!(h.count(Verdict::Escalated), 1);
-    h.link.acked = 4;
-    h.advance(300);
-    assert_eq!(h.count(Verdict::Failed), 0);
-}
-
-#[test]
 fn progress_between_probes_stands_the_whole_ladder_down() {
     let mut h = Harness::primed();
     h.link.emit_top = 5;

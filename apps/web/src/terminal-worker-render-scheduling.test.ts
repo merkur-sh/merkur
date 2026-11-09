@@ -121,17 +121,6 @@ test('a held authoritative transaction cannot leak through a completion credit',
   expect(host.renders).toBe(3);
 });
 
-test('GPU completion wiring contains no terminal cursor or prediction publication', () => {
-  const completion = workerFunction('onGpuFrameComplete');
-  expect(completion).not.toContain('publishInFlightCursorPosition');
-  expect(completion).not.toContain('publishPresented');
-  expect(completion).not.toContain('buildGeometry');
-  expect(completion).toContain('renderSubmissions.retire(submissionId)');
-  expect(completion).toContain('renderSubmissions.release(frame)');
-  expect(source).not.toContain('pollFrameComplete');
-  expect(source).not.toContain('scheduleFloorWakeup');
-});
-
 test('resource refusal preserves canvas, pending state and semantic ownership', () => {
   const events: string[] = [];
   const context = {

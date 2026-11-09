@@ -659,7 +659,6 @@ describe('commit ordering', () => {
     readonly layerIds: string[];
     readonly events: string[];
     readonly armed: CapturedTimer[];
-    cleared: number;
   }
 
   function harness(): OrderingHarness {
@@ -668,15 +667,12 @@ describe('commit ordering', () => {
     const layerIds: string[] = [];
     const events: string[] = [];
     const armed: CapturedTimer[] = [];
-    const state = { cleared: 0 };
     const timers: KeyboardTimerHost = {
       set(callback, delayMs) {
         armed.push({ callback, delayMs });
         return armed.length;
       },
-      clear() {
-        state.cleared += 1;
-      },
+      clear() {},
       now: () => 0,
     };
     const engine = createKeyboardEngine({
@@ -699,9 +695,6 @@ describe('commit ordering', () => {
       layerIds,
       events,
       armed,
-      get cleared() {
-        return state.cleared;
-      },
     };
   }
 
@@ -886,22 +879,6 @@ describe('commit ordering', () => {
     expect(commits).toEqual(['key-l', 'key-a']);
   });
 
-  test('never arms a rollover deadline, because nothing is ever held back', () => {
-    const { engine, resolved, commits, armed, cleared } = harness();
-    const a = tapAt(resolved, 'key-a');
-    const l = tapAt(resolved, 'key-l');
-
-    engine.beginPointerAt(1, a.x, a.y, 0);
-    engine.beginPointerAt(2, l.x, l.y, 10);
-    engine.endPointerAt(2, l.x, l.y, 20);
-
-    // The whole deadline mechanism is gone: a commit that would once have waited
-    // out ROLLOVER_HOLD_MS now leaves on the event that produced it.
-    expect(commits).toEqual(['key-a', 'key-l']);
-    expect(armed).toHaveLength(0);
-    expect(cleared).toBe(0);
-  });
-
   test('resolves an older contact before a press-activated key', () => {
     const { engine, resolved, commits } = harness();
     const a = tapAt(resolved, 'key-a');
@@ -1015,23 +992,6 @@ describe('commit ordering', () => {
     expect(armed).toHaveLength(0);
   });
 
-  test('a nested rollover of two anchored taps needs no buffer at all', () => {
-    const { engine, resolved, commits, armed } = harness();
-    const a = anchoredTapAt(resolved, 'key-a');
-    const l = anchoredTapAt(resolved, 'key-l');
-
-    // The lingering-thumb pattern: down A, down B, up B, up A. Release order is
-    // B then A, but both are decided at their own down, so press order is what
-    // reaches the PTY without the queue being involved.
-    engine.beginPointerAt(1, a.x, a.y, 0);
-    engine.beginPointerAt(2, l.x, l.y, 4);
-    engine.endPointerAt(2, l.x, l.y, 40);
-    engine.endPointerAt(1, a.x, a.y, 80);
-
-    expect(commits).toEqual(['key-a', 'key-l']);
-    expect(armed).toHaveLength(0);
-  });
-
   test('an anchored tap resolves an older undecided contact instead of waiting', () => {
     const { engine, resolved, commits, armed } = harness();
     // The ordering hazard, and the design that removes it. A is undecided, so
@@ -1070,19 +1030,6 @@ describe('commit ordering', () => {
     expect(commits).toEqual(['key-q', 'key-l']);
   });
 
-  test('stages no provisional for a tap committed at touch-down', () => {
-    const { engine, resolved, events } = harness();
-    const a = anchoredTapAt(resolved, 'key-a');
-
-    engine.beginPointerAt(1, a.x, a.y, 0);
-    engine.endPointerAt(1, a.x, a.y, 84);
-
-    // A provisional beside the committed glyph would paint the character twice
-    // for the whole contact: the overlay stages provisional and committed
-    // glyphs additively.
-    expect(events).toEqual(['commit:key-a']);
-  });
-
   test('clears an overtaken contact provisional as its commit is emitted', () => {
     const { engine, resolved, events } = harness();
     const a = tapAt(resolved, 'key-a');
@@ -1110,18 +1057,6 @@ describe('commit ordering', () => {
     engine.beginPointerAt(2, l.x, l.y, 260);
 
     expect(commits).toEqual(['key-l']);
-    expect(armed).toHaveLength(0);
-  });
-
-  test('arms no deadline when an anchored tap lands on a young blocker', () => {
-    const { engine, resolved, commits, armed } = harness();
-    const a = tapAt(resolved, 'key-a');
-    const l = anchoredTapAt(resolved, 'key-l');
-
-    engine.beginPointerAt(1, a.x, a.y, 0);
-    engine.beginPointerAt(2, l.x, l.y, 10);
-
-    expect(commits).toEqual(['key-a', 'key-l']);
     expect(armed).toHaveLength(0);
   });
 

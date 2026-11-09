@@ -86,6 +86,7 @@ class FakeWorker {
 
   readonly messages: MainToTransport[] = [];
   readonly transfers: ReadonlyArray<readonly Transferable[]> = [];
+  readonly messageWaiters = new Set<(message: MainToTransport) => void>();
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: ((event: ErrorEvent) => void) | null = null;
   onmessageerror: ((event: MessageEvent) => void) | null = null;
@@ -106,7 +107,21 @@ class FakeWorker {
       return;
     }
     this.messages.push(message);
+    for (const receive of this.messageWaiters) receive(message);
     if (transfer !== undefined) (this.transfers as Array<readonly Transferable[]>).push(transfer);
+  }
+
+  waitForMessage(predicate: (message: MainToTransport) => boolean): Promise<MainToTransport> {
+    const received = this.messages.find(predicate);
+    if (received !== undefined) return Promise.resolve(received);
+    return new Promise((resolve) => {
+      const receive = (message: MainToTransport): void => {
+        if (!predicate(message)) return;
+        this.messageWaiters.delete(receive);
+        resolve(message);
+      };
+      this.messageWaiters.add(receive);
+    });
   }
 
   addEventListener(type: 'message', listener: (event: MessageEvent) => void): void {
@@ -650,7 +665,14 @@ describe('transport worker client start ownership', () => {
         commitment: Buffer.alloc(64, 3).toString('base64url'),
         edgeWtUrl: 'https://edge.example:4433/',
       });
-      await Bun.sleep(0);
+      await Promise.all([
+        worker.waitForMessage(
+          (message) => message.kind === 'request_session_result' && message.requestId === requestId,
+        ),
+        worker.waitForMessage(
+          (message) => message.kind === 'renew_session_result' && message.requestId === requestId,
+        ),
+      ]);
       const replies = worker.messages.filter(
         (message) =>
           (message.kind === 'request_session_result' || message.kind === 'renew_session_result') &&
@@ -1115,7 +1137,9 @@ describe('transport worker client start ownership', () => {
       issuanceId: 'issuance-a',
       ...SESSION_AUTH_FIELDS,
     });
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await worker.waitForMessage(
+      (message) => message.kind === 'request_session_result' && message.requestId === 9,
+    );
 
     expect(requestSignal.current?.aborted).toBe(true);
     expect(worker.messages).toContainEqual({
@@ -1224,7 +1248,9 @@ describe('transport worker client start ownership', () => {
         ...(supersedesIssuanceId === undefined ? {} : { supersedesIssuanceId }),
         ...SESSION_AUTH_FIELDS,
       });
-      await Bun.sleep(0);
+      await worker.waitForMessage(
+        (message) => message.kind === 'request_session_result' && message.requestId === requestId,
+      );
       // The supersede completion used to arm cancellation of the new issuance.
       window.dispatchEvent(new Event('online'));
       document.dispatchEvent(new Event('visibilitychange'));
@@ -1237,7 +1263,6 @@ describe('transport worker client start ownership', () => {
       });
       window.dispatchEvent(new Event('online'));
       document.dispatchEvent(new Event('visibilitychange'));
-      await Bun.sleep(0);
       expect(cancelled).toEqual([]);
     }
     await started;
@@ -1251,7 +1276,6 @@ describe('transport worker client start ownership', () => {
       ...SESSION_AUTH_FIELDS,
     });
     session.close();
-    await Bun.sleep(0);
     expect(cancelled).toEqual(['unfinished']);
     worker.emit({ kind: 'shutdown_complete' });
   });
@@ -1433,7 +1457,6 @@ describe('transport worker client start ownership', () => {
       issuanceId: 'issuance-a',
       ...SESSION_AUTH_FIELDS,
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(requests).toHaveLength(1);
     expect(requests[0]?.signal.aborted).toBe(false);
 
@@ -1481,7 +1504,10 @@ describe('transport worker client start ownership', () => {
     });
     expect(requests).toHaveLength(2);
     requests[1]?.result.resolve(requestResult);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await worker.waitForMessage(
+      (message) =>
+        message.kind === 'request_session_result' && message.startId === secondMessage.startId,
+    );
     expect(
       worker.messages.filter(
         (message) =>

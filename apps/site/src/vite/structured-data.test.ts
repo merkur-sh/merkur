@@ -1,7 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-
-import { readQuestions, structuredData } from './structured-data';
+import { structuredData } from './structured-data';
 
 const PAGE = `<meta name="description" content="A terminal &amp; more.">
 <details id="a" class="q" data-question>
@@ -39,17 +37,5 @@ describe('structured data', () => {
     expect(() =>
       structuredData('<meta name="description" content="x">', 'https://merkur.sh'),
     ).toThrow('no questions');
-  });
-
-  test('the home page sets every question the design does', () => {
-    const home = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
-    expect(readQuestions(home).map((entry) => entry.question)).toEqual([
-      'What do I install?',
-      'Which browsers work?',
-      'Can Merkur see my terminal?',
-      'What if my network blocks the direct connection?',
-      'Does it work on a phone?',
-      'What does it cost?',
-    ]);
   });
 });

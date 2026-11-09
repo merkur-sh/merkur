@@ -4571,20 +4571,18 @@ mod tests {
             .await
             .unwrap();
         let (mut send, recv) = tokio::io::duplex(64);
-        let mut reader = tokio::spawn(run_reliable_reader(recv, CHANNEL_CTRL, ingress));
+        let mut reader = Box::pin(run_reliable_reader(recv, CHANNEL_CTRL, ingress));
         send.write_all(&reliable_record(b"second")).await.unwrap();
-        assert!(
-            tokio::time::timeout(Duration::from_millis(20), &mut reader)
-                .await
-                .is_err(),
-            "a reliable record waits while the owner's bounded queue is full"
-        );
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        assert!(reader.as_mut().poll(&mut context).is_pending());
         assert!(
             rx.try_recv()
                 .is_ok_and(|message| &message.payload[..] == b"first")
         );
+        // With capacity returned, the same future admits the queued record
+        // and waits at the next record boundary.
+        assert!(reader.as_mut().poll(&mut context).is_pending());
         assert_eq!(&rx.recv().await.unwrap().payload[..], b"second");
-        reader.abort();
     }
 
     #[tokio::test]
@@ -4618,18 +4616,14 @@ mod tests {
             .await
             .unwrap();
         let (mut send, recv) = tokio::io::duplex(64);
-        let mut readers = JoinSet::new();
-        readers.spawn(run_reliable_reader(recv, CHANNEL_CTRL, ingress));
+        let mut reader = Box::pin(run_reliable_reader(recv, CHANNEL_CTRL, ingress));
         send.write_all(&reliable_record(b"must-not-enqueue"))
             .await
             .unwrap();
-        assert!(
-            tokio::time::timeout(Duration::from_millis(20), readers.join_next())
-                .await
-                .is_err(),
-            "the record is waiting on the full queue"
-        );
-
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        assert!(reader.as_mut().poll(&mut context).is_pending());
+        let mut readers = JoinSet::new();
+        readers.spawn(reader);
         readers.shutdown().await;
         assert_eq!(&rx.recv().await.unwrap().payload[..], b"first");
         assert!(
@@ -4703,8 +4697,8 @@ mod tests {
         assert_eq!(&*credential.ticket, "ticket-2", "the newest ticket wins");
         assert_eq!(credential.incarnation.len(), 22);
         assert_ne!(
-            EdgeAdmission::default().current().map(|c| c.incarnation),
-            Some(credential.incarnation),
+            EdgeAdmission::default().incarnation,
+            credential.incarnation,
             "every process draws its own incarnation"
         );
     }
@@ -5207,27 +5201,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn connect_backoff_sleep_is_promptly_cancellation_safe() {
-        let mut backoff = EdgeConnectBackoff::new();
-        for _ in 0..5 {
-            let _ = backoff.next_delay_from_sample(u64::MAX);
-        }
-        let sleeper = tokio::spawn(tokio::time::sleep(backoff.next_delay_from_sample(u64::MAX)));
-        tokio::task::yield_now().await;
-        sleeper.abort();
-
-        let result = tokio::time::timeout(Duration::from_millis(100), sleeper)
-            .await
-            .expect("aborted fallback sleep must resolve promptly");
-        assert!(
-            result
-                .expect_err("aborted fallback sleep must not complete")
-                .is_cancelled(),
-            "dropping the dial future must cancel its fallback wait"
-        );
-    }
-
     /// Live integration test against a running edge (local or a deployed service
     /// host). Set MERKUR_EDGE_URL + MERKUR_EDGE_CERT_HASH (base64), plus the
     /// attach tickets that edge admits: MERKUR_EDGE_DAEMON_ID,
@@ -5311,54 +5284,50 @@ mod tests {
             .await
             .expect("browser preface");
 
+        // The edge's paired lifecycle is the routing-readiness fact. Await
+        // that exact state before either datagram, instead of retrying sends
+        // against a pairing race at 200ms intervals.
+        let mut counterpart = tunnel.counterpart_changes();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if matches!(
+                    *counterpart.borrow_and_update(),
+                    CounterpartState::Attached { .. }
+                ) {
+                    break;
+                }
+                counterpart
+                    .changed()
+                    .await
+                    .expect("edge lifecycle remains open");
+            }
+        })
+        .await
+        .expect("edge pairs the browser with the daemon");
+
         // browser -> daemon: framed datagram on CHANNEL_DISPLAY_ACK (0x05).
         let payload = b"sealed-input-frame".to_vec();
-        let mut datagram_ok = false;
-        for _ in 0..25 {
-            let mut framed = vec![0x05u8];
-            framed.extend_from_slice(&payload);
-            let _ = browser.send_datagram(framed);
-            if tokio::time::timeout(Duration::from_millis(200), rx.recv())
-                .await
-                .is_ok_and(|frame| {
-                    frame.is_some_and(|frame| {
-                        frame.channel_id == 0x05
-                            && frame.payload == payload
-                            && frame.delivery == DeliveryMode::Datagram
-                    })
-                })
-            {
-                datagram_ok = true;
-                break;
-            }
-        }
-        assert!(
-            datagram_ok,
-            "browser->daemon framed datagram did not arrive via edge"
-        );
+        let framed = [&[0x05][..], &payload].concat();
+        browser
+            .send_datagram(framed)
+            .expect("browser datagram admission");
+        let frame = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+            .await
+            .expect("browser datagram arrives via edge")
+            .expect("daemon receiver remains open");
+        assert_eq!(frame.channel_id, 0x05);
+        assert_eq!(frame.payload, payload);
+        assert_eq!(frame.delivery, DeliveryMode::Datagram);
 
         // daemon -> browser: framed datagram, browser reads [channel][payload].
         let reply = b"sealed-display-frame".to_vec();
-        let mut reply_ok = false;
-        for _ in 0..25 {
-            tunnel.send_framed_datagram(&bytes::Bytes::from([&[0x03][..], &reply].concat()));
-            if tokio::time::timeout(Duration::from_millis(200), browser.receive_datagram())
-                .await
-                .is_ok_and(|received| {
-                    received.is_ok_and(|d| {
-                        let bytes = d.payload();
-                        bytes.first() == Some(&0x03) && &bytes[1..] == reply.as_slice()
-                    })
-                })
-            {
-                reply_ok = true;
-                break;
-            }
-        }
-        assert!(
-            reply_ok,
-            "daemon->browser framed datagram did not arrive via edge"
-        );
+        assert!(tunnel.send_framed_datagram(&bytes::Bytes::from([&[0x03][..], &reply].concat())));
+        let received = tokio::time::timeout(Duration::from_secs(3), browser.receive_datagram())
+            .await
+            .expect("daemon datagram arrives via edge")
+            .expect("browser datagram receiver remains open");
+        assert_eq!(received.payload().first(), Some(&0x03));
+        assert_eq!(&received.payload()[1..], reply.as_slice());
 
         // browser -> daemon: two records reuse one persistent channel-bound
         // reliable lane.

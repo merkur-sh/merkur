@@ -16,19 +16,4 @@ describe('latency-sensitive import boundary', () => {
 
     expect(violations).toEqual([]);
   });
-
-  test('the always-on measurement modules stay dependency-free', () => {
-    // These three are pure by design — `terminal-latency.ts` is called from
-    // per-keystroke paths, `presented-prediction-sources.ts` per submitted
-    // frame, and the aggregator is the file a future change would most
-    // plausibly "just add a log to". Their purity was convention until they
-    // joined the enforced list.
-    const violations = findLatencyBoundaryViolations([
-      'apps/web/src/perf/terminal-latency.ts',
-      'apps/web/src/terminal/presented-prediction-sources.ts',
-      'apps/web/src/perf/link-quality-aggregator.ts',
-    ]);
-
-    expect(violations).toEqual([]);
-  });
 });

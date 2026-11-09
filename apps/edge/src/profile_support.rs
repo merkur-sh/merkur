@@ -192,8 +192,18 @@ fn malloc_logger_counts_this_thread_only() {
     assert_eq!(vectors.len(), 10);
     // Ten payloads plus the collected vector's single exact-size allocation.
     assert_eq!(tally.allocations, 11);
-    let other = std::thread::spawn(|| vec![0u8; 64]);
-    let (_, idle) = measured(|| std::thread::sleep(std::time::Duration::from_millis(5)));
-    assert_eq!(other.join().expect("join").len(), 64);
+    let release = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let worker_release = std::sync::Arc::clone(&release);
+    let other = std::thread::spawn(move || {
+        while !worker_release.load(Ordering::Acquire) {
+            std::hint::spin_loop();
+        }
+        vec![0u8; 64]
+    });
+    let (other, idle) = measured(|| {
+        release.store(true, Ordering::Release);
+        other.join().expect("join")
+    });
+    assert_eq!(other.len(), 64);
     assert_eq!(idle.allocations, 0);
 }

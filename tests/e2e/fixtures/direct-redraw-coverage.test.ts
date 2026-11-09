@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import type { Readable } from 'node:stream';
 import {
   buildDirectRedrawLoopCommand,
   directRedrawReadyMarker,
@@ -25,11 +26,11 @@ describe('Direct redraw density coverage', () => {
       stderr.value += chunk;
     });
     try {
-      await waitForOutput(output, directRedrawReadyMarker(readyPrefix, 0));
+      await waitForOutput(child.stdout, output, directRedrawReadyMarker(readyPrefix, 0));
       expect(output.value).not.toContain(directRedrawReadyMarker(readyPrefix, 1));
 
       child.stdin.write('\n');
-      await waitForOutput(output, directRedrawReadyMarker(readyPrefix, 1));
+      await waitForOutput(child.stdout, output, directRedrawReadyMarker(readyPrefix, 1));
       expect(output.value).toContain('direct-small-000-alpha');
       expect(output.value).toContain('direct-small-000-bravo');
 
@@ -101,10 +102,22 @@ describe('Direct redraw density coverage', () => {
   });
 });
 
-async function waitForOutput(output: { value: string }, marker: string): Promise<void> {
-  const deadline = performance.now() + 2_000;
-  while (!output.value.includes(marker)) {
-    if (performance.now() >= deadline) throw new Error(`timed out waiting for ${marker}`);
-    await Bun.sleep(1);
-  }
+function waitForOutput(stream: Readable, output: { value: string }, marker: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const finish = (error?: Error) => {
+      stream.off('data', check);
+      stream.off('end', ended);
+      stream.off('error', finish);
+      if (error === undefined) resolve();
+      else reject(error);
+    };
+    const check = () => {
+      if (output.value.includes(marker)) finish();
+    };
+    const ended = () => finish(new Error(`output ended before ${marker}`));
+    stream.on('data', check);
+    stream.once('end', ended);
+    stream.once('error', finish);
+    check();
+  });
 }

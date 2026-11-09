@@ -9,7 +9,6 @@ import {
   MAX_KEYBOARD_MACRO_STEPS,
   MAX_KEYBOARD_MACROS,
   MAX_TOOLBAR_KEYS,
-  TERMINAL_KEYBOARD_LAYER_IDS,
 } from './keyboard-settings';
 
 const valid: AccountKeyboardSettings = {
@@ -97,10 +96,6 @@ describe('account keyboard settings guard', () => {
     expect(isAccountKeyboardSettings([])).toBe(false);
     expect(isAccountKeyboardSettings({ toolbarKeys: [] })).toBe(false);
     expect(isAccountKeyboardSettings({ ...valid, layerKeyOrder: null })).toBe(false);
-  });
-
-  test('the guard covers exactly the layers the contract names', () => {
-    expect(Object.keys(valid.layerKeyOrder)).toEqual([...TERMINAL_KEYBOARD_LAYER_IDS]);
   });
 });
 

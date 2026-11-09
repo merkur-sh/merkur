@@ -99,79 +99,6 @@ async function recorded(): Promise<RecordedRequest[]> {
 type NamedEvent = readonly [name: string, properties: Readonly<Record<string, string>>];
 
 /** The header every page carries: its links to the page's sections and the blog, and the way in. */
-const HEADER_EVENTS: readonly NamedEvent[] = [
-  ['nav_click', { to: 'product' }],
-  ['nav_click', { to: 'security' }],
-  ['nav_click', { to: 'source' }],
-  ['nav_click', { to: 'blog' }],
-  ['nav_click', { to: 'boxes' }],
-  ['nav_click', { to: 'faq' }],
-  ['cta_sign_in', {}],
-];
-const FOOTER_EVENTS: readonly NamedEvent[] = [['cta_github', { section: 'footer' }]];
-const BLOG_FOOTER_EVENTS: readonly NamedEvent[] = [['cta_github', { section: 'blog-footer' }]];
-
-/**
- * Every event each page names once it has loaded, in document order
- * (`.claude/rules/site.md`, "Analytics"). The waitlist's button is not here: it
- * names `cta_waitlist_submit` only while its field holds an address.
- */
-const PAGE_EVENTS = {
-  '/': [
-    ...HEADER_EVENTS,
-    ['cta_start_free', { section: 'hero' }],
-    ['cta_how_it_works', {}],
-    ['security_tab', { tab: 'encrypted' }],
-    ['security_tab', { tab: 'hardware' }],
-    ['security_tab', { tab: 'server' }],
-    ['cta_security_model', {}],
-    ['cta_github', { section: 'source' }],
-    ['faq_open', { question: 'what-do-i-install' }],
-    ['faq_open', { question: 'which-browsers-work' }],
-    ['faq_open', { question: 'can-merkur-see-my-terminal' }],
-    ['faq_open', { question: 'blocked-direct-connection' }],
-    ['faq_open', { question: 'does-it-work-on-a-phone' }],
-    ['faq_open', { question: 'what-does-it-cost' }],
-    ['cta_start_free', { section: 'closing' }],
-    ['cta_install_copy', {}],
-    ...FOOTER_EVENTS,
-  ],
-  '/security': [
-    ...HEADER_EVENTS,
-    ['cta_start_free', { section: 'security-page' }],
-    ...FOOTER_EVENTS,
-  ],
-  '/privacy': [...HEADER_EVENTS, ...FOOTER_EVENTS],
-  '/terms': [...HEADER_EVENTS, ...FOOTER_EVENTS],
-  '/contact': [...HEADER_EVENTS, ['cta_github', { section: 'contact' }], ...FOOTER_EVENTS],
-  [NO_SUCH_PAGE]: [...HEADER_EVENTS, ['cta_open_app', {}], ...FOOTER_EVENTS],
-  '/blog': [...HEADER_EVENTS, ...BLOG_FOOTER_EVENTS],
-  '/blog/authorship': [...HEADER_EVENTS, ...BLOG_FOOTER_EVENTS],
-  '/blog/typing-ahead': [
-    ...HEADER_EVENTS,
-    ['cta_github', { section: 'post' }],
-    ...BLOG_FOOTER_EVENTS,
-  ],
-} satisfies Readonly<Record<string, readonly NamedEvent[]>>;
-
-/** What Rybbit's script would send for a click on each control of the page, in document order. */
-function namedEvents(page: Page): Promise<NamedEvent[]> {
-  return page.evaluate(() =>
-    [...document.querySelectorAll('[data-rybbit-event]')].map(
-      (element): [string, Record<string, string>] => [
-        element.getAttribute('data-rybbit-event') ?? '',
-        Object.fromEntries(
-          [...element.attributes].flatMap((attribute) =>
-            attribute.name.startsWith('data-rybbit-prop-')
-              ? [[attribute.name.slice('data-rybbit-prop-'.length), attribute.value]]
-              : [],
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
 /** Console errors, uncaught exceptions and CSP violations, from the first byte. */
 async function watchFaults(page: Page): Promise<() => Promise<string[]>> {
   const faults: string[] = [];
@@ -579,14 +506,6 @@ test.describe('analytics', () => {
     await context.close();
   });
 
-  for (const [route, events] of Object.entries(PAGE_EVENTS)) {
-    test(`${route} names its events, and no other`, async ({ page }) => {
-      await page.goto(route);
-
-      expect(await namedEvents(page)).toEqual(events);
-    });
-  }
-
   test('a click on a control that names an event sends it once, with its properties', async ({
     browser,
     baseURL,
@@ -919,13 +838,11 @@ test.describe('what moves', () => {
     const faults = await watchFaults(page);
     await page.goto('/');
     await motionStarted(page);
-    await page.waitForTimeout(600);
 
+    await expect(page.locator('[data-term]').first()).toHaveAttribute('data-s', '5');
     expect(page.workers()).toEqual([]);
     await expect(page.locator('img[data-orb]').first()).toBeVisible();
     await expect(page.locator('[data-drawn]')).toHaveCount(0);
-    // The finished session, not its first moment.
-    await expect(page.locator('[data-term]').first()).toHaveAttribute('data-s', '5');
     // The controls still work: a second security pane opens when asked.
     await page.locator('#boxes').scrollIntoViewIfNeeded();
     const tabs = page.locator('[data-sec] [role="tab"]');

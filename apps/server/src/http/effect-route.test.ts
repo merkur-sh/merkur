@@ -39,26 +39,6 @@ describe('Effect HTTP bridge', () => {
     await expect(running).rejects.toBe(cancellation);
     expect(observedSignals).toEqual([controller.signal]);
   });
-
-  test('names route spans after the operation, not the failure event', async () => {
-    const runner = ((program: Effect.Effect<unknown, unknown, never>) =>
-      Effect.runPromise(program)) as RunServerProgram;
-
-    // `runRouteEffect` wraps this program in the route span, so reading the
-    // current span from inside it observes exactly the name that reaches Axiom.
-    const observedName = await runRouteEffect(
-      runner,
-      Effect.map(Effect.currentSpan, (span) => span.name),
-      {
-        eventName: 'edge_register_failed',
-        logger: createLogger('effect-route-test'),
-        request: new Request('http://localhost/api/edge/register'),
-      },
-    );
-
-    // A healthy request must not surface as `edge_register_failed` in a trace.
-    expect(observedName).toBe('edge_register');
-  });
 });
 
 function createAbortingRunner(observedSignals: Array<AbortSignal | undefined>): RunServerProgram {

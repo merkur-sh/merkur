@@ -150,15 +150,6 @@ describe('open-url helper scripts', () => {
     }
   });
 
-  test('merkur-open execs the CLI with the URL, shell-quoted', () => {
-    const scripts = openUrlCommandScripts(
-      ["/opt/it's/merkur"],
-      '/home/u/.merkur/terminal-bin',
-      'darwin',
-    );
-    expect(scripts.get('merkur-open')).toContain(`exec '/opt/it'\\''s/merkur' open "$@"`);
-  });
-
   test('the Linux xdg-open stand-in sends web URLs to the helper and the rest to the system', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'merkur-open-'));
     const binDir = path.join(root, 'terminal-bin');

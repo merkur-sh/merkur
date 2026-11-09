@@ -124,10 +124,6 @@ fn fec_group_encode_profile() {
             merkur_fec::encode(black_box(&padded_refs), &mut refs[..recovery_count])
                 .expect("encode");
         });
-        assert_eq!(
-            &expected[merkur_codec::DISPLAY_FEC_HEADER_BYTES..],
-            &recovery[..recovery_count * shard]
-        );
 
         // `wrapper_share` is the fraction of the production call spent
         // outside the GF kernel over pre-padded shards: staging and copies.

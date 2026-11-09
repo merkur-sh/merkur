@@ -352,7 +352,7 @@ async fn final_peer_disconnect_releases_bulk_generation_ownership() {
 
     assert!(!path_survived);
     assert!(!registry.peers.contains_key(PEER_ID));
-    assert!(!edge_dials.contains_key(PEER_ID));
+    assert!(!registry.edge_dials.contains_key(PEER_ID));
 }
 
 #[tokio::test]

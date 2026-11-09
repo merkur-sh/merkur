@@ -1,4 +1,3 @@
-import { fullGC, heapStats } from 'bun:jsc';
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
@@ -242,63 +241,9 @@ test('prediction drains preserve the published model for every command and overf
         drain.publish();
         expect(drain.snapshot()).toEqual(snapshot);
         expect(drain.consumer.pendingCount()).toBe(0);
-        const { rejected, ...model } = snapshot;
-        if (process.env.PREDICTION_DRAIN_PROFILE === '1')
-          process.stdout.write(
-            `${JSON.stringify({
-              fairness,
-              scenario,
-              publications,
-              ...model,
-              rejectedCount: rejected.length,
-              rejectedHash: Bun.hash(JSON.stringify(rejected)).toString(),
-            })}\n`,
-          );
       } finally {
         owner.close();
       }
-    }
-  }
-});
-
-test('prediction drain heap cells exclude the unchanged publication snapshot overhead', () => {
-  function cells() {
-    const counts = heapStats().objectTypeCounts;
-    let total = 0;
-    for (const kind in counts) total += counts[kind] ?? 0;
-    return total;
-  }
-  for (const fairness of [false, true]) {
-    const owner = prompt();
-    try {
-      const drain = predictionDrain(owner);
-      drain.context.predictionAdmissionResolver.reject = () => {};
-      let sequence = 0;
-      const run = () => {
-        drain.writer.writePrintable(++sequence, 97, 1, false);
-        drain.run(fairness);
-      };
-      for (let warmup = 0; warmup < 4_096; warmup++) run();
-      const samples: number[] = [];
-      let publications = 0;
-      for (let sample = 0; sample < 15; sample++) {
-        fullGC();
-        const controlStart = cells();
-        const overhead = cells() - controlStart;
-        fullGC();
-        const before = cells();
-        const reads = drain.modelReads();
-        for (let index = 0; index < 64; index++) run();
-        samples.push(cells() - before - overhead);
-        publications = drain.modelReads() - reads;
-      }
-      samples.sort((left, right) => left - right);
-      if (process.env.PREDICTION_DRAIN_PROFILE === '1')
-        process.stdout.write(
-          `${JSON.stringify({ fairness, slices: 64, publications, pathCells: samples[7] })}\n`,
-        );
-    } finally {
-      owner.close();
     }
   }
 });

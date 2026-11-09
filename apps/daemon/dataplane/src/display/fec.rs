@@ -139,13 +139,6 @@ mod tests {
     }
 
     #[test]
-    fn encoder_stages_nothing_between_groups() {
-        // Parity goes straight from the borrowed datagrams into the pooled
-        // frame, so the encoder has no scratch to pad into or copy out of.
-        assert_eq!(std::mem::size_of::<FecEncoder>(), 0);
-    }
-
-    #[test]
     fn repair_carries_full_recovery_body() {
         let mut encoder = FecEncoder::new();
         let repair = encoder

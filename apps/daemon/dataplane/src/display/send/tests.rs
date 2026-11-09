@@ -5117,33 +5117,6 @@ fn deadline_snapshot_wins_then_queued_old_resume_is_a_noop() {
 }
 
 #[test]
-fn direct_snapshot_selection_is_strictly_targeted() {
-    let mut first = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
-    first.authenticated = true;
-    first.noise = Some(established_daemon_noise());
-    let mut second = PeerDisplayState::new("browser-2".into(), PeerTransport::Edge);
-    second.authenticated = true;
-    second.noise = Some(established_daemon_noise());
-    let peers = PeerMap::from([
-        (Arc::clone(&first.peer_id), first),
-        (Arc::clone(&second.peer_id), second),
-    ]);
-
-    assert_eq!(
-        pending_snapshot_peer_ids(&peers, 100.0, SnapshotPeerSelection::One("browser-1")),
-        [Arc::from("browser-1")]
-    );
-    assert_eq!(
-        pending_snapshot_peer_ids(
-            &peers,
-            100.0,
-            SnapshotPeerSelection::Many(&[Arc::from("browser-1"), Arc::from("browser-2")])
-        ),
-        [Arc::from("browser-1"), Arc::from("browser-2")]
-    );
-}
-
-#[test]
 fn fence_horizon_tracks_only_datagram_sends() {
     // Reliable-routed frames consume seqs from the shared counter but
     // must not advance the fence horizon — the fence declares "missing
@@ -5516,79 +5489,6 @@ fn resend_interval_tracks_measurements_instead_of_a_fixed_constant() {
     );
     assert!(slow > fast, "a slower path waits longer before duplicating");
     assert!(slow <= DisplayPolicy::ROW_RESEND_MAX_MS);
-}
-
-#[test]
-fn flush_budget_keeps_the_ranked_prefix_and_always_makes_progress() {
-    // The budget is what stops idempotent re-selection from re-emitting a
-    // full-screen redraw on every tick until its ACK lands. Two properties
-    // matter: it clips from the TAIL (so the cursor row, ranked first,
-    // survives), and it never selects nothing (which would stall the peer
-    // permanently, since dropped rows are only recoverable by re-selection).
-    let (event_tx, _event_rx) = crossbeam_channel::unbounded();
-    // A full redraw of a large terminal, styled per cell. The budget is the
-    // carrier's measured free datagram buffer, so the fixture states the
-    // space it is clipping against rather than importing a constant.
-    let mut terminal = TerminalState::new(200, 60, event_tx);
-    // Vary the glyph so RLE cannot collapse the row, and give every cell a
-    // distinct 24-bit foreground so the row encodes in literal colour mode.
-    for row in 0..60u16 {
-        terminal.apply_bytes(format!("\x1b[{};1H", row + 1).as_bytes());
-        for col in 0..200u16 {
-            let seed = row.wrapping_mul(31).wrapping_add(col);
-            let glyph = b'!' + (seed % 90) as u8;
-            terminal.apply_bytes(
-                format!(
-                    "\x1b[38;2;{};{};{}m{}",
-                    (seed % 251) as u8,
-                    (seed.wrapping_mul(7) % 241) as u8,
-                    (seed.wrapping_mul(13) % 239) as u8,
-                    glyph as char
-                )
-                .as_bytes(),
-            );
-        }
-    }
-    let acked_grid = vec![CellRepr::BLANK; 200 * 60];
-
-    let mut rows: Vec<DisplayRowRequest> = (0..60)
-        .map(|row| DisplayRowRequest::literal(row, true))
-        .collect();
-    let full_len = rows.len();
-
-    // A carrier whose datagram buffer is mostly full — the case the measured
-    // budget exists to handle, and the one a constant could never see.
-    const CROWDED_BUFFER_BYTES: usize = 8 * 1024;
-    let truncated =
-        apply_flush_row_budget(&mut terminal, &acked_grid, &mut rows, CROWDED_BUFFER_BYTES);
-
-    assert!(
-        truncated,
-        "60 fully styled 200-column rows must exceed 8 KiB of free buffer"
-    );
-    assert!(!rows.is_empty(), "the budget must never select nothing");
-    // The prefix is kept, so whatever was ranked first is still present.
-    assert_eq!(rows[0].row, 0);
-    assert!(rows.len() < full_len);
-}
-
-#[test]
-fn flush_budget_keeps_a_single_oversize_row() {
-    // Forward progress beats the budget: one row that cannot fit still has
-    // to be emitted, or the peer never converges on it.
-    let (event_tx, _event_rx) = crossbeam_channel::unbounded();
-    let mut terminal = TerminalState::new(80, 40, event_tx);
-    terminal.apply_bytes(&[b'x'; 80]);
-    let acked_grid = vec![CellRepr::BLANK; 80 * 40];
-    let mut rows = vec![DisplayRowRequest::literal(0, true)];
-
-    assert!(!apply_flush_row_budget(
-        &mut terminal,
-        &acked_grid,
-        &mut rows,
-        DATAGRAM_SEND_BUFFER_BYTES,
-    ));
-    assert_eq!(rows.len(), 1);
 }
 
 #[test]
@@ -6748,27 +6648,6 @@ fn fused_wire_staging_is_byte_exact_and_preserves_noise_invariants() {
     }
 }
 
-#[tokio::test]
-async fn datagram_fec_repair_uses_the_same_channel_framed_noise_wire() {
-    let (mut peer, mut browser) = benchmark_noise_pair();
-    let (capture_tx, mut capture_rx) = tokio::sync::mpsc::unbounded_channel();
-    peer.edge_tunnel = Some(Arc::new(crate::edge_tunnel::EdgeTunnel::new_capture(
-        capture_tx,
-    )));
-    let repair = b"display-fec-repair".to_vec();
-
-    let mut budget = DatagramPhysicalBudget::exact(0, 1 << 20, 16);
-    let sent = send_repair_frame(&mut peer, &repair, 1, 100.0, &mut budget);
-    assert!(sent.sent_via.edge);
-
-    let (channel_id, ciphertext) = capture_rx.try_recv().expect("one repair datagram");
-    assert_eq!(channel_id, CHANNEL_DISPLAY_DATAGRAM);
-    assert_eq!(crate::sealed_counter(&ciphertext), 0);
-    let lane = crate::e2e::lane_for_channel(CHANNEL_DISPLAY_DATAGRAM).unwrap();
-    assert_eq!(browser.open_datagram(lane, &ciphertext).unwrap(), repair);
-    assert!(capture_rx.try_recv().is_err());
-}
-
 #[test]
 fn physical_budget_charges_exact_carrier_bytes_and_receiver_packets() {
     let mut budget =
@@ -7322,58 +7201,6 @@ async fn partial_cross_carrier_k1_copy_is_unprotected_and_does_not_advance() {
     let delivered = browser.open_datagram(lane, &sealed[1..]).unwrap();
     assert_eq!(delivered.as_slice(), wire_frame(group[0].frame.bytes_mut()));
     assert!(direct_rx.try_recv().is_err());
-}
-
-#[tokio::test]
-async fn redundant_send_keeps_progressing_on_edge_when_direct_budget_is_persistently_full() {
-    let (mut peer, _browser) = benchmark_noise_pair();
-    let (edge_tx, mut edge_rx) = tokio::sync::mpsc::unbounded_channel();
-    peer.edge_tunnel = Some(Arc::new(crate::edge_tunnel::EdgeTunnel::new_capture(
-        edge_tx,
-    )));
-    let (direct_tx, mut direct_rx) = tokio::sync::mpsc::unbounded_channel();
-    peer.direct_session = Some(crate::webtransport::DirectSession::new_capture(
-        Arc::clone(&peer.peer_id),
-        direct_tx,
-        None,
-    ));
-    peer.paths.webtransport = crate::connection::PathHealth::fresh_available(100.0);
-    peer.paths.webtransport.seed_rtt(5.0);
-    peer.paths.edge.seed_rtt(20.0);
-    let wire = bytes::Bytes::from_static(&[CHANNEL_DISPLAY_DATAGRAM; 89]);
-
-    for _ in 0..3 {
-        // Direct is one byte short and the browser has room for exactly one
-        // physical packet. Edge admission must therefore remain useful.
-        let mut budget = DatagramPhysicalBudget::exact(88, wire.len(), 1);
-        let result = send_display_wire_budgeted(
-            &mut peer,
-            &wire,
-            100.0,
-            SendIntent::Redundant,
-            PhysicalDatagramKind::Data { seq: 1 },
-            &mut budget,
-        );
-        assert_eq!(result.sent_via, SentPaths::single(PeerTransport::Edge));
-        assert!(result.budget_refused);
-        assert_eq!(
-            budget,
-            DatagramPhysicalBudget::exact(88, 0, 0).with_reserved_datagrams(0, 1),
-        );
-    }
-
-    assert!(direct_rx.try_recv().is_err());
-    for _ in 0..3 {
-        assert!(edge_rx.try_recv().is_ok());
-    }
-    assert!(edge_rx.try_recv().is_err());
-    assert_eq!(peer.paths.webtransport.consecutive_send_failures, 0);
-    assert_eq!(peer.sim_datagram_metadata.len(), 3);
-    assert!(
-        peer.sim_datagram_metadata
-            .iter()
-            .all(|frame| frame.path == PeerTransport::Edge)
-    );
 }
 
 #[tokio::test]

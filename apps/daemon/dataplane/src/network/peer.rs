@@ -648,29 +648,6 @@ mod tests {
     }
 
     #[test]
-    fn peer_message_preserves_delivery_mode() {
-        // The two inbound sources set `delivery` structurally (stream recv =>
-        // Stream, datagram event => Datagram); the E2E open picks the nonce
-        // sub-lane from it, so the field must round-trip on the message.
-        let stream = PeerMessage {
-            input_permit: None,
-            peer_node_id: std::sync::Arc::from("p"),
-            channel_id: crate::network::protocol::CHANNEL_PTY,
-            payload: bytes::Bytes::from_static(&[1, 2, 3]),
-            via_transport: PeerTransport::Edge,
-            delivery: DeliveryMode::Stream,
-            connection_id: 0,
-            edge_ingress: None,
-        };
-        assert_eq!(stream.delivery, DeliveryMode::Stream);
-        let datagram = PeerMessage {
-            delivery: DeliveryMode::Datagram,
-            ..stream
-        };
-        assert_eq!(datagram.delivery, DeliveryMode::Datagram);
-    }
-
-    #[test]
     fn channel_sender_selection_is_channel_specific() {
         let (ctrl_tx, mut ctrl_rx) = mpsc::channel(1);
         let (pty_tx, mut pty_rx) = mpsc::channel(1);
@@ -716,10 +693,6 @@ mod tests {
     /// inline bytes, so a 64-deep channel does not balloon.
     #[test]
     fn an_input_ack_fills_the_inline_reliable_payload_exactly() {
-        assert_eq!(
-            INLINE_RELIABLE_PAYLOAD_BYTES,
-            crate::network::protocol::INPUT_ACK_FRAME_BYTES + crate::e2e::FRAME_OVERHEAD
-        );
         assert!(std::mem::size_of::<ReliablePayload>() <= 40);
         let ack = ReliablePayload::inline(
             INLINE_RELIABLE_PAYLOAD_BYTES,

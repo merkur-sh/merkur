@@ -48,13 +48,13 @@ if (url === undefined) {
               { ...browser, userId: randomUUID() },
               () => {},
             );
-            yield* Effect.promise(() => until(() => active(seen).includes('two')));
+            yield* Effect.promise(() => io.until(() => active(seen).includes('two')));
             expect(active(seen).sort()).toEqual(['one', 'two']);
             yield* closeSameBrowser;
             expect(active(seen).sort()).toEqual(['one', 'two']);
             yield* closeOther;
             yield* closeOther;
-            yield* Effect.promise(() => until(() => active(seen).length === 1));
+            yield* Effect.promise(() => io.until(() => active(seen).length === 1));
             expect(active(seen)).toEqual(['one']);
             yield* closeOtherAccount;
             yield* closeFirst;
@@ -99,7 +99,7 @@ if (url === undefined) {
               revokedDelegationIds: ['revoked'],
             });
             yield* Effect.promise(() =>
-              until(
+              io.until(
                 () =>
                   seen
                     .slice(0, 2)
@@ -142,14 +142,14 @@ if (url === undefined) {
               );
             }
             yield* Effect.promise(() =>
-              until(() => io.operations.filter((op) => op === 'sweep').length > 0),
+              io.until(() => io.operations.filter((op) => op === 'sweep').length > 0),
             );
             const before = io.operations.length;
             const sequence = yield* io.redis.useCommands((client) =>
               client.sendCommand(['GET', `browser:presence:seq:${userId}`]),
             );
             yield* TestClock.adjust('15 seconds');
-            yield* Effect.promise(() => until(() => io.operations.length >= before + 2));
+            yield* Effect.promise(() => io.until(() => io.operations.length >= before + 2));
             expect(io.operations.slice(before)).toEqual(['renew', 'sweep']);
             expect(sequence).toBe('1');
             expect(
@@ -218,14 +218,14 @@ if (url === undefined) {
             // A new replica runs the same production sweep immediately at startup.
             yield* createBrowserPresenceService(io.redis);
             yield* Effect.promise(() =>
-              until(
+              io.until(
                 async () =>
                   Number(await io.probe.send('SCARD', [`browser:presence:members:${lostId}`])) ===
                   0,
               ),
             );
             expect(active(seen)).toContain('lost');
-            yield* Effect.promise(() => until(() => !active(seen).includes('gone')));
+            yield* Effect.promise(() => io.until(() => !active(seen).includes('gone')));
             expect(
               yield* io.redis.useCommands((client) =>
                 client.sendCommand(['HLEN', `browser:presence:user:${otherUserId}`]),
@@ -257,14 +257,6 @@ function active(signals: readonly BrowserPresenceSignal[]): string[] {
   return [];
 }
 
-async function until(predicate: () => boolean | Promise<boolean>): Promise<void> {
-  const deadline = performance.now() + 3_000;
-  while (!(await predicate())) {
-    if (performance.now() >= deadline) throw new Error('presence did not converge');
-    await Bun.sleep(2);
-  }
-}
-
 async function connect(redisUrl: string) {
   const probe = new RedisClient(redisUrl);
   const subscriber = new RedisClient(redisUrl);
@@ -272,6 +264,14 @@ async function connect(redisUrl: string) {
   const commands = createRedisCommandClient(probe);
   const operations: string[] = [];
   const instances: string[] = [];
+  const changes = new Set<() => void>();
+  const wrappedListeners = new Map<(message: string) => void, (message: string) => void>();
+  let revision = 0;
+  const changed = () => {
+    revision += 1;
+    for (const listener of changes) listener();
+    changes.clear();
+  };
   const failure = (cause: unknown) => new RedisError({ cause, message: String(cause) });
   const redis: RedisService = {
     useCommands: (fn) =>
@@ -286,7 +286,7 @@ async function connect(redisUrl: string) {
                 const instance = args[offset + 1];
                 if (op === 'init' && instance !== undefined) instances.push(instance);
               }
-              return commands.sendCommand<T>(args);
+              return commands.sendCommand<T>(args).finally(changed);
             },
           }),
         catch: failure,
@@ -301,16 +301,23 @@ async function connect(redisUrl: string) {
     subscribe: (channel, listener) =>
       Effect.tryPromise({
         try: async () => {
-          await subscriber.subscribe(channel, listener);
+          const wrapped = (message: string) => {
+            listener(message);
+            changed();
+          };
+          wrappedListeners.set(listener, wrapped);
+          await subscriber.subscribe(channel, wrapped);
         },
         catch: failure,
       }),
     unsubscribe: (channel, listener) =>
       Effect.tryPromise({
-        try: () =>
-          listener === undefined
-            ? subscriber.unsubscribe(channel)
-            : subscriber.unsubscribe(channel, listener),
+        try: () => {
+          if (listener === undefined) return subscriber.unsubscribe(channel);
+          const wrapped = wrappedListeners.get(listener) ?? listener;
+          wrappedListeners.delete(listener);
+          return subscriber.unsubscribe(channel, wrapped);
+        },
         catch: failure,
       }),
     healthSnapshot: () =>
@@ -321,6 +328,14 @@ async function connect(redisUrl: string) {
     probe,
     operations,
     instances,
+    async until(predicate: () => boolean | Promise<boolean>): Promise<void> {
+      while (true) {
+        const before = revision;
+        if (await predicate()) return;
+        if (revision !== before) continue;
+        await new Promise<void>((resolve) => changes.add(resolve));
+      }
+    },
     close: () => {
       probe.close();
       subscriber.close();

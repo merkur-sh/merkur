@@ -192,11 +192,6 @@ mod tests {
     }
 
     #[test]
-    fn accepts_normal_dimensions() {
-        assert_eq!(validate_terminal_dimensions(120, 40), Ok(()));
-    }
-
-    #[test]
     fn accepts_per_dimension_boundaries() {
         assert_eq!(
             validate_terminal_dimensions(MAX_TERMINAL_COLUMNS, 1),

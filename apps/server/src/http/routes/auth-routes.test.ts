@@ -1,11 +1,10 @@
-import { describe, expect, spyOn, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import {
   createDelegationRevocationStatement,
   encodeUserAuthorizationBytes,
 } from '@merkur/shared/user-authorization';
 import { Effect, Layer } from 'effect';
 import { Elysia } from 'elysia';
-import { SqliteQueryCompiler } from 'kysely';
 
 import type { AuthIdentity } from '../../config';
 import { createLogger } from '../../logger';
@@ -545,26 +544,7 @@ describe('signed logout', () => {
       const req = request('/api/auth/logout', proof);
       const cookieHeader = headers[workload];
       if (cookieHeader !== '') req.headers.set('cookie', cookieHeader);
-      const compile = spyOn(SqliteQueryCompiler.prototype, 'compileQuery');
-      let response: Response;
-      try {
-        response = await app.handle(req);
-        const queries = compile.mock.results.flatMap((result) =>
-          result.type === 'return' ? [result.value.sql] : [],
-        );
-        process.stdout.write(
-          `${JSON.stringify({
-            workload,
-            sqlStatements: queries.length,
-            refreshStatements: queries.filter((sql) => sql.includes('"refresh_tokens"')).length,
-            familyDeletes: queries.filter((sql) =>
-              sql.startsWith('delete from "refresh_tokens" where "family_id"'),
-            ).length,
-          })}\n`,
-        );
-      } finally {
-        compile.mockRestore();
-      }
+      const response = await app.handle(req);
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('{"ok":true}');
       expect(response.headers.get('set-cookie')).toBe(

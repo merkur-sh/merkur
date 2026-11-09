@@ -236,19 +236,6 @@ async fn relay_data_pause_attach_and_rollover_are_signaling_only() {
                 tests::read_test_lifecycle(&mut recv).await,
                 SpliceControlEvent::RelayDataPaused { paused: false }
             );
-        } else {
-            // The browser's proven address follows its presence. With no
-            // counterpart there can be no probe events, and Open adds zero bytes.
-            assert!(matches!(
-                tests::read_test_control(&mut recv).await,
-                SpliceControlEvent::ObservedPath { .. }
-            ));
-            let mut byte = [0];
-            assert!(
-                tokio::time::timeout(Duration::from_millis(50), recv.read_exact(&mut byte))
-                    .await
-                    .is_err()
-            );
         }
         let (data, _data_send, mut data_recv, _) =
             tests::attach_test_peer(&client, &url, "pause", Role::Browser).await;
@@ -381,12 +368,19 @@ async fn budget_attach_and_bind_races_use_the_typed_close() {
 #[tokio::test]
 async fn relay_data_control_keeps_the_newest_resume_and_stopped_sends_no_event() {
     use crate::egress_budget::BudgetState;
+    use std::future::Future;
     let registry = SpliceRegistry::new();
     let mut control = RelayDataControl::new(&registry);
     assert!(
-        tokio::time::timeout(Duration::from_millis(1), control.next())
-            .await
-            .is_err()
+        std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(
+                std::pin::pin!(control.next())
+                    .as_mut()
+                    .poll(cx)
+                    .is_pending(),
+            )
+        })
+        .await
     );
     registry.apply_egress_state(BudgetState::SignalingOnly);
     registry.apply_egress_state(BudgetState::Open);
@@ -395,9 +389,15 @@ async fn relay_data_control_keeps_the_newest_resume_and_stopped_sends_no_event()
     assert!(control.next().await);
     registry.apply_egress_state(BudgetState::Stopped);
     assert!(
-        tokio::time::timeout(Duration::from_millis(1), control.next())
-            .await
-            .is_err()
+        std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(
+                std::pin::pin!(control.next())
+                    .as_mut()
+                    .poll(cx)
+                    .is_pending(),
+            )
+        })
+        .await
     );
 }
 

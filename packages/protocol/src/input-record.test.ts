@@ -136,9 +136,14 @@ describe('input record wire vectors', () => {
         row,
       );
       expect(length).toBeLessThanOrEqual(MOUSE_RECORD_MAX_BYTES);
-      expect([...scratch.subarray(0, length)]).toEqual([
-        ...encodeMouseRecord(MOUSE_ACTION_MOTION, MOUSE_BUTTON_NONE, KEY_MOD_CTRL, column, row),
-      ]);
+      expect(decodeInputRecord(scratch.subarray(0, length))).toEqual({
+        kind: 'mouse',
+        action: MOUSE_ACTION_MOTION,
+        button: MOUSE_BUTTON_NONE,
+        mods: KEY_MOD_CTRL,
+        column,
+        row,
+      });
     }
   });
 

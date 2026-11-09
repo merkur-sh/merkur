@@ -767,11 +767,11 @@ async fn owned_ingress_handles_fragmented_headers_coalesced_records_and_drain() 
     // record before its remaining header bytes arrive.
     let head = {
         let mut parsing = std::pin::pin!(read_reliable_head(&mut recv, &mut pending, first));
-        assert!(
-            tokio::time::timeout(Duration::from_millis(5), &mut parsing)
-                .await
-                .is_err()
-        );
+        std::future::poll_fn(|cx| {
+            assert!(parsing.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
         input
             .write_all(b"\0\0\x09abc\x01\x02\x03\x04\x05\x06\0\0\0\x03xyz\0\0\0\0")
             .await
@@ -1054,14 +1054,15 @@ async fn bounded_chunk_reads_preserve_limits_fin_and_cancel_safety() {
             .unwrap(),
         Some(0)
     );
-    assert!(
-        tokio::time::timeout(
-            Duration::from_millis(5),
-            recv.quic_stream_mut().read_chunks_bounded(&mut chunks, 4)
-        )
-        .await
-        .is_err()
-    );
+    {
+        let mut waiting =
+            std::pin::pin!(recv.quic_stream_mut().read_chunks_bounded(&mut chunks, 4));
+        std::future::poll_fn(|cx| {
+            assert!(waiting.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+    }
     input.write_all(b"123456789").await.unwrap();
     input.finish().await.unwrap();
     let mut expected = b"123456789".as_slice();

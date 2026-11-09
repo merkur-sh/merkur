@@ -219,7 +219,8 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    use std::future::Future;
+    use std::task::{Context, Waker};
 
     fn tenant(account: &str) -> Tenant {
         crate::attach_ticket::test_key().tenant(account)
@@ -241,11 +242,14 @@ mod tests {
         let budget = FairBytes::with_capacity(10);
         let heavy_small = budget.try_charge(tenant("heavy"), 4, None).unwrap();
         let heavy_large = budget.try_charge(tenant("heavy"), 6, None).unwrap();
-        let waiting = {
-            let budget = budget.clone();
-            tokio::spawn(async move { budget.charge(tenant("light"), 3, None).await })
-        };
-        tokio::task::yield_now().await;
+        let waiting = budget.charge(tenant("light"), 3, None);
+        tokio::pin!(waiting);
+        assert!(
+            waiting
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
         {
             let state = budget.state.lock();
             assert_eq!(state.reclaiming, 6, "the largest hold is asked first");
@@ -256,13 +260,8 @@ mod tests {
                     .any(|hold| hold.bytes == 6 && hold.reclaimed)
             );
         }
-        assert!(!waiting.is_finished(), "the bytes come back only on drop");
         drop(heavy_large);
-        let light = tokio::time::timeout(Duration::from_secs(1), waiting)
-            .await
-            .expect("the lighter tenant was admitted")
-            .unwrap()
-            .unwrap();
+        let light = waiting.await.unwrap();
         assert_eq!(budget.available(), 3);
         drop((light, heavy_small));
         assert_eq!(budget.available(), 10);
@@ -274,18 +273,16 @@ mod tests {
         let budget = FairBytes::with_capacity(10);
         let first = budget.try_charge(tenant("first"), 5, None).unwrap();
         let _second = budget.try_charge(tenant("second"), 5, None).unwrap();
-        let waiting = {
-            let budget = budget.clone();
-            tokio::spawn(async move { budget.charge(tenant("second"), 1, None).await })
-        };
-        tokio::task::yield_now().await;
+        let waiting = budget.charge(tenant("second"), 1, None);
+        tokio::pin!(waiting);
+        assert!(
+            waiting
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
         assert_eq!(budget.state.lock().reclaiming, 0);
-        assert!(!waiting.is_finished());
         drop(first);
-        tokio::time::timeout(Duration::from_secs(1), waiting)
-            .await
-            .expect("a release wakes the waiting charge")
-            .unwrap()
-            .unwrap();
+        waiting.await.unwrap();
     }
 }

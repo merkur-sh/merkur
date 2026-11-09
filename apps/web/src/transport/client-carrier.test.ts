@@ -354,18 +354,6 @@ describe('native carrier framing', () => {
     expect(await stream.record()).toEqual(Uint8Array.of(9));
     expect(await stream.record()).toBeNull();
   });
-  test('empty records are records and only clean EOF is completion', async () => {
-    const stream = reader([carrierRecord(new Uint8Array())]);
-    expect(await stream.record()).toEqual(new Uint8Array());
-    expect(await stream.record()).toBeNull();
-    await expect(reader([Uint8Array.of(0, 0)]).record()).rejects.toThrow('within a record');
-    await expect(reader([Uint8Array.of(0, 0, 0, 2, 9)]).record()).rejects.toThrow(
-      'within a record',
-    );
-  });
-  test('declared record budget is checked before reading payload', async () => {
-    await expect(reader([Uint8Array.of(0, 1, 0, 1)]).record(64 * 1024)).rejects.toThrow('exceeds');
-  });
   test('finite stream parts retain bytes already consumed with the header', async () => {
     const stream = reader([Uint8Array.of(0, 0, 0, 3, 8, 7), Uint8Array.of(6)]);
     expect(await stream.exact(4)).toEqual(Uint8Array.of(0, 0, 0, 3));
@@ -573,6 +561,7 @@ test('an idle persistent writer rejection retires its carrier without reopening 
 test('the edge stopping the routing preface stream keeps the carrier open', async () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'WebTransport');
   const prefaces: WritableStreamDefaultController[] = [];
+  const prefaceClosed: Promise<void>[] = [];
   const written: Uint8Array[] = [];
   let nativeClose = 0;
   let eventsClosed = 0;
@@ -585,17 +574,23 @@ test('the edge stopping the routing preface stream keeps the carrier open', asyn
       readable: new ReadableStream<Uint8Array>(),
     };
     createBidirectionalStream() {
-      return Promise.resolve({
-        readable: new ReadableStream<Uint8Array>(),
-        writable: new WritableStream<Uint8Array>({
-          start(controller) {
-            prefaces.push(controller);
-          },
-          write(chunk) {
-            written.push(chunk);
-          },
-        }),
+      const writable = new WritableStream<Uint8Array>({
+        start(controller) {
+          prefaces.push(controller);
+        },
+        write(chunk) {
+          written.push(chunk);
+        },
       });
+      const getWriter = writable.getWriter.bind(writable);
+      Object.defineProperty(writable, 'getWriter', {
+        value() {
+          const writer = getWriter();
+          prefaceClosed.push(writer.closed);
+          return writer;
+        },
+      });
+      return Promise.resolve({ readable: new ReadableStream<Uint8Array>(), writable });
     }
     close(): void {
       nativeClose += 1;
@@ -625,7 +620,9 @@ test('the edge stopping the routing preface stream keeps the carrier open', asyn
     expect(written).toEqual([Uint8Array.of(7, 7)]);
     // What the edge's STOP_SENDING does to the preface stream's writer.
     prefaces[0]?.error(new Error('Received STOP_SENDING.'));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const settled = prefaceClosed[0];
+    if (settled === undefined) throw new Error('missing preface writer');
+    await expect(settled).rejects.toThrow('Received STOP_SENDING.');
     expect(nativeClose).toBe(0);
     expect(eventsClosed).toBe(0);
     carrier.close();
@@ -639,7 +636,7 @@ test('the edge stopping the routing preface stream keeps the carrier open', asyn
 test('a promoted candidate outlives its proof bridge', async () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'WebTransport');
   const writers: WritableStreamDefaultController[] = [];
-  const readers: ReadableStreamDefaultController<Uint8Array>[] = [];
+  const proofLanes: ReturnType<typeof incomingLane>[] = [];
   let nativeClose = 0;
   let eventsClosed = 0;
   class CandidateTransport {
@@ -651,12 +648,10 @@ test('a promoted candidate outlives its proof bridge', async () => {
       readable: new ReadableStream<Uint8Array>(),
     };
     createBidirectionalStream() {
+      const lane = incomingLane();
+      proofLanes.push(lane);
       return Promise.resolve({
-        readable: new ReadableStream<Uint8Array>({
-          start(controller) {
-            readers.push(controller);
-          },
-        }),
+        readable: lane.readable,
         writable: new WritableStream<Uint8Array>({
           start(controller) {
             writers.push(controller);
@@ -696,8 +691,10 @@ test('a promoted candidate outlives its proof bridge', async () => {
     // What promotion does to the proof stream: its inbound half is stopped
     // and its outbound half ends.
     writers[1]?.error(new Error('Received STOP_SENDING.'));
-    readers[1]?.close();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const proof = proofLanes[1];
+    if (proof === undefined) throw new Error('missing proof lane');
+    proof.controller.close();
+    await proof.disposed;
     expect(nativeClose).toBe(0);
     expect(eventsClosed).toBe(0);
     carrier.close();

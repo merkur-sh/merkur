@@ -106,8 +106,6 @@ describe('browser tie-break', () => {
    * doing rather than arbitrary.
    */
   test('among edges tied for the daemon, the browser decides', () => {
-    // Both are `na`, so the daemon cannot separate them.
-    const ashAndHil = [ASH, HIL];
     // A browser in apac ranks `na` edges equally too, so this still ties and
     // falls to the hash; the meaningful case needs edges in different zones
     // the daemon cannot separate, which an unknown daemon zone provides.
@@ -116,10 +114,6 @@ describe('browser tie-break', () => {
     const viaBrazil = selectEdge(naAndEu, 'k', null, ADDRESS_IN.sa);
     expect(viaEurope?.edgeId).toBe('nbg-1');
     expect(viaBrazil?.edgeId).toBe('ash-1');
-    // Sanity: the tied-in-zone pair really does tie and stays deterministic.
-    expect(selectEdge(ashAndHil, 'k', 'na', ADDRESS_IN.na)?.edgeId).toBe(
-      selectEdge(ashAndHil, 'k', 'na', ADDRESS_IN.na)?.edgeId,
-    );
   });
 
   test('an unplaceable browser address is simply no opinion', () => {

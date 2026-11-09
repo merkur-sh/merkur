@@ -69,12 +69,6 @@ function request(index: number): PendingRequest {
   return pending;
 }
 
-async function settle(): Promise<void> {
-  for (let turn = 0; turn < 5; turn++) await Promise.resolve();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  flush();
-}
-
 function withController(
   run: (controller: BrowserSessionsController) => Promise<void>,
   token: () => string = () => 'live-token',
@@ -98,12 +92,15 @@ describe('createBrowserSessionsController', () => {
     let token = 'first-token';
     await withController(
       async (controller) => {
-        void controller.load();
+        const first = controller.load();
         token = 'rotated-token';
-        void controller.load();
-        await settle();
+        const second = controller.load();
+        flush();
         expect(request(0).authorization).toBe('Bearer first-token');
         expect(request(1).authorization).toBe('Bearer rotated-token');
+        request(0).answer([]);
+        request(1).answer([]);
+        await Promise.all([first, second]);
       },
       () => token,
     );
@@ -113,12 +110,12 @@ describe('createBrowserSessionsController', () => {
     await withController(async (controller) => {
       const older = controller.load();
       const newer = controller.load();
-      await settle();
+      flush();
       request(1).answer([session('current', true), session('other')]);
       await newer;
       request(0).answer([session('current', true)]);
       await older;
-      await settle();
+      flush();
       expect(controller.sessions().map((entry) => entry.delegationId)).toEqual([
         'current',
         'other',
@@ -131,12 +128,12 @@ describe('createBrowserSessionsController', () => {
     await withController(async (controller) => {
       const older = controller.load().catch(() => undefined);
       const newer = controller.load();
-      await settle();
+      flush();
       request(1).answer([session('current', true)]);
       await newer;
       request(0).fail(503);
       await older;
-      await settle();
+      flush();
       expect(controller.error()).toBe('');
       expect(controller.sessions()).toHaveLength(1);
     });
@@ -145,17 +142,17 @@ describe('createBrowserSessionsController', () => {
   test('the newest failure is reported and cleared by the next answer', async () => {
     await withController(async (controller) => {
       const failed = controller.load().catch(() => undefined);
-      await settle();
+      flush();
       request(0).fail(503);
       await failed;
-      await settle();
+      flush();
       expect(controller.error()).toBe('Unable to load browser sessions.');
 
       const retried = controller.load();
-      await settle();
+      flush();
       request(1).answer([session('current', true)]);
       await retried;
-      await settle();
+      flush();
       expect(controller.error()).toBe('');
     });
   });
@@ -163,11 +160,11 @@ describe('createBrowserSessionsController', () => {
   test('reset aborts what is in flight and nothing it answers is published', async () => {
     await withController(async (controller) => {
       const load = controller.load().catch(() => undefined);
-      await settle();
+      flush();
       controller.reset();
       expect(request(0).signal?.aborted).toBe(true);
       await load;
-      await settle();
+      flush();
       expect(controller.sessions()).toEqual([]);
       expect(controller.error()).toBe('');
       expect(controller.pending()).toBe(false);

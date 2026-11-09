@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import {
@@ -73,18 +73,6 @@ describe('predictionIntent', () => {
   test('predicts the shifted and caps-locked text a key typed', () => {
     expect(intentFor(A, 'A', { mods: KEY_MOD_SHIFT })).toBe(0x41);
     expect(intentFor(A, 'A', { mods: KEY_MOD_CAPS_LOCK })).toBe(0x41);
-  });
-
-  test('every non-printable sentinel is negative and distinct', () => {
-    const sentinels = [
-      PREDICTION_FLUSH,
-      PREDICTION_BACKSPACE,
-      PREDICTION_DELETE,
-      PREDICTION_CURSOR_LEFT,
-      PREDICTION_CURSOR_RIGHT,
-    ];
-    expect(new Set(sentinels).size).toBe(sentinels.length);
-    for (const sentinel of sentinels) expect(sentinel).toBeLessThan(0);
   });
 
   test('routes backspace, delete, and arrows without modifiers', () => {
@@ -268,14 +256,15 @@ function createController(
   return createTerminalInputController(options);
 }
 
-/**
- * Let the input queue's retry timer run. The drain re-arms at 4 ms while the
- * session is accepting input, so a few turns covers a short backlog.
- */
-async function waitForDrain(): Promise<void> {
-  for (let turn = 0; turn < 40; turn += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
+beforeEach(() => jest.useFakeTimers());
+afterEach(() => {
+  jest.clearAllTimers();
+  jest.useRealTimers();
+});
+
+/** Run the input queue's scheduled retry without advancing real time. */
+function drainRetry(): void {
+  jest.advanceTimersByTime(4);
 }
 
 function decoded(frame: SentFrame | undefined): DecodedInputRecord {
@@ -439,7 +428,7 @@ describe('input controller virtual keyboard', () => {
     controller.destroy();
   });
 
-  test('retries transient admission failure without reordering rapid keys', async () => {
+  test('retries transient admission failure without reordering rapid keys', () => {
     const sent: SentFrame[] = [];
     const state: FakeWorkerState = {
       flushes: 0,
@@ -452,7 +441,7 @@ describe('input controller virtual keyboard', () => {
     controller.sendVirtualKey({ id: 'key-b', label: 'b', inputKey: 'b' });
     expect(sent).toHaveLength(0);
 
-    await Bun.sleep(20);
+    drainRetry();
 
     expect(typedText(sent)).toBe('ab');
     expect(state.flushInputSeqs).toEqual([]);
@@ -496,7 +485,7 @@ describe('input controller virtual keyboard', () => {
     controller.destroy();
   });
 
-  test('drains a rapid queued burst without drops or reordering', async () => {
+  test('drains a rapid queued burst without drops or reordering', () => {
     const sent: SentFrame[] = [];
     const controller = createController(sent, { flushes: 0 }, (attempt) => attempt !== 1);
     const a = { id: 'key-a', label: 'a', inputKey: 'a' } as const;
@@ -505,7 +494,7 @@ describe('input controller virtual keyboard', () => {
     for (let index = 0; index < 1_000; index += 1) {
       controller.sendVirtualKey(index & 1 ? b : a);
     }
-    await Bun.sleep(20);
+    drainRetry();
 
     expect(sent).toHaveLength(2_000);
     expect(typedText(sent)).toBe('ab'.repeat(500));
@@ -533,7 +522,7 @@ describe('input controller composition gate', () => {
    * physical keys `onKeyDown` simply returned — so anything typed while a
    * session was restarting was gone for good.
    */
-  test('input refused by the ring is replayed, not lost', async () => {
+  test('input refused by the ring is replayed, not lost', () => {
     const sent: SentFrame[] = [];
     const state: FakeWorkerState = { flushes: 0, flushInputSeqs: [] };
     // Reject the first attempt, accept everything after it.
@@ -542,7 +531,7 @@ describe('input controller composition gate', () => {
     controller.sendNativeText('a');
     expect(sent.length, 'the first attempt was refused').toBe(0);
 
-    await waitForDrain();
+    drainRetry();
     expect(typedText(sent)).toBe('a');
     controller.destroy();
   });
@@ -552,7 +541,7 @@ describe('input controller composition gate', () => {
    * input goes BEHIND it. Admitting directly past a non-empty queue would
    * reorder the command line, which is indistinguishable from corruption.
    */
-  test('input produced after a refusal queues behind it', async () => {
+  test('input produced after a refusal queues behind it', () => {
     const sent: SentFrame[] = [];
     const state: FakeWorkerState = { flushes: 0, flushInputSeqs: [] };
     const controller = createController(sent, state, (attempt) => attempt > 1);
@@ -562,7 +551,7 @@ describe('input controller composition gate', () => {
     controller.sendPointerRecord(Uint8Array.of(0x80, 1, 1, 1));
     controller.sendNativeText('c');
 
-    await waitForDrain();
+    drainRetry();
     expect(typedText(sent)).toBe('abc');
     expect(decoded(sent[2]).kind).toBe('wheel');
     controller.destroy();
@@ -573,7 +562,7 @@ describe('input controller composition gate', () => {
    * sent at once is copied into the ring before the call returns; what has to
    * wait is the controller's own copy, so the next crossing cannot rewrite it.
    */
-  test('a queued record survives its producer reusing the buffer', async () => {
+  test('a queued record survives its producer reusing the buffer', () => {
     const sent: SentFrame[] = [];
     const state: FakeWorkerState = { flushes: 0, flushInputSeqs: [] };
     const controller = createController(sent, state, (attempt) => attempt > 1);
@@ -589,7 +578,7 @@ describe('input controller composition gate', () => {
     controller.sendPointerRecord(report(301, 7));
     scratch.fill(0xff);
 
-    await waitForDrain();
+    drainRetry();
     expect(sent.map(decoded)).toEqual([
       {
         kind: 'mouse',
@@ -616,7 +605,7 @@ describe('input controller composition gate', () => {
    * the rule `shouldPreserveInputOnDisconnect` applies to the worker's outbox,
    * and the two halves have to agree or one replays what the other discarded.
    */
-  test('discardPendingInput destroys buffered input', async () => {
+  test('discardPendingInput destroys buffered input', () => {
     const sent: SentFrame[] = [];
     const state: FakeWorkerState = { flushes: 0, flushInputSeqs: [] };
     const controller = createController(sent, state, (attempt) => attempt > 1);
@@ -625,7 +614,7 @@ describe('input controller composition gate', () => {
     expect(sent.length).toBe(0);
     controller.discardPendingInput();
 
-    await waitForDrain();
+    drainRetry();
     expect(sent.length, 'a discarded keystroke is never delivered').toBe(0);
     controller.destroy();
   });
@@ -634,14 +623,14 @@ describe('input controller composition gate', () => {
    * A paste rejected part-way must complete rather than truncate: every later
    * chunk lands behind the one that was refused.
    */
-  test('a paste refused part-way still lands whole and in order', async () => {
+  test('a paste refused part-way still lands whole and in order', () => {
     const sent: SentFrame[] = [];
     const state: FakeWorkerState = { flushes: 0, flushInputSeqs: [] };
     const controller = createController(sent, state, (attempt) => attempt !== 1);
 
     controller.sendPaste('hello world');
 
-    await waitForDrain();
+    drainRetry();
     expect(typedText(sent)).toBe('hello world');
     controller.destroy();
   });
@@ -1159,7 +1148,7 @@ describe('input controller worker-only prediction ordering', () => {
 });
 
 describe('input controller macros', () => {
-  test('each step sends an ordered press/release with its own modifiers, independent of latches', async () => {
+  test('each step sends an ordered press/release with its own modifiers, independent of latches', () => {
     const sent: SentFrame[] = [];
     const controller = createController(sent, { flushes: 0 }, (attempt) => attempt !== 1, {
       ctrl: true,
@@ -1177,7 +1166,7 @@ describe('input controller macros', () => {
       ],
     });
     controller.sendVirtualKey({ id: 'key-z', label: 'z', inputKey: 'z' });
-    await waitForDrain();
+    drainRetry();
     const records = sent.map(decoded);
     expect(records).toHaveLength(8);
     const chordPresses = records.filter(

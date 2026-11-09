@@ -12,7 +12,6 @@ import {
   LOGICAL_CHANNELS,
   RETIRED_SOURCE_STREAM_CODE,
   TRANSPORT_CHANNEL_ID,
-  type TransportKind,
 } from './transport';
 
 const RUST_PROTOCOL_SOURCE = readFileSync(
@@ -27,13 +26,6 @@ const RUST_EDGE_PROTOCOL_SOURCE = readFileSync(
   fileURLToPath(new URL('../../merkur-edge-protocol/src/lib.rs', import.meta.url)),
   'utf8',
 );
-
-describe('transport kinds', () => {
-  test('edgeWebTransport is an assignable TransportKind', () => {
-    const kind: TransportKind = 'edgeWebTransport';
-    expect(kind).toBe('edgeWebTransport');
-  });
-});
 
 describe('transport display lanes', () => {
   test('assigns datagram and commit channels explicitly', () => {

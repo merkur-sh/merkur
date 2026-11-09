@@ -2964,21 +2964,6 @@ mod tests {
         (search.best_score, search.best_schedule)
     }
 
-    #[test]
-    fn forward_planning_storage_layout() {
-        println!(
-            "forward-planning-layout pointer_bytes={} posterior_bytes={} hop_quote_bytes={} carrier_quote_bytes={} optional_carrier_quote_bytes={} planning_context_bytes={} peer_model_bytes={} peer_state_bytes={}",
-            std::mem::size_of::<usize>(),
-            std::mem::size_of::<BoundedPosterior>(),
-            std::mem::size_of::<CarrierHopQuote>(),
-            std::mem::size_of::<CarrierDeliveryQuote>(),
-            std::mem::size_of::<Option<CarrierDeliveryQuote>>(),
-            std::mem::size_of::<PlanningContext>(),
-            std::mem::size_of::<PeerDisplayPlanningModel>(),
-            std::mem::size_of::<crate::connection::PeerDisplayState>(),
-        );
-    }
-
     fn context() -> PlanningContext {
         PlanningContext {
             carrier: CarrierDeliveryQuote {
@@ -4013,7 +3998,6 @@ mod tests {
         let peer = PeerDisplayPlanningModel::default().snapshot();
         let mut workspace = PlannerWorkspace::default();
         let mut plan = BatchPartitionPlan::default();
-        let started = std::time::Instant::now();
         plan_batch_partitions(
             &global,
             &[peer; CONTENT_CLASSES],
@@ -4025,7 +4009,6 @@ mod tests {
             &mut workspace,
             &mut plan,
         );
-        let first_elapsed = started.elapsed();
         let ends = plan.iter().map(|(end, _)| end).collect::<Vec<_>>();
         let warmed_state_capacity = workspace.states.capacity();
         let warmed_candidate_capacity = workspace.candidates.capacity();
@@ -4043,15 +4026,6 @@ mod tests {
             1_084,
             &mut workspace,
             &mut plan,
-        );
-        eprintln!(
-            "MAX_ROWS planner: elapsed={:?} states={} max_frontier={}",
-            first_elapsed,
-            workspace.states.len(),
-            (0..=MAX_PLANNED_ROWS)
-                .map(|index| workspace.frontier_ends[index] - workspace.frontier_starts[index])
-                .max()
-                .unwrap_or(0),
         );
         assert_eq!(ends.last(), Some(&MAX_PLANNED_ROWS));
         assert_eq!(plan.score_us(), first_score);
@@ -4076,11 +4050,6 @@ mod tests {
         );
         assert!(workspace.states.len() <= MAX_PLANNER_STATES);
         assert!(ends.windows(2).all(|pair| pair[0] < pair[1]));
-        assert!(
-            first_elapsed < std::time::Duration::from_secs(1),
-            "MAX_ROWS planning exceeded its bounded off-owner budget: {:?}",
-            first_elapsed,
-        );
     }
 
     /// Release-mode tail and allocation oracle for the maximum protocol row

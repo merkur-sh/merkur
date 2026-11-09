@@ -8,6 +8,7 @@ import { daemonControlRoutesPlugin } from './daemon-control-routes';
 async function harness(options: Parameters<typeof daemonAuthFixture>[0] = {}) {
   const accepted: string[] = [];
   const disconnected: string[] = [];
+  const disconnectionWaiters = new Set<() => void>();
   const f = daemonAuthFixture({
     ...options,
     control: {
@@ -20,6 +21,7 @@ async function harness(options: Parameters<typeof daemonAuthFixture>[0] = {}) {
       disconnect: (id) =>
         Effect.sync(() => {
           disconnected.push(id);
+          for (const notify of disconnectionWaiters) notify();
         }),
       ...options.control,
     },
@@ -38,6 +40,17 @@ async function harness(options: Parameters<typeof daemonAuthFixture>[0] = {}) {
     accepted,
     disconnected,
     origin: f.origin,
+    waitForDisconnections(count: number): Promise<void> {
+      return new Promise((resolve) => {
+        const check = () => {
+          if (disconnected.length < count) return;
+          disconnectionWaiters.delete(check);
+          resolve();
+        };
+        disconnectionWaiters.add(check);
+        check();
+      });
+    },
     async connect(resume?: string) {
       const socket = new NativeWebSocket(`ws://127.0.0.1:${app.server?.port}/api/daemon/control`, {
         headers: {
@@ -51,9 +64,11 @@ async function harness(options: Parameters<typeof daemonAuthFixture>[0] = {}) {
       // Socket events, not polling, so a test can run the server's timers in virtual time.
       const challenged = Promise.withResolvers<void>();
       const closing = Promise.withResolvers<CloseEvent>();
+      const frameWaiters = new Set<() => void>();
       socket.onmessage = (event) => {
         frames.push(String(event.data));
         challenged.resolve();
+        for (const notify of frameWaiters) notify();
       };
       let closed = false;
       socket.onclose = (event) => {
@@ -69,6 +84,17 @@ async function harness(options: Parameters<typeof daemonAuthFixture>[0] = {}) {
         frames,
         nonce,
         closing: closing.promise,
+        waitForFrames(count: number): Promise<void> {
+          return new Promise((resolve) => {
+            const check = () => {
+              if (frames.length < count) return;
+              frameWaiters.delete(check);
+              resolve();
+            };
+            frameWaiters.add(check);
+            check();
+          });
+        },
         get closed() {
           return closed;
         },
@@ -88,14 +114,6 @@ function proof(origin: string, nonce: string, resume: string | null = null) {
     daemonControlTranscript('daemon-1', `${origin}/api/daemon/control`, 'dev', resume, nonce),
   );
   return JSON.stringify({ type: 'auth_proof', signature: pair.mldsa, p256_signature: pair.p256 });
-}
-
-async function waitFor(condition: () => boolean, timeoutMs = 2_000): Promise<void> {
-  const deadline = performance.now() + timeoutMs;
-  while (!condition()) {
-    if (performance.now() >= deadline) throw new Error('Control condition timed out');
-    await Bun.sleep(2);
-  }
 }
 
 describe('daemon control proof boundary', () => {
@@ -138,6 +156,7 @@ describe('daemon control proof boundary', () => {
   test('charges upgrade rate limits once, never for proof or command messages', async () => {
     const checks: string[] = [];
     const received: unknown[] = [];
+    const acknowledged = Promise.withResolvers<void>();
     const h = await harness({
       rateLimit: {
         consume: (rule) =>
@@ -152,6 +171,7 @@ describe('daemon control proof boundary', () => {
         receive: (_id, frame) =>
           Effect.sync(() => {
             received.push(frame);
+            acknowledged.resolve();
           }),
       },
     });
@@ -159,10 +179,10 @@ describe('daemon control proof boundary', () => {
       const c = await h.connect();
       expect(checks).toHaveLength(2);
       c.socket.send(proof(h.origin, c.nonce));
-      await waitFor(() => h.accepted.length === 1);
+      await c.waitForFrames(2);
       const ack = { type: 'command_ack', commandId: 'command-1', status: 'accepted' };
       c.socket.send(JSON.stringify(ack));
-      await waitFor(() => received.length === 1);
+      await acknowledged.promise;
       expect(received).toEqual([ack]);
       expect(checks).toHaveLength(2);
       expect(c.closed).toBe(false);
@@ -175,6 +195,8 @@ describe('daemon control proof boundary', () => {
     const acknowledged = Effect.runSync(Deferred.make<void>());
     const finishRegistration = Effect.runSync(Deferred.make<void>());
     const received: unknown[] = [];
+    const registrationFinished = Promise.withResolvers<void>();
+    const secondAcknowledged = Promise.withResolvers<void>();
     let registered = false;
     let connectionId: string | undefined;
     const h = await harness({
@@ -189,12 +211,14 @@ describe('daemon control proof boundary', () => {
             yield* Deferred.await(acknowledged);
             yield* Deferred.await(finishRegistration);
             registered = true;
+            registrationFinished.resolve();
             return { observePing() {} };
           }),
         receive: (id, frame) =>
           Effect.gen(function* () {
             expect(connectionId).toBe(id);
             received.push(frame);
+            if (received.length === 2) secondAcknowledged.resolve();
             yield* Deferred.succeed(acknowledged, undefined);
           }),
       },
@@ -202,17 +226,17 @@ describe('daemon control proof boundary', () => {
     try {
       const c = await h.connect();
       c.socket.send(proof(h.origin, c.nonce));
-      await waitFor(() => c.frames.length === 3);
+      await c.waitForFrames(3);
       const ack = { type: 'command_ack', commandId: 'revoke-1', status: 'accepted' };
       c.socket.send(JSON.stringify(ack));
-      await waitFor(() => received.length === 1);
+      await Effect.runPromise(Deferred.await(acknowledged));
       expect(received).toEqual([ack]);
       expect(registered).toBe(false);
       expect(c.closed).toBe(false);
       await Effect.runPromise(Deferred.succeed(finishRegistration, undefined));
-      await waitFor(() => registered);
+      await registrationFinished.promise;
       c.socket.send(JSON.stringify(ack));
-      await waitFor(() => received.length === 2);
+      await secondAcknowledged.promise;
       expect(h.disconnected).toEqual([]);
     } finally {
       await Effect.runPromise(Deferred.succeed(acknowledged, undefined));
@@ -229,10 +253,10 @@ describe('daemon control proof boundary', () => {
       expect(first.nonce).not.toBe(second.nonce);
       expect(h.accepted).toEqual([]);
       second.socket.send(proof(h.origin, first.nonce));
-      await waitFor(() => second.closed);
+      await second.closing;
       expect(h.accepted).toEqual([]);
       first.socket.send(proof(h.origin, first.nonce));
-      await waitFor(() => first.frames.length === 2);
+      await first.waitForFrames(2);
       expect(h.accepted).toHaveLength(1);
     } finally {
       await h.stop();
@@ -244,10 +268,10 @@ describe('daemon control proof boundary', () => {
     try {
       const resumed = await h.connect('3f1b2c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d');
       resumed.socket.send(proof(h.origin, resumed.nonce));
-      await waitFor(() => resumed.closed);
+      await resumed.closing;
       const command = await h.connect();
       command.socket.send(JSON.stringify({ type: 'command_ack' }));
-      await waitFor(() => command.closed);
+      await command.closing;
       expect(h.accepted).toEqual([]);
     } finally {
       await h.stop();
@@ -262,7 +286,7 @@ describe('daemon control proof boundary', () => {
       const signed = proof(h.origin, c.nonce);
       c.socket.send(signed);
       c.socket.send(signed);
-      await waitFor(() => c.closed);
+      await c.closing;
       gate.resolve();
       await Bun.sleep(20);
       expect(h.accepted).toEqual([]);
@@ -274,12 +298,12 @@ describe('daemon control proof boundary', () => {
 
   test('a close during registration cleans up a late service acceptance', async () => {
     const gate = Promise.withResolvers<void>();
-    let entering = false;
+    const entering = Promise.withResolvers<void>();
     const h = await harness({
       control: {
         acceptConnection: () =>
           Effect.gen(function* () {
-            entering = true;
+            entering.resolve();
             yield* Effect.promise(() => gate.promise);
             return { observePing() {} };
           }),
@@ -288,12 +312,12 @@ describe('daemon control proof boundary', () => {
     try {
       const c = await h.connect();
       c.socket.send(proof(h.origin, c.nonce));
-      await waitFor(() => entering);
+      await entering.promise;
       c.socket.close();
-      await waitFor(() => c.closed);
-      await waitFor(() => h.disconnected.length === 1);
+      await c.closing;
+      await h.waitForDisconnections(1);
       gate.resolve();
-      await waitFor(() => h.disconnected.length === 2);
+      await h.waitForDisconnections(2);
       expect(h.disconnected[0]).toBe(h.disconnected[1]);
     } finally {
       gate.resolve();

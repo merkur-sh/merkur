@@ -502,8 +502,10 @@ test('resize reflow: the local rewrap already matches the daemon', async ({
   // reaches readline makes bash redraw its prompt, which is real content change
   // originating at the daemon; counting it as a mis-guessed row would measure
   // bash rather than the reflow.
-  await page.keyboard.type('sleep 60\n');
-  await page.waitForTimeout(1_500);
+  await page.keyboard.type(
+    `python3 -c "import signal; print('reflow-' + 'parked', flush=True); signal.pause()"\n`,
+  );
+  await expectOutput(output, 'reflow-parked');
 
   const samples = collectResizeAuthorityWindows(page);
 

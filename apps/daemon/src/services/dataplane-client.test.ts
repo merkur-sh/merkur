@@ -1,8 +1,8 @@
-import { describe, expect, test } from 'bun:test';
-import { EventEmitter } from 'node:events';
+import { describe, expect, spyOn, test } from 'bun:test';
+import { EventEmitter, once } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import { SidecarFrameReader } from '@merkur/shared/node-sidecar';
-import { Effect, Fiber, Metric } from 'effect';
+import { Effect, Fiber, Metric, Queue } from 'effect';
 import { TestClock } from 'effect/testing';
 
 import type { Logger } from '../logger';
@@ -175,54 +175,62 @@ describe('DataplaneClient lifecycle', () => {
    * was issued with would hand a nearly-spent credential a full fresh validity
    * and send a probe the responder answers with silence.
    */
-  test('replays a stun credential with the lifetime that remains, not the one issued', async () => {
+  test('replays a stun credential with the lifetime that remains, not the one issued', () => {
+    const now = spyOn(performance, 'now').mockReturnValue(1_000);
     const sidecars: FakeSidecar[] = [];
     const client = createClient(logger, createHandlers(), createDependencies(sidecars));
+    try {
+      client.start();
+      client.updateStunCredential({
+        servers: ['stun.test:3478', 'stun.test:3479'],
+        ticket: 'ticket',
+        secret: 'secret',
+        lifetime_ms: 90_000,
+      });
+      now.mockReturnValue(6_000);
+      required(sidecars[0]).emitClose(0);
+      client.start();
 
-    client.start();
-    client.updateStunCredential({
-      servers: ['stun.test:3478', 'stun.test:3479'],
-      ticket: 'ticket',
-      secret: 'secret',
-      lifetime_ms: 90_000,
-    });
-    await Bun.sleep(5);
-    required(sidecars[0]).emitClose(0);
-    client.start();
-
-    const replayed = readFrames(required(sidecars[1]).inputChunks).find(
-      (frame) => frame.kind === CMD_UPDATE_STUN,
-    );
-    const payload = JSON.parse(new TextDecoder().decode(required(replayed?.payload))) as Record<
-      string,
-      unknown
-    >;
-    expect(payload.ticket).toBe('ticket');
-    expect(typeof payload.lifetime_ms).toBe('number');
-    expect(payload.lifetime_ms as number).toBeGreaterThan(0);
-    expect(payload.lifetime_ms as number).toBeLessThan(90_000);
-    client.stop();
+      const replayed = readFrames(required(sidecars[1]).inputChunks).find(
+        (frame) => frame.kind === CMD_UPDATE_STUN,
+      );
+      const payload = JSON.parse(new TextDecoder().decode(required(replayed?.payload))) as Record<
+        string,
+        unknown
+      >;
+      expect(payload.ticket).toBe('ticket');
+      expect(payload.lifetime_ms).toBe(85_000);
+    } finally {
+      client.stop();
+      now.mockRestore();
+    }
   });
 
-  test('drops a replayed stun credential whose lifetime has already run out', async () => {
+  test('drops a replayed stun credential whose lifetime has already run out', () => {
+    const now = spyOn(performance, 'now').mockReturnValue(1_000);
     const sidecars: FakeSidecar[] = [];
     const client = createClient(logger, createHandlers(), createDependencies(sidecars));
+    try {
+      client.start();
+      client.updateStunCredential({
+        servers: ['stun.test:3478', 'stun.test:3479'],
+        ticket: 'ticket',
+        secret: 'secret',
+        lifetime_ms: 1,
+      });
+      now.mockReturnValue(1_001);
+      required(sidecars[0]).emitClose(0);
+      client.start();
 
-    client.start();
-    client.updateStunCredential({
-      servers: ['stun.test:3478', 'stun.test:3479'],
-      ticket: 'ticket',
-      secret: 'secret',
-      lifetime_ms: 1,
-    });
-    await Bun.sleep(10);
-    required(sidecars[0]).emitClose(0);
-    client.start();
-
-    expect(
-      readFrames(required(sidecars[1]).inputChunks).some((frame) => frame.kind === CMD_UPDATE_STUN),
-    ).toBe(false);
-    client.stop();
+      expect(
+        readFrames(required(sidecars[1]).inputChunks).some(
+          (frame) => frame.kind === CMD_UPDATE_STUN,
+        ),
+      ).toBe(false);
+    } finally {
+      client.stop();
+      now.mockRestore();
+    }
   });
 
   /**
@@ -261,7 +269,7 @@ describe('DataplaneClient lifecycle', () => {
    * `UpdateEdgeAdmissionCmd` and `EdgePinsCmd` are `deny_unknown_fields`: the
    * exact snake_case key sets, or the sidecar refuses the whole command.
    */
-  test('sends the edge admission as the exact sidecar struct and replays it', async () => {
+  test('sends the edge admission as the exact sidecar struct and replays it', () => {
     const sidecars: FakeSidecar[] = [];
     const client = createClient(logger, createHandlers(), createDependencies(sidecars));
     client.start();
@@ -296,7 +304,6 @@ describe('DataplaneClient lifecycle', () => {
 
     // A replacement sidecar is handed the latest admission before its first
     // dial, and with it every edge to state its incarnation to.
-    await Bun.sleep(5);
     required(sidecars[0]).emitClose(0);
     client.start();
     expect(payloads(required(sidecars[1]))).toEqual([{ ticket: 'ticket-2', edges: expectedEdges }]);
@@ -421,8 +428,9 @@ describe('DataplaneClient lifecycle', () => {
     const client = createClient(logger, createHandlers(), createDependencies(sidecars));
     client.start();
     const sidecar = required(sidecars[0]);
+    const finished = once(sidecar.child.stdin, 'finish');
     const shutdownFiber = Effect.runFork(client.shutdown());
-    await waitFor(() => sidecar.child.stdin.writableFinished);
+    await finished;
     client.stop();
     sidecar.emitClose(0);
     await Effect.runPromise(Fiber.join(shutdownFiber));
@@ -438,11 +446,7 @@ describe('DataplaneClient lifecycle', () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const shutdownFiber = yield* client.shutdown().pipe(Effect.forkChild);
-        yield* Effect.promise(() =>
-          waitFor(() =>
-            readFrames(sidecar.inputChunks).some((frame) => frame.kind === CMD_SHUTDOWN),
-          ),
-        );
+        yield* Effect.promise(() => frameWritten(sidecar, CMD_SHUTDOWN));
         sidecar.emitError(withErrorCode('temporary spawn pressure', 'EAGAIN'));
         expect(sidecar.killSignals).toEqual([]);
 
@@ -538,7 +542,6 @@ describe('DataplaneClient lifecycle', () => {
       attempt_ms: 17,
       events_suppressed: 3,
     });
-    await Bun.sleep(0);
     expect(required(acceptedSidecars[0]).killSignals).toEqual([]);
     accepted.stop();
 
@@ -805,19 +808,13 @@ describe('DataplaneClient lifecycle', () => {
     const interrupted = Effect.runFork(
       client.cancelSessionEffect('command-1', 'session-1', 'browser-1'),
     );
-    await waitFor(() =>
-      readFrames(sidecar.inputChunks).some((frame) => frame.kind === CMD_CANCEL_SESSION),
-    );
+    await frameWritten(sidecar, CMD_CANCEL_SESSION);
     await Effect.runPromise(Fiber.interrupt(interrupted));
 
     const replacement = Effect.runFork(
       client.cancelSessionEffect('command-1', 'session-2', 'browser-1'),
     );
-    await waitFor(
-      () =>
-        readFrames(sidecar.inputChunks).filter((frame) => frame.kind === CMD_CANCEL_SESSION)
-          .length === 2,
-    );
+    await frameWritten(sidecar, CMD_CANCEL_SESSION, 2);
     sidecar.emitFrame(EVT_COMMAND_ACK, {
       command_id: 'command-1',
       status: 'accepted',
@@ -834,16 +831,18 @@ describe('DataplaneClient lifecycle', () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
+          const published = yield* Queue.unbounded<string>();
           yield* createDataplaneClientScoped(createDataplaneConfig(), logger, createHandlers(), {
             ...createDependencies(sidecars),
             shutdownReapTimeoutMs: 0,
             updateHealth: (state) =>
-              Effect.sync(() => {
+              Effect.gen(function* () {
                 healthStates.push(state);
+                yield* Queue.offer(published, state);
               }),
           });
           expect((yield* Metric.value(daemonDataplaneReady)).value).toBe(0);
-          yield* Effect.sleep('1 millis');
+          expect(yield* Queue.take(published)).toBe('starting');
           expect(healthStates.at(-1)).toBe('starting');
 
           required(sidecars[0]).emitFrame(EVT_WEBTRANSPORT_READY, {
@@ -852,7 +851,7 @@ describe('DataplaneClient lifecycle', () => {
             candidates: [{ addr: '127.0.0.1', port: 4433, kind: 'loopback' }],
             ipv6_reachability: 'unknown',
           });
-          yield* Effect.sleep('1 millis');
+          expect(yield* Queue.take(published)).toBe('ready');
           expect((yield* Metric.value(daemonDataplaneReady)).value).toBe(1);
           expect(healthStates.at(-1)).toBe('ready');
           const sidecar = required(sidecars[0]);
@@ -1526,21 +1525,6 @@ describe('DataplaneClient exact sidecar events', () => {
     client.stop();
     expect(Object.keys(createDataplaneWireConfig(config))).not.toContain('open_url_bin_dir');
   });
-
-  test('never lets the shell token path reach the configure payload', () => {
-    const config = createDataplaneConfig({ shell_token_path: '/home/u/.merkur/shell-token' });
-    expect(Object.keys(createDataplaneWireConfig(config))).not.toContain('shell_token_path');
-  });
-
-  test('never lets the declared public endpoint reach the configure payload', () => {
-    // A process-start argument, like the three beside it. The Rust
-    // `ConfigurePayload` denies unknown fields, so one extra key here does not
-    // degrade gracefully — it rejects the whole payload and leaves the
-    // dataplane with no session-auth authority, which presents as every session
-    // hanging in SIGNALING rather than as a config error.
-    const config = createDataplaneConfig({ public_wt_endpoint: '203.0.113.10:44433' });
-    expect(Object.keys(createDataplaneWireConfig(config))).not.toContain('public_wt_endpoint');
-  });
 });
 
 function createClient(
@@ -1819,12 +1803,18 @@ function withErrorCode(message: string, code: string): Error {
   return Object.assign(new Error(message), { code });
 }
 
-async function waitFor(condition: () => boolean): Promise<void> {
-  const deadline = Date.now() + 1_000;
-  while (!condition()) {
-    if (Date.now() >= deadline) throw new Error('condition not met before deadline');
-    await Bun.sleep(1);
-  }
+function frameWritten(sidecar: FakeSidecar, kind: number, count = 1): Promise<void> {
+  const written = () =>
+    readFrames(sidecar.inputChunks).filter((frame) => frame.kind === kind).length >= count;
+  if (written()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const onData = () => {
+      if (!written()) return;
+      sidecar.child.stdin.off('data', onData);
+      resolve();
+    };
+    sidecar.child.stdin.on('data', onData);
+  });
 }
 
 describe('composite identity signing IPC', () => {

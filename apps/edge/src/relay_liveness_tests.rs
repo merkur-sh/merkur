@@ -386,7 +386,17 @@ async fn restart_resets(same_secret: bool) -> [bool; 3] {
     proxy.switch(restarted.local_addr().unwrap());
     let restart = Instant::now();
     tunnels[0].quic_connection().ping();
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    if same_secret {
+        tokio::time::timeout(Duration::from_millis(200), async {
+            for tunnel in &tunnels {
+                tunnel.quic_connection().closed().await;
+            }
+        })
+        .await
+        .expect("every old connection receives its reset");
+    } else {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
     let reset = std::array::from_fn(|index| {
         matches!(
             tunnels[index].quic_connection().close_reason(),
@@ -444,10 +454,11 @@ async fn records_a_blocked_leg_cannot_send_wait_at_their_source_for_its_replacem
     for index in 0..RECORDS {
         lane.write_all(&record(index)).await.unwrap();
     }
-    eventually("only probes able to leave the dark leg", || {
-        leg.stats().path.send_blocked
-    })
-    .await;
+    let mut blocked = leg.send_blocked();
+    tokio::time::timeout(Duration::from_secs(10), blocked.wait_for(|blocked| *blocked))
+        .await
+        .expect("only probes able to leave the dark leg")
+        .expect("the blocked-state publisher remains open");
     let window = leg.stats().path.cwnd as usize;
 
     // A standby replaces the dark attachment over a working route.

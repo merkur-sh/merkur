@@ -265,11 +265,12 @@ describe('daemon observability', () => {
             Effect.forkScoped({ startImmediately: true }),
           );
           yield* Deferred.await(firstLog);
+          yield* TestClock.adjust('5 millis');
           yield* Deferred.await(secondLog);
           yield* Fiber.interrupt(reporter);
           return recorded;
         }),
-      ).pipe(Effect.provide(DaemonHealthServiceLive)),
+      ).pipe(Effect.provide(DaemonHealthServiceLive), Effect.provide(TestClock.layer())),
     );
 
     expect(messages).toEqual(['daemon_health_snapshot', 'daemon_health_snapshot']);

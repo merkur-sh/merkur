@@ -1,47 +1,52 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, jest, mock, test } from 'bun:test';
 import { createWakeDetector, type WakeDetector } from './wake-detector';
 
 const TICK_MS = 5;
 const JUMP_MS = 50;
 
-const realDateNow = Date.now;
 let detector: WakeDetector | null = null;
 
-afterEach(() => {
-  Date.now = realDateNow;
-  detector?.destroy();
-  detector = null;
+beforeEach(() => {
+  jest.useFakeTimers();
+  jest.setSystemTime(0);
 });
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+afterEach(() => {
+  detector?.destroy();
+  detector = null;
+  jest.useRealTimers();
+});
 
-/** Make Date.now report `offsetMs` ahead of the real clock. */
-function jumpClock(offsetMs: number): void {
-  Date.now = () => realDateNow() + offsetMs;
+/**
+ * Fires the next interval tick `ms` of wall clock after the previous one. The
+ * clock jumps without firing timers, as it does across a suspension, and the
+ * scheduled tick then lands.
+ */
+function advanceClock(ms: number): void {
+  jest.setSystemTime(Date.now() + ms - TICK_MS);
+  jest.advanceTimersByTime(TICK_MS);
 }
 
 describe('wake detector', () => {
-  test('does not fire on normal tick cadence', async () => {
+  test('does not fire on normal tick cadence', () => {
     const onWake = mock(() => undefined);
     detector = createWakeDetector(onWake, { tickMs: TICK_MS, jumpThresholdMs: JUMP_MS });
 
-    await sleep(TICK_MS * 6);
+    for (let index = 0; index < 6; index++) advanceClock(TICK_MS);
     expect(onWake).not.toHaveBeenCalled();
   });
 
-  test('fires when a tick observes a clock jump beyond the threshold', async () => {
+  test('fires when a tick observes a clock jump beyond the threshold', () => {
     const onWake = mock(() => undefined);
     detector = createWakeDetector(onWake, { tickMs: TICK_MS, jumpThresholdMs: JUMP_MS });
 
-    await sleep(TICK_MS * 3);
-    jumpClock(JUMP_MS * 20);
-    await sleep(TICK_MS * 4);
-    expect(onWake.mock.calls.length).toBeGreaterThanOrEqual(1);
+    advanceClock(TICK_MS);
+    advanceClock(JUMP_MS * 20);
+    advanceClock(TICK_MS);
+    expect(onWake).toHaveBeenCalledTimes(1);
   });
 
-  test('skips the jump when the document is hidden', async () => {
+  test('skips the jump when the document is hidden', () => {
     const onWake = mock(() => undefined);
     detector = createWakeDetector(onWake, {
       tickMs: TICK_MS,
@@ -49,20 +54,19 @@ describe('wake detector', () => {
       isHidden: () => true,
     });
 
-    await sleep(TICK_MS * 3);
-    jumpClock(JUMP_MS * 20);
-    await sleep(TICK_MS * 4);
+    advanceClock(TICK_MS);
+    advanceClock(JUMP_MS * 20);
+    advanceClock(TICK_MS);
     expect(onWake).not.toHaveBeenCalled();
   });
 
-  test('destroy stops the interval', async () => {
+  test('destroy stops the interval', () => {
     const onWake = mock(() => undefined);
     detector = createWakeDetector(onWake, { tickMs: TICK_MS, jumpThresholdMs: JUMP_MS });
 
     detector.destroy();
     detector = null;
-    jumpClock(JUMP_MS * 20);
-    await sleep(TICK_MS * 4);
+    advanceClock(JUMP_MS * 20);
     expect(onWake).not.toHaveBeenCalled();
   });
 });

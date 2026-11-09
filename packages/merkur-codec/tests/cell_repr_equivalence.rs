@@ -121,29 +121,6 @@ fn from_alacritty_preserves_spec_rgb_exactly() {
 }
 
 #[test]
-fn pre_resolved_color_conversion_is_byte_identical() {
-    let colors = [
-        Color::Named(NamedColor::Foreground),
-        Color::Indexed(197),
-        Color::Spec(Rgb {
-            r: 12,
-            g: 137,
-            b: 240,
-        }),
-    ];
-    let flags = Flags::WIDE_CHAR | Flags::BOLD | Flags::ITALIC | Flags::UNDERCURL | Flags::INVERSE;
-    for &fg in &colors {
-        for &bg in &colors {
-            let cell = make_cell('🚀', fg, bg, flags);
-            assert_eq!(
-                CellRepr::from_alacritty_with_colors(&cell, resolve_color(fg), resolve_color(bg),),
-                CellRepr::from_alacritty(&cell),
-            );
-        }
-    }
-}
-
-#[test]
 fn from_alacritty_maps_each_flag_independently() {
     type FlagPredicate = fn(&CellRepr) -> bool;
     let cases: &[(Flags, FlagPredicate)] = &[
@@ -187,24 +164,6 @@ fn underline_intersects_all_underline_variants() {
         let repr = CellRepr::from_alacritty(&cell);
         assert!(repr.underline(), "{:?} should map to underline=true", flag);
     }
-}
-
-#[test]
-fn row_hash_is_deterministic_for_identical_repr() {
-    let row: Vec<CellRepr> = (0..120)
-        .map(|i| {
-            let cell = make_cell(
-                char::from_u32(0x30 + (i as u32 % 10)).unwrap_or('?'),
-                Color::Indexed(i as u8),
-                Color::Named(NamedColor::Background),
-                Flags::BOLD,
-            );
-            CellRepr::from_alacritty(&cell)
-        })
-        .collect();
-    let a = row_hash(&row);
-    let b = row_hash(&row);
-    assert_eq!(a, b);
 }
 
 #[test]

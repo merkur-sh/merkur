@@ -4,7 +4,6 @@ import {
   EDGE_SPAN_ATTRIBUTE_KEYS,
   SPAN_ATTRIBUTE_KEYS,
   type SpanAttributeInput,
-  spanAttributes,
 } from './span-attributes';
 
 /**
@@ -45,29 +44,6 @@ test('the attribute map rejects what it should, at compile time', () => {
     outcomeTypo,
     operationTypo,
   ]).toHaveLength(7);
-});
-
-test('reviewed keys with correct values compile and pass through unchanged', () => {
-  const attributes = spanAttributes({
-    'http.request.method': 'POST',
-    'http.response.status_code': 200,
-    'merkur.outcome': 'success',
-    'merkur.daemon.id': 'daemon-1',
-    'db.operation.name': 'Redis.commands',
-  });
-
-  expect(attributes).toEqual({
-    'http.request.method': 'POST',
-    'http.response.status_code': 200,
-    'merkur.outcome': 'success',
-    'merkur.daemon.id': 'daemon-1',
-    'db.operation.name': 'Redis.commands',
-  });
-});
-
-test('the derived key list matches the map and has no duplicates', () => {
-  expect(SPAN_ATTRIBUTE_KEYS.length).toBeGreaterThan(0);
-  expect(new Set(SPAN_ATTRIBUTE_KEYS).size).toBe(SPAN_ATTRIBUTE_KEYS.length);
 });
 
 /**

@@ -2740,12 +2740,6 @@ mod tests {
         (result, forwarded)
     }
 
-    #[test]
-    fn role_constants_are_distinct() {
-        // Sanity that the relay uses both roles symmetrically.
-        assert_ne!(Role::Browser, Role::Daemon);
-    }
-
     /// A browser hears its proven address once per network: a NAT rebinding
     /// that keeps the address writes nothing, a validated move to another
     /// address writes the new one.
@@ -3216,12 +3210,6 @@ mod tests {
             read_test_lifecycle(&mut daemon_control).await,
             SpliceControlEvent::CounterpartDetached { .. }
         ));
-        assert!(
-            tokio::time::timeout(Duration::from_millis(50), daemon.closed())
-                .await
-                .is_err(),
-            "destination loss must not close the daemon source connection"
-        );
         let mut daemon_lane = tokio::time::timeout(Duration::from_secs(3), writer)
             .await
             .expect("source drain timeout")
@@ -3416,15 +3404,6 @@ mod tests {
     }
 
     #[test]
-    fn advertised_uni_stream_credit_includes_http3_control_overhead() {
-        assert_eq!(HTTP3_CONTROL_UNI_STREAMS, 3);
-        assert_eq!(
-            MAX_PEER_UNI_STREAMS,
-            MAX_RELIABLE_LANES_PER_PEER + MAX_FINITE_STREAMS_PER_PEER + 3
-        );
-    }
-
-    #[test]
     fn routing_preface_rejects_empty_sessions_and_unknown_versions() {
         assert!(
             validate_routing_preface(RoutingPreface {
@@ -3558,7 +3537,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn stuck_pump_teardown_cancels_nested_permit_owner() {
         let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = semaphore

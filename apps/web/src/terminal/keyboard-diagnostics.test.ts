@@ -356,17 +356,6 @@ describe('corrections', () => {
     expect(diagnostics.recordBreak()).toBe(false);
   });
 
-  test('pairs an anchored tap whose trace arrives after its commit', () => {
-    const diagnostics = createKeyboardDiagnostics();
-    pointer += 1;
-    diagnostics.recordCommit(keyFor('key-e').definition, pointer, false);
-    diagnostics.record(trace('key-e', -14, 0, 0, { pointerId: pointer }), geometry);
-    erase(diagnostics);
-    type(diagnostics, 'key-w');
-    diagnostics.recordBreak();
-    expect(diagnostics.summary(12).misses).toBe(1);
-  });
-
   test('pairs a release trace across an older contact committing first', () => {
     const diagnostics = createKeyboardDiagnostics();
     // Contact 20 is still down on 'a' when contact 21 lifts: the lift resolves

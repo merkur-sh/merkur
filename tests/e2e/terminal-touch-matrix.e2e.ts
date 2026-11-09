@@ -18,15 +18,10 @@ test.use({
 });
 
 const TOUCH_TEXT_CASES = [
-  ['lowercase letters', 'touchlowercase'],
-  ['uppercase letters', 'TOUCHUPPERCASE'],
-  ['digits', '01234567890123456789'],
-  ['spaces', 'touch value with  multiple spaces'],
-  ['punctuation', 'touch-._,:;!?'],
-  ['paired delimiters', 'touch-[square]{brace}(paren)'],
-  ['Greek unicode', 'touch-λ-ω'],
-  ['CJK unicode', 'touch-東京-终端-서울'],
-  ['emoji unicode', 'touch-🚀-⌨-✅'],
+  [
+    'ASCII, whitespace, punctuation, and Unicode',
+    'touchLOWER0123 value  -._,:;!?[square]{brace}(paren)-λ-ω-東京-终端-서울-🚀-⌨-✅',
+  ],
   ['long insertion', 'touch-value-'.repeat(64)],
 ] as const;
 
@@ -40,11 +35,7 @@ for (const [index, [name, value]] of TOUCH_TEXT_CASES.entries()) {
 }
 
 const COMPOSITION_CASES = [
-  ['Latin composition', 'composition'],
-  ['accented composition', 'café'],
-  ['CJK composition', '日本語'],
-  ['emoji composition', '🚀⌨'],
-  ['combining composition', 'e\u0301a\u0308'],
+  ['mixed-script and combining composition', 'composition-café-日本語-🚀⌨-e\u0301a\u0308'],
 ] as const;
 
 for (const [index, [name, value]] of COMPOSITION_CASES.entries()) {
@@ -106,10 +97,7 @@ test('touch delete 4: forward delete removes the character at the cursor', async
 });
 
 const TOUCH_PASTE_CASES = [
-  ['plain text', 'touch-paste-plain'],
-  ['spaces and punctuation', 'touch paste !? [] {}'],
-  ['unicode', 'touch-paste-λ-東京-café'],
-  ['emoji', 'touch-paste-🚀-⌨-✅'],
+  ['ASCII, whitespace, punctuation, and Unicode', 'touch paste  !? [] {}-λ-東京-café-🚀-⌨-✅'],
 ] as const;
 
 for (const [index, [name, value]] of TOUCH_PASTE_CASES.entries()) {
@@ -373,9 +361,9 @@ async function dispatchWindowKey(page: Page, key: string): Promise<void> {
 async function prepareRawByteCapture(page: Page, byteCount: number, marker: string): Promise<void> {
   await insertTouchCommand(
     page,
-    `stty raw -echo; bytes=$(dd bs=1 count=${byteCount} 2>/dev/null | od -An -tx1 | tr -d ' \\n'); stty sane; printf '${marker}-%s\\n' "$bytes"\n`,
+    `stty raw -echo; printf '%s%s\\n' ${marker} -ready; bytes=$(dd bs=1 count=${byteCount} 2>/dev/null | od -An -tx1 | tr -d ' \\n'); stty sane; printf '${marker}-%s\\n' "$bytes"\n`,
   );
-  await page.waitForTimeout(150);
+  await expectOutput(page.getByRole('log', { name: 'Terminal output' }), `${marker}-ready`);
 }
 
 async function swipeToolbarLeft(page: Page): Promise<void> {

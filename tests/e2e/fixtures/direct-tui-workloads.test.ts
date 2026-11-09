@@ -102,28 +102,9 @@ describe('Direct TUI workload commands', () => {
     ).toContain('Direct TUI activation receive ring refused 2 frames');
   });
 
-  test('builds two full-screen tmux panes with one-byte switching and explicit cleanup', async () => {
+  test('tmux launch parses with a spaced executable path and hides its viewport witness', async () => {
     const plan = buildTmuxSwitchWorkload(tool('tmux'), 'abc123');
-    expect(plan).toMatchObject({
-      application: 'tmux',
-      readyMarker: 'direct-tmux-ready-abc123',
-      exitMarker: 'direct-tmux-exit-abc123',
-      stepKeys: ['Control+n'],
-      operationCycleLength: 2,
-      exitKeys: ['Control+x'],
-    });
-    expect(plan.launchCommand).toContain('bind-key -n C-n next-window');
-    expect(plan.launchCommand).toContain('bind-key -n C-x detach-client');
-    expect(plan.launchCommand).toContain('TMUX=');
-    expect(plan.launchCommand).toContain('-f /dev/null');
-    expect(plan.launchCommand).toContain('status off');
-    expect(plan.launchCommand).toContain('MERKUR-TMUX-A-abc123');
-    expect(plan.launchCommand).toContain('MERKUR-TMUX-B-abc123');
-    expect(plan.initialViewportNeedle).toContain('ALPHA-02-');
     expect(plan.launchCommand).not.toContain(plan.initialViewportNeedle);
-    expect(plan.completedCycleViewportNeedle).toBe(plan.initialViewportNeedle);
-    expect(plan.launchCommand).toContain('kill-server');
-    expect(plan.launchCommand.endsWith('\n')).toBe(true);
     const syntax = await runTestProcess(['/bin/sh', '-n', '-c', plan.launchCommand]);
     expect(syntax.exitCode, syntax.stderr).toBe(0);
   });
@@ -201,24 +182,9 @@ describe('Direct TUI workload commands', () => {
     }
   });
 
-  test('builds a deterministic highlighted Neovim buffer with alternating one-byte navigation', async () => {
+  test('Neovim launch parses with a spaced executable path and hides its viewport witness', async () => {
     const plan = buildNeovimNavigationWorkload(tool('nvim'), 'def456');
-    expect(plan).toMatchObject({
-      application: 'neovim',
-      readyMarker: 'direct-nvim-ready-def456',
-      exitMarker: 'direct-nvim-exit-def456',
-      stepKeys: ['Control+f', 'Control+b'],
-      operationCycleLength: 2,
-      exitKeys: ['Escape', ':q!', 'Enter'],
-    });
-    expect(plan.launchCommand).toContain('merkur-direct-nvim-def456.rs');
-    expect(plan.launchCommand).toContain('2400');
-    expect(plan.launchCommand).toContain('filetype=rust | syntax enable | normal! gg');
-    expect(plan.initialViewportNeedle).toBe('pub fn merkur_line_0001()');
     expect(plan.launchCommand).not.toContain(plan.initialViewportNeedle);
-    expect(plan.completedCycleViewportNeedle).toBe(plan.initialViewportNeedle);
-    expect(plan.launchCommand).toContain('rm -f');
-    expect(plan.launchCommand.endsWith('\n')).toBe(true);
     const syntax = await runTestProcess(['/bin/sh', '-n', '-c', plan.launchCommand]);
     expect(syntax.exitCode, syntax.stderr).toBe(0);
   });

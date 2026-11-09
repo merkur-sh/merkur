@@ -771,7 +771,7 @@ describe('DaemonControlService', () => {
         ),
       ),
     );
-    await waitFor(() => socket.messagesOfType('delegation_revoke').length === 2);
+    await waitForMessage(socket, 'delegation_revoke', 2);
     const second = required(socket.messagesOfType('delegation_revoke').at(1));
     expect(second.commandId).toBe('revoke-self');
     expect(acknowledged).toEqual(['revoke-before-self']);
@@ -1650,9 +1650,7 @@ describe('DaemonControlService', () => {
                 ),
               );
               yield* Fiber.join(registration);
-              yield* Effect.promise(() =>
-                waitFor(() => socket.messagesOfType('delegation_revoke').length === 2),
-              );
+              yield* Effect.promise(() => waitForMessage(socket, 'delegation_revoke', 2));
             }
             const command = yield* Effect.promise(() =>
               waitForMessage(socket, 'delegation_revoke'),
@@ -1753,7 +1751,16 @@ describe('DaemonControlService', () => {
 
     await register(service, socket);
     pending = true;
-    await Effect.runPromise(service.flushUserDelegationRevocations(USER_ID));
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const delivery = yield* service
+          .flushUserDelegationRevocations(USER_ID)
+          .pipe(Effect.forkChild);
+        yield* Effect.promise(() => waitForMessage(socket, 'delegation_revoke'));
+        yield* TestClock.adjust('10 millis');
+        yield* Fiber.join(delivery);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
 
     expect(socket.messagesOfType('delegation_revoke')).toHaveLength(1);
     expect(socket.closed).toContainEqual({
@@ -1991,7 +1998,7 @@ describe('DaemonControlService', () => {
     pending = true;
     // Forked, so the revocation stays parked awaiting an ack that never comes.
     Effect.runFork(service.flushUserDelegationRevocations(USER_ID));
-    await waitFor(() => socket.messagesOfType('delegation_revoke').length === 1);
+    await waitForMessage(socket, 'delegation_revoke', 1);
 
     await Effect.runPromise(service.disconnect('connection-1', null));
     expect(requirePresence(state).state).toBe('suspended');
@@ -2018,7 +2025,7 @@ describe('DaemonControlService', () => {
     // copy stranded on the departed one must be superseded rather than treated
     // as a duplicate, or registration fails and retires the lease the resume
     // just recovered — destroying the session claims it exists to preserve.
-    await waitFor(() => resumedSocket.messagesOfType('delegation_revoke').length === 1);
+    await waitForMessage(resumedSocket, 'delegation_revoke', 1);
     await Effect.runPromise(
       service.receive(
         'connection-2',
@@ -2673,16 +2680,21 @@ describe('DaemonControlService', () => {
     const service = createService(coordination, bus.redis, { commandTimeoutMs: 10 });
 
     await register(service, socket);
-    await expect(
-      Effect.runPromise(
-        service.startSession({
-          presence: requirePresence(state),
-          sessionId: 'session-timeout',
-          browserNodeId: 'browser-1',
-          offer: SESSION_OFFER,
-        }),
-      ),
-    ).rejects.toBeInstanceOf(ControlDeliveryTimeout);
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const delivery = yield* service
+          .startSession({
+            presence: requirePresence(state),
+            sessionId: 'session-timeout',
+            browserNodeId: 'browser-1',
+            offer: SESSION_OFFER,
+          })
+          .pipe(Effect.flip, Effect.forkChild);
+        yield* Effect.promise(() => waitForMessage(socket, 'session_start'));
+        yield* TestClock.adjust('10 millis');
+        expect(yield* Fiber.join(delivery)).toBeInstanceOf(ControlDeliveryTimeout);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
   });
 
   test('fails closed when the caller supplies a stale daemon presence fence', async () => {
@@ -2898,7 +2910,7 @@ describe('DaemonControlService', () => {
       service.startSession(createSessionStartInput(presence, 'session-local-first')),
     );
     try {
-      await waitFor(() => socket.messagesOfType('session_start').length === 1);
+      await waitForMessage(socket, 'session_start', 1);
       await expect(
         Effect.runPromise(
           service.startSession(createSessionStartInput(presence, 'session-local-second')),
@@ -2932,7 +2944,7 @@ describe('DaemonControlService', () => {
         settled = true;
       },
     );
-    await waitFor(() => socket.messagesOfType('session_start').length === 1);
+    await waitForMessage(socket, 'session_start', 1);
     await Effect.runPromise(service.disconnect('connection-1', null));
 
     // The carrier is gone but the lease is only suspended, so the command is
@@ -2969,7 +2981,7 @@ describe('DaemonControlService', () => {
     const delivery = Effect.runPromise(
       service.startSession(createSessionStartInput(claimed, 'session-across-blip')),
     );
-    await waitFor(() => first.messagesOfType('session_start').length === 1);
+    await waitForMessage(first, 'session_start', 1);
     const sent = required(first.messagesOfType('session_start')[0]);
     await Effect.runPromise(service.disconnect('connection-1', null));
     expect(requirePresence(state).state).toBe('suspended');
@@ -3002,7 +3014,7 @@ describe('DaemonControlService', () => {
 
     // The parked command is replayed onto the new carrier as the same command,
     // and the caller that never stopped waiting completes normally.
-    await waitFor(() => second.messagesOfType('session_start').length === 1);
+    await waitForMessage(second, 'session_start', 1);
     const replayed = required(second.messagesOfType('session_start')[0]);
     expect(replayed.commandId).toBe(sent.commandId);
 
@@ -3035,7 +3047,7 @@ describe('DaemonControlService', () => {
     const delivery = Effect.runPromise(
       owner.startSession(createSessionStartInput(claimed, 'session-handover')),
     );
-    await waitFor(() => first.messagesOfType('session_start').length === 1);
+    await waitForMessage(first, 'session_start', 1);
     await Effect.runPromise(owner.disconnect('connection-1', null));
 
     const second = new TestSocket();
@@ -3113,7 +3125,7 @@ describe('DaemonControlService', () => {
     const delivery = Effect.runPromise(
       service.startSession(createSessionStartInput(requirePresence(state), 'session-local-retire')),
     );
-    await waitFor(() => socket.messagesOfType('session_start').length === 1);
+    await waitForMessage(socket, 'session_start', 1);
     // An unparseable frame retires the lease outright rather than suspending it,
     // so there is nothing left to deliver to and the caller learns immediately.
     await Effect.runPromise(Effect.result(service.receive('connection-1', 'not-a-frame')));
@@ -3263,13 +3275,13 @@ describe('DaemonControlService', () => {
       offer: SESSION_OFFER,
     } as const;
     const interrupted = Effect.runFork(service.startSession(input));
-    await waitFor(() => socket.messagesOfType('session_start').length === 1);
+    await waitForMessage(socket, 'session_start', 1);
     await Effect.runPromise(Fiber.interrupt(interrupted));
 
     const replacement = Effect.runPromise(
       service.startSession({ ...input, sessionId: 'session-replacement' }),
     );
-    await waitFor(() => socket.messagesOfType('session_start').length === 2);
+    await waitForMessage(socket, 'session_start', 2);
     const command = required(socket.messagesOfType('session_start').at(-1));
     await Effect.runPromise(
       service.receive(
@@ -3680,12 +3692,14 @@ function createSessionStartInput(presence: DaemonPresence, sessionId: string) {
 
 class TestSocket implements DaemonControlSocket {
   readonly frames: string[] = [];
+  readonly frameListeners = new Set<() => void>();
   readonly closed: Array<{ readonly code: number; readonly reason: string }> = [];
 
   constructor(private readonly sendStatuses: number[] = []) {}
 
   sendText(payload: string): number {
     this.frames.push(payload);
+    for (const listener of this.frameListeners) listener();
     return this.sendStatuses.shift() ?? new TextEncoder().encode(payload).byteLength;
   }
 
@@ -3705,16 +3719,23 @@ class TestSocket implements DaemonControlSocket {
   }
 }
 
-async function waitForMessage<T extends DaemonControlServerMessage['type']>(
+function waitForMessage<T extends DaemonControlServerMessage['type']>(
   socket: TestSocket,
   type: T,
+  count = 1,
 ): Promise<Extract<DaemonControlServerMessage, { readonly type: T }>> {
-  for (let attempt = 0; attempt < 1_000; attempt++) {
-    const message = socket.messagesOfType(type).at(-1);
-    if (message !== undefined) return message;
-    await new Promise((resolve) => setTimeout(resolve, 1));
-  }
-  throw new Error(`timed out waiting for ${type}`);
+  return new Promise((resolve) => {
+    const onFrame = () => {
+      const messages = socket.messagesOfType(type);
+      if (messages.length < count) return;
+      const message = messages.at(-1);
+      if (message === undefined) return;
+      socket.frameListeners.delete(onFrame);
+      resolve(message);
+    };
+    socket.frameListeners.add(onFrame);
+    onFrame();
+  });
 }
 
 async function waitFor(predicate: () => boolean | Promise<boolean>): Promise<void> {

@@ -935,8 +935,6 @@ mod tests {
             )
         });
         let entered = entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        // A deliberately stalled sink, not a performance-budget assertion.
-        thread::sleep(Duration::from_millis(5));
         let released = Instant::now();
         release_tx.send(()).unwrap();
         let (syscall_time, bytes, calls) = worker.join().unwrap();

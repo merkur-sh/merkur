@@ -50,9 +50,7 @@ _PLAYWRIGHT_SETUP = [
 
 # The gates, scans and workspace generators these test run over the repository as a whole.
 _WHOLE_REPOSITORY = [
-    "check-latency-boundaries.test.ts",
     "check-slop.test.ts",
-    "check-span-attributes.test.ts",
     "e2e-wasm-entry-points.test.ts",
     "gates.test.ts",
     # Lists the whole end-to-end harness under the NAT lab's Playwright configuration.
@@ -106,6 +104,10 @@ bun_test_files(
             "browsers": ["chromium"],
             "data": ["//apps/web:src/renderer-webgpu.ts.module"],
         },
+        "check-latency-boundaries.test.ts": {"data": [
+            "//apps/server:src/runtime.ts.module",
+            ":bench-input-ring.ts.module",
+        ]},
         "dev-redis.test.ts": {"tools": {
             "@openssl//:openssl": "openssl",
             "@redis//:redis-server": "redis-server",

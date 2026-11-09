@@ -18,6 +18,7 @@
 import type { TerminalPerfEvent } from '../../apps/web/src/perf/terminal-latency';
 import { expectConnected } from './app-state';
 import { expect, test } from './fixtures/daemon-process';
+import { expectOutput, waitForMirrorBaseline } from './terminal-e2e-helpers';
 
 interface PerfStats {
   readonly paints: number;
@@ -43,6 +44,8 @@ test('sparse redraw over the edge has one authoritative GPU fence', async ({
 }) => {
   await page.getByTitle(`Connect to ${linkedDaemon.daemonName}`).click();
   await expectConnected(page, 40_000);
+  await waitForMirrorBaseline(page, 15_000);
+  const output = page.getByRole('log', { name: 'Terminal output' });
 
   // Confirm the worker actually booted with perf on (guards the timing).
   await expect
@@ -64,7 +67,7 @@ test('sparse redraw over the edge has one authoritative GPU fence', async ({
   // measured Enter keeps the daemon on the causal/interactive scheduling arm.
   // The canonical BSU/ESU pair makes the semantic transaction explicit; the
   // wall-clock duration of eight separately drained writes is host-dependent
-  // and may span multiple refresh periods. After ESU the function stays asleep
+  // and may span multiple refresh periods. After ESU the function waits on stdin
   // so a prompt repaint is outside the window. Each os.write is deliberately
   // followed by 0.8 ms: this is the real path that used to look drained on every
   // PTY read and fragment one TUI redraw into four browser paints over 128.9 ms
@@ -72,21 +75,25 @@ test('sparse redraw over the edge has one authoritative GPU fence', async ({
   const sparseRedrawFunction =
     `sparse_redraw() { /usr/bin/python3 -c 'import os,time; os.write(1,b"\\x1b[?2026h"); ` +
     `[(os.write(1, f"\\x1b7\\x1b[{i};1Hrow-{i:02d}-".encode()+b"X"*60+b"\\x1b8"), ` +
-    `time.sleep(0.0008)) for i in range(1,9)]; os.write(1,b"\\x1b[?2026l"); time.sleep(5)'; }`;
-  await page.keyboard.insertText(sparseRedrawFunction);
+    `time.sleep(0.0008)) for i in range(1,9)]; os.write(1,b"\\x1b[?2026l"); input()'; }`;
+  await page.keyboard.insertText(`${sparseRedrawFunction}; printf '__sweep_%s__\\n' ready`);
   await page.keyboard.press('Enter');
-  await page.waitForTimeout(500);
-  await page.keyboard.type('clear\n');
-  await page.waitForTimeout(500);
+  await expectOutput(output, '__sweep_ready__');
+  await page.keyboard.type("clear; printf '__sweep_%s__\\n' cleared\n");
+  await expectOutput(output, '__sweep_cleared__');
   await page.keyboard.insertText('sparse_redraw');
-  await page.waitForTimeout(500);
   await terminalPerf.reset();
   const measurementId = await terminalPerf.beginPresentationMeasurement('coherent-redraw');
-  await page.keyboard.press('Enter');
-  await page.waitForTimeout(2_500);
-  await terminalPerf.endPresentationMeasurement(measurementId);
-
-  const snapshot = await terminalPerf.snapshot();
+  let snapshot: Awaited<ReturnType<typeof terminalPerf.snapshot>>;
+  try {
+    await page.keyboard.press('Enter');
+    await expectOutput(output, `row-08-${'X'.repeat(60)}`);
+    await terminalPerf.endPresentationMeasurement(measurementId);
+    snapshot = await terminalPerf.snapshot();
+  } finally {
+    // The redraw driver waits on stdin after its final row, keeping its prompt outside the window.
+    await page.keyboard.press('Enter');
+  }
   const stats = readPerfStats(snapshot.events);
   const start = snapshot.events.find(
     (event) =>

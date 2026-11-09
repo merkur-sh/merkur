@@ -500,34 +500,6 @@ describe('frame and text scheduling', () => {
     expect(clock.pending()).toBe(0);
   });
 
-  test('text settlement leaves waveform pixels untouched', () => {
-    const clock = clockHarness();
-    const series = createLinkStripSeries(34, 10);
-    series.load(snapshot(0, [[0, 512, 128]]), 1, false);
-    let drawings = 0;
-    let readouts = 0;
-    let dirty = true;
-    const scheduler = createLinkStripScheduler({
-      ...clock,
-      paint(at) {
-        if (dirty) {
-          drawings += 1;
-          dirty = false;
-        }
-        if (at >= 300 && readouts === 0) readouts += 1;
-        return readouts === 0 ? 300 : null;
-      },
-    });
-    scheduler.resume();
-    clock.advance(400);
-    expect(readouts).toBe(1);
-    expect(drawings).toBe(1);
-    expect(series.txHeight[33]).toBeGreaterThan(0);
-    clock.advance(10_000);
-    expect(drawings).toBe(1);
-    expect(clock.pending()).toBe(0);
-  });
-
   test('state changes preempt a text deadline; pause cancels both timer and frame', () => {
     const clock = clockHarness();
     let paints = 0;

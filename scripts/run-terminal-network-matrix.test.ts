@@ -23,7 +23,6 @@ import {
   buildMatrixRawSampleRollups,
   buildNetworkMatrixCells,
   captureGridConvergenceEvidence,
-  DEFAULT_NETWORK_MATRIX_SEEDS,
   loadCompatibleMatrixCheckpoint,
   matrixCellId,
   matrixEnvironment,
@@ -444,11 +443,6 @@ function proxyDelayHistogram(
 }
 
 describe('terminal network matrix', () => {
-  test('uses two distinct deterministic seeds for acceptance-grade default tails', () => {
-    expect(DEFAULT_NETWORK_MATRIX_SEEDS).toHaveLength(2);
-    expect(new Set(DEFAULT_NETWORK_MATRIX_SEEDS).size).toBe(2);
-  });
-
   test('replays mandatory raw traces and rejects corrupt or mismatched artifacts', () => {
     const events: TerminalPerfEvent[] = [
       {
@@ -1840,14 +1834,6 @@ describe('terminal network matrix', () => {
         cell,
       ).errors,
     ).toContain('upstream proxy released a UDP unit before its target deadline');
-  });
-
-  test('edge Playwright config includes the forced production resync sentinel', async () => {
-    const config = await readFile(
-      path.join(import.meta.dir, '..', 'playwright.edge.config.mjs'),
-      'utf8',
-    );
-    expect(config).toContain('**/display-resync-recovery.e2e.ts');
   });
 
   test('atomically replaces a checkpoint without leaving same-directory temporaries', async () => {

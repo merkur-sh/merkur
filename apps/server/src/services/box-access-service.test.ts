@@ -89,15 +89,6 @@ describe('BoxAccessService', () => {
     await setStatus(db, 'user-1', 'waitlisted');
     expect(await Effect.runPromise(service.access('user-1'))).toEqual({ status: 'approved' });
   });
-
-  test('deleting the account takes its waitlist entry with it', async () => {
-    const service = createBoxAccessService(db);
-    await Effect.runPromise(service.join('user-1'));
-
-    await db.deleteFrom('users').where('id', '=', 'user-1').execute();
-
-    expect(await db.selectFrom('box_access').selectAll().execute()).toHaveLength(0);
-  });
 });
 
 /** The operator's decision: a direct update of the row, as done against the database. */

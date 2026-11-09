@@ -97,33 +97,42 @@ test('keeps controls visible while creating an account and shows the first-list 
   const username = `e2e-loading-${suffix}`;
   const password = 'Password123!';
 
+  const authStart = Promise.withResolvers<void>();
+  const deviceEvents = Promise.withResolvers<void>();
   await page.route('**/api/auth/start', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    await authStart.promise;
     await route.continue();
   });
   await page.route('**/api/devices/events', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await deviceEvents.promise;
     await route.continue();
   });
 
-  await page.goto('/');
-  await expectAuthScreen(page);
-  const form = page.locator('#auth-form');
-  await form.getByLabel('Username').fill(username);
-  await form.getByLabel('Password').fill(password);
-  await form.getByRole('button', { name: 'Continue', exact: true }).click();
+  try {
+    await page.goto('/');
+    await expectAuthScreen(page);
+    const form = page.locator('#auth-form');
+    await form.getByLabel('Username').fill(username);
+    await form.getByLabel('Password').fill(password);
+    await form.getByRole('button', { name: 'Continue', exact: true }).click();
 
-  await expect(page.getByRole('button', { name: 'Continuing…' })).toBeVisible();
-  await expect(page.getByLabel('Username')).toBeDisabled();
-  await expect(page.getByLabel('Password')).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Continuing…' })).toBeVisible();
+    await expect(page.getByLabel('Username')).toBeDisabled();
+    await expect(page.getByLabel('Password')).toBeDisabled();
+    authStart.resolve();
 
-  await expect(page.locator('#device-list')).toBeAttached();
-  await expect(page.getByRole('status', { name: 'Loading machines' })).toBeVisible();
-  await expect(page.getByText('Connect your first machine')).toBeVisible();
-  // With no machines the disclosure opens itself: linking one is not a
-  // secondary action then, it is the only one.
-  await expect(page.locator('#link-command')).toBeVisible();
-  await expect(page.locator('#link-command')).not.toHaveText('');
+    await expect(page.locator('#device-list')).toBeAttached();
+    await expect(page.getByRole('status', { name: 'Loading machines' })).toBeVisible();
+    deviceEvents.resolve();
+    await expectDeviceListLive(page);
+    await expect(page.getByText('Connect your first machine')).toBeVisible();
+    // With no machines the disclosure opens itself: linking one is the only action.
+    await expect(page.locator('#link-command')).toBeVisible();
+    await expect(page.locator('#link-command')).not.toHaveText('');
+  } finally {
+    authStart.resolve();
+    deviceEvents.resolve();
+  }
 });
 
 test('auth flow supports registration, offline device persistence, and logout', async ({

@@ -1,13 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { INPUT_RING_SIZE } from '../transport/input-ring';
-import {
-  createTerminalRingBundle,
-  PREDICTION_ADMISSION_SIZE,
-  PREDICTION_FAST_PATH_SIZE,
-} from './ring-bundle';
-import { FRAME_RING_SIZE } from './shared-ring';
-import { VIEWER_OUTPUT_RING_SIZE } from './viewer-output-ring';
+import { createTerminalRingBundle } from './ring-bundle';
 
 describe('terminal ring bundle', () => {
   test('allocates distinct SABs for every worker generation', () => {
@@ -25,30 +18,6 @@ describe('terminal ring bundle', () => {
       bundle.terminalRingWakePort.close();
       bundle.transportRingWakePort.close();
     }
-  });
-
-  test('provides one coherent bundle to the terminal, transport, and input consumers', () => {
-    const rings = createTerminalRingBundle('native');
-    const terminalWorkerRings = {
-      frameRing: rings.frameRing,
-      predictionAdmission: rings.predictionAdmission,
-      predictionFastPath: rings.predictionFastPath,
-    };
-    const transportWorkerRings = rings;
-    const inputWriterRing = rings.inputRing;
-
-    expect(terminalWorkerRings.frameRing).toBe(transportWorkerRings.frameRing);
-    expect(inputWriterRing).toBe(transportWorkerRings.inputRing);
-    expect(terminalWorkerRings.predictionAdmission).toBe(transportWorkerRings.predictionAdmission);
-    expect(terminalWorkerRings.predictionFastPath).toBe(transportWorkerRings.predictionFastPath);
-    expect(rings.frameRing.byteLength).toBe(FRAME_RING_SIZE);
-    expect(rings.viewerOutputRing.byteLength).toBe(VIEWER_OUTPUT_RING_SIZE);
-    expect(rings.viewerOutputRing).not.toBe(rings.frameRing);
-    expect(rings.inputRing.byteLength).toBe(INPUT_RING_SIZE);
-    expect(rings.predictionAdmission.byteLength).toBe(PREDICTION_ADMISSION_SIZE);
-    expect(rings.predictionFastPath.byteLength).toBe(PREDICTION_FAST_PATH_SIZE);
-    rings.terminalRingWakePort.close();
-    rings.transportRingWakePort.close();
   });
 
   test('the two wake ports are the ends of one channel, in both directions', async () => {

@@ -201,9 +201,6 @@ fn handoff_stops(ignore_hup: bool) {
     owner
         .write_all(&frame(CMD_SHUTDOWN, &serde_json::json!({})))
         .expect("shutdown");
-    wait_for("adopted dataplane shutdown", || {
-        child.0.try_wait().expect("status").is_some()
-    });
     let status = child.0.wait().expect("exit");
     assert!(status.success(), "{status}");
     wait_for("the shell to end with its terminal", || {

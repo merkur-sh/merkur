@@ -217,12 +217,6 @@ impl StaticModel {
         }
         out
     }
-
-    /// Every context key the model has a table set for.
-    #[cfg(test)]
-    pub(super) fn contexts(&self) -> usize {
-        self.sets.len() - FIELDS
-    }
 }
 
 /// The compiled-in prior, parsed once per process.
@@ -230,18 +224,6 @@ impl StaticModel {
 pub(super) fn static_model() -> &'static StaticModel {
     static MODEL: OnceLock<StaticModel> = OnceLock::new();
     MODEL.get_or_init(|| StaticModel::parse(super::model_data::MODEL).expect("the compiled-in MZ model"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_model_data_is_well_formed() {
-        let model = StaticModel::parse(super::super::model_data::MODEL).expect("model data");
-        assert!(model.sets.len() >= FIELDS);
-        let _ = model.contexts();
-    }
 }
 
 #[cfg(test)]

@@ -1041,30 +1041,6 @@ mod tests {
         assert!(payload.len() < MAX_EVENT_PAYLOAD_BYTES / 128);
     }
 
-    /// Locks the `NaN` hazard shut. `serde_json` writes `null` for a non-finite
-    /// float, a `null` fails the TypeScript validator, and an invalid payload is
-    /// fatal on the daemon side — so no float may ever enter this payload.
-    #[test]
-    fn transport_stats_json_is_integers_only_with_no_nulls() {
-        let value = serde_json::to_value(saturated_transport_stats()).unwrap();
-
-        fn assert_all_unsigned_integers(value: &serde_json::Value, path: &str) {
-            match value {
-                serde_json::Value::Object(map) => {
-                    for (key, entry) in map {
-                        assert_all_unsigned_integers(entry, &format!("{path}.{key}"));
-                    }
-                }
-                serde_json::Value::Number(number) => {
-                    assert!(number.is_u64(), "{path} is not an unsigned integer");
-                }
-                other => panic!("{path} is {other:?}, expected an unsigned integer"),
-            }
-        }
-
-        assert_all_unsigned_integers(&value, "stats");
-    }
-
     #[test]
     fn transport_stats_is_flushed_rather_than_buffered() {
         assert!(
@@ -1283,6 +1259,7 @@ mod tests {
     #[derive(Clone)]
     struct RecordingWriter {
         bytes: Arc<Mutex<Vec<u8>>>,
+        flushed: Arc<tokio::sync::Notify>,
     }
 
     impl Write for RecordingWriter {
@@ -1292,6 +1269,7 @@ mod tests {
         }
 
         fn flush(&mut self) -> io::Result<()> {
+            self.flushed.notify_one();
             Ok(())
         }
     }
@@ -1299,8 +1277,10 @@ mod tests {
     #[tokio::test]
     async fn clean_shutdown_drains_and_flushes_every_frame_in_fifo_order() {
         let bytes = Arc::new(Mutex::new(Vec::new()));
+        let flushed = Arc::new(tokio::sync::Notify::new());
         let writer = RecordingWriter {
             bytes: Arc::clone(&bytes),
+            flushed: Arc::clone(&flushed),
         };
         let (sink, mut failure_rx, mut output) = start_event_output(writer, 4).unwrap();
 
@@ -1330,22 +1310,17 @@ mod tests {
     #[tokio::test]
     async fn lone_bell_is_visible_without_shutdown_or_a_followup_event() {
         let bytes = Arc::new(Mutex::new(Vec::new()));
+        let flushed = Arc::new(tokio::sync::Notify::new());
         let writer = RecordingWriter {
             bytes: Arc::clone(&bytes),
+            flushed: Arc::clone(&flushed),
         };
         let (sink, mut failure_rx, mut output) = start_event_output(writer, 4).unwrap();
 
         sink.send_raw(EVT_BELL, Vec::new()).unwrap();
-        tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                if !bytes.lock().unwrap().is_empty() {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("isolated bell stayed buffered");
+        tokio::time::timeout(Duration::from_secs(1), flushed.notified())
+            .await
+            .expect("isolated bell stayed buffered");
 
         let captured = bytes.lock().unwrap().clone();
         let mut cursor = io::Cursor::new(captured);

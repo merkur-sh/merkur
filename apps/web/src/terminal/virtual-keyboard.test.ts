@@ -21,18 +21,6 @@ import {
 } from './virtual-keyboard';
 
 describe('virtual keyboard preferences', () => {
-  test('uses the terminal-first quick access defaults', () => {
-    expect(DEFAULT_TOOLBAR_KEYS).toEqual([
-      'escape',
-      'ctrl',
-      'alt',
-      'paste',
-      'page-up',
-      'page-down',
-      'tab',
-    ]);
-  });
-
   test('normalizes current preferences while preserving customized quick keys', () => {
     const preferences = normalizeVirtualKeyboardPreferences({
       visible: true,

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { Deferred, Effect, Fiber, Result } from 'effect';
+import { TestClock } from 'effect/testing';
 import { type RedisCommandClient, RedisError, type RedisService } from './redis-service';
 import { parseStoredSessionIssuance } from './session-issuance-codec';
 import {
@@ -325,7 +326,7 @@ describe('SessionIssuanceService', () => {
     const first = Effect.runPromise(service.issue(input, callbacks));
     await deliveryStarted.promise;
     const duplicate = Effect.runPromise(service.issue(input, callbacks));
-    await waitUntil(() => redis.subscribeCalls === 1);
+    await redis.subscribed.promise;
     releaseDelivery.resolve(undefined);
 
     const [firstResult, duplicateResult] = await Promise.all([first, duplicate]);
@@ -358,19 +359,22 @@ describe('SessionIssuanceService', () => {
       compensate: () => Effect.void,
     };
 
-    const staleOwner = Effect.runPromise(service.issue(input, callbacks));
-    await firstDeliveryStarted.promise;
-    redis.nowMs = 9_999;
-    setTimeout(() => {
-      redis.nowMs = 10_001;
-    }, 5);
-    const startedAt = performance.now();
-    const takeover = await Effect.runPromise(service.issue(input, callbacks));
-    const takeoverMs = performance.now() - startedAt;
-    releaseFirstDelivery.resolve(undefined);
-    expect(await staleOwner).toEqual(takeover);
-
-    expect(takeoverMs).toBeLessThan(1_000);
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const staleOwner = yield* service.issue(input, callbacks).pipe(Effect.forkChild);
+        yield* Effect.promise(() => firstDeliveryStarted.promise);
+        redis.nowMs = 9_999;
+        const takeover = yield* service.issue(input, callbacks).pipe(Effect.forkChild);
+        yield* Effect.promise(() => redis.leaseTtlRead.promise);
+        redis.nowMs = 10_001;
+        yield* TestClock.adjust('250 millis');
+        expect(deliveries).toBe(1);
+        yield* TestClock.adjust('1 millis');
+        const takenOver = yield* Fiber.join(takeover);
+        releaseFirstDelivery.resolve(undefined);
+        expect(yield* Fiber.join(staleOwner)).toEqual(takenOver);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
     expect(deliveries).toBe(2);
   });
 
@@ -1156,6 +1160,8 @@ interface StoredValue {
 class FakeRedis {
   nowMs = 0;
   subscribeCalls = 0;
+  readonly subscribed = Promise.withResolvers<void>();
+  readonly leaseTtlRead = Promise.withResolvers<void>();
   readonly commandNames: string[] = [];
   private readonly strings = new Map<string, StoredValue>();
   private readonly listeners = new Map<string, Set<(message: string) => void>>();
@@ -1244,6 +1250,7 @@ class FakeRedis {
       Effect.sync(() => {
         this.subscribeCalls += 1;
         this.getListeners(channel).add(handler);
+        this.subscribed.resolve();
       }),
     unsubscribe: (channel, handler) =>
       Effect.sync(() => {
@@ -1371,7 +1378,9 @@ class FakeRedis {
           lock.expiresAtMs = this.nowMs + fallbackTtl;
           return fallbackTtl;
         }
-        return Math.max(0, lock.expiresAtMs - this.nowMs);
+        const remaining = Math.max(0, lock.expiresAtMs - this.nowMs);
+        this.leaseTtlRead.resolve();
+        return remaining;
       }
       const lockKey = required(keys[0], 'release lock key');
       const channel = required(keys[1], 'release channel');
@@ -1502,12 +1511,4 @@ class FakeRedis {
 function required<T>(value: T | undefined, message: string): T {
   if (value === undefined) throw new Error(message);
   return value;
-}
-
-async function waitUntil(predicate: () => boolean): Promise<void> {
-  for (let turn = 0; turn < 100; turn += 1) {
-    if (predicate()) return;
-    await Promise.resolve();
-  }
-  throw new Error('condition did not settle');
 }

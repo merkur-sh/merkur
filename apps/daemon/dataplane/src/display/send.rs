@@ -1790,41 +1790,6 @@ fn precompute_fec_repairs(
     }
 }
 
-/// Seal one parity shard for the datagram lane. Oversize repair is a caller
-/// bug: width selection must return zero before encoding a shard that cannot
-/// fit, and there is intentionally no reliable repair fallback.
-///
-/// It used to return `()` and the caller counted an attempt, so
-/// `fec_repairs_sent` reported parity the transport had refused — which made
-/// coverage under congestion, the one condition parity exists for, both zero
-/// and unmeasurable.
-#[cfg(test)]
-fn send_repair_frame(
-    peer: &mut PeerDisplayState,
-    repair: &[u8],
-    batch_start_seq: u32,
-    now_ms: f64,
-    budget: &mut DatagramPhysicalBudget,
-) -> BudgetedSendResult {
-    if repair.len() > DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES {
-        return BudgetedSendResult {
-            budget_refused: true,
-            ..BudgetedSendResult::default()
-        };
-    }
-    let Some(wire) = peer.seal_display_wire(repair) else {
-        return BudgetedSendResult::default();
-    };
-    send_display_wire_budgeted(
-        peer,
-        &wire,
-        now_ms,
-        SendIntent::LatencySensitive,
-        PhysicalDatagramKind::Repair { batch_start_seq },
-        budget,
-    )
-}
-
 fn send_reserved_repair_frame(
     peer: &mut PeerDisplayState,
     repair: &[u8],
@@ -3182,39 +3147,6 @@ fn display_row_priority(row: u16, cursor_row: Option<u16>, terminal_rows: u16) -
     }
 }
 
-/// Clip one flush's row list to `FLUSH_ROW_BUDGET_BYTES`, keeping the prefix.
-///
-/// `selected_rows` must already be ranked, so the prefix is the highest-utility
-/// content and the cursor row is never the row that gets dropped. Returns
-/// whether anything was clipped.
-///
-/// The first row is always kept regardless of size: a single oversize row still
-/// has to go somewhere, and the jumbo path handles it. This guarantees forward
-/// progress — a budget that could select nothing would stall the peer forever.
-#[cfg(test)]
-fn apply_flush_row_budget(
-    terminal: &mut TerminalState,
-    acked_grid: &[CellRepr],
-    selected_rows: &mut Vec<DisplayRowRequest>,
-    wire_budget_bytes: usize,
-) -> bool {
-    let mut spent = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
-    let mut kept = 0usize;
-    for request in selected_rows.iter() {
-        let size = terminal.estimate_row_delta_size(acked_grid, *request);
-        if kept > 0 && spent.saturating_add(size) > wire_budget_bytes {
-            break;
-        }
-        spent = spent.saturating_add(size);
-        kept += 1;
-    }
-    if kept >= selected_rows.len() {
-        return false;
-    }
-    selected_rows.truncate(kept);
-    true
-}
-
 /// Wakes the owner loop when a carrier only probes could leave reopens, so
 /// display held for it resumes on the acknowledgment rather than a timer.
 pub(crate) static CARRIER_UNBLOCKED: std::sync::LazyLock<tokio::sync::Notify> =
@@ -3876,69 +3808,6 @@ fn send_reserved_paths(
             send_exact_path_budgeted(peer, wire, fallback, admission.kind, spare_budget);
         result.budget_refused = fallback_result.budget_refused;
         result.sent_via = fallback_result.sent_via;
-    }
-    result
-}
-
-#[cfg(test)]
-fn send_display_wire_budgeted(
-    peer: &mut PeerDisplayState,
-    wire: &bytes::Bytes,
-    now_ms: f64,
-    intent: SendIntent,
-    kind: PhysicalDatagramKind,
-    budget: &mut DatagramPhysicalBudget,
-) -> BudgetedSendResult {
-    let targets = pick_path(
-        &peer.paths,
-        planned_display_transport(peer, now_ms, wire.len(), 0),
-        intent,
-        now_ms,
-        SessionPolicy::PATH_STALE_THRESHOLD_MS,
-    );
-    let edge = peer.edge_tunnel.clone();
-    let mut result = BudgetedSendResult::default();
-    for target in targets.iter() {
-        // Redundant path selection tolerates partial failures. Budget pressure
-        // is the same kind of per-path admission failure: a full primary must
-        // not prevent the healthy secondary from carrying this logical send,
-        // and a single remaining browser queue slot must still be useful.
-        if !budget.reserve(target, wire.len()) {
-            result.budget_refused = true;
-            continue;
-        }
-        #[cfg(test)]
-        let sim_metadata = assign_sim_datagram_metadata(peer, target, kind);
-        let sent = send_display_wire_on_transport(
-            target,
-            wire,
-            peer.direct_session.as_ref(),
-            edge.as_ref(),
-        );
-        record_send_outcome(&mut peer.paths, target, sent);
-        if sent {
-            result.sent_via.mark(target);
-            #[cfg(test)]
-            peer.sim_datagram_metadata.push_back(sim_metadata);
-        } else {
-            budget.release(target, wire.len());
-        }
-    }
-    #[cfg(not(test))]
-    let _ = kind;
-
-    if !result.sent_via.any() && !targets.is_dual() {
-        let primary = targets.primary();
-        if let Some(fallback) =
-            peer.paths
-                .fallback_for(primary, now_ms, SessionPolicy::PATH_STALE_THRESHOLD_MS)
-        {
-            let fallback_result = send_exact_path_budgeted(peer, wire, fallback, kind, budget);
-            result.budget_refused |= fallback_result.budget_refused;
-            if fallback_result.sent_via.any() {
-                result.sent_via = fallback_result.sent_via;
-            }
-        }
     }
     result
 }
@@ -7706,33 +7575,6 @@ fn peer_snapshot_due(peer: &PeerDisplayState, now_ms: f64) -> bool {
             .awaiting_resume_until_ms
             .is_none_or(|deadline| now_ms >= deadline)
         && !display_held(peer, now_ms)
-}
-
-#[cfg(test)]
-enum SnapshotPeerSelection<'a> {
-    One(&'a str),
-    Many(&'a [Arc<str>]),
-}
-
-#[cfg(test)]
-fn pending_snapshot_peer_ids(
-    peers: &PeerMap,
-    now_ms: f64,
-    allowed_peer_ids: SnapshotPeerSelection<'_>,
-) -> Vec<Arc<str>> {
-    let allowed: Vec<&str> = match allowed_peer_ids {
-        SnapshotPeerSelection::One(peer_id) => vec![peer_id],
-        SnapshotPeerSelection::Many(peer_ids) => peer_ids.iter().map(AsRef::as_ref).collect(),
-    };
-    allowed
-        .into_iter()
-        .filter_map(|peer_id| {
-            peers
-                .get(peer_id)
-                .filter(|peer| peer_snapshot_due(peer, now_ms))
-                .map(|peer| Arc::clone(&peer.peer_id))
-        })
-        .collect()
 }
 
 pub(crate) async fn finish_snapshot_prepare(

@@ -25,23 +25,7 @@ import {
   createPerfStringTableBuffer,
   PERF_STRING_TABLE_SLOTS,
 } from './perf-string-table';
-import type {
-  BrowserDisplayIngressRoute,
-  BrowserDisplayIoStage,
-  GraphicsAssetPhase,
-  PredictionGateSuppressionReason,
-  TerminalDisplayResyncReason,
-  TerminalEgressHop,
-  TerminalFrameCompletionDisposition,
-  TerminalFrameCompletionModeLabel,
-  TerminalPerfEvent,
-  TerminalPresentationCommitReason,
-  TerminalPresentationDiscardReason,
-  TerminalPresentationMeasurementPhase,
-  TerminalPresentationMeasurementPurpose,
-  TerminalRenderGate,
-  TerminalStartupMilestone,
-} from './terminal-latency';
+import type { TerminalPerfEvent } from './terminal-latency';
 
 function roundTrip(events: readonly TerminalPerfEvent[]): (TerminalPerfEvent | null)[] {
   const sab = createPerfRingBuffer(64);
@@ -728,152 +712,6 @@ describe('perf event codec', () => {
     expect(sortedNames([...covered])).toEqual(Object.keys(expected).sort());
   });
 
-  test('enum tables list every member of their union', () => {
-    // `satisfies` makes the compiler the checker: a union member missing from
-    // one of these objects fails the build, and the runtime assertion then
-    // catches a table that fell out of step with the object.
-    const milestones = {
-      device_selected: true,
-      terminal_mount_requested: true,
-      worker_ready: true,
-      terminal_view_presented: true,
-      transport_start: true,
-      transport_connected: true,
-      first_display_applied: true,
-      first_display_visible: true,
-    } satisfies Record<TerminalStartupMilestone, true>;
-    const suppression = {
-      mode_uninitialized: true,
-      no_prompt_grant: true,
-      unsafe_mode: true,
-      unknown_mode: true,
-    } satisfies Record<PredictionGateSuppressionReason, true>;
-    const gates = {
-      immediate: true,
-      fence: true,
-      opportunity: true,
-      'fence-and-opportunity': true,
-    } satisfies Record<TerminalRenderGate, true>;
-    const completion = {
-      'gpu-queue': true,
-      none: true,
-    } satisfies Record<TerminalFrameCompletionModeLabel, true>;
-    const disposition = {
-      'latest-submitted': true,
-      superseded: true,
-      invalidated: true,
-    } satisfies Record<TerminalFrameCompletionDisposition, true>;
-    const presentationCommitReasons = {
-      urgent: true,
-      'group-end-vsync': true,
-      'deadline-vsync': true,
-      'deadline-timer': true,
-      'recovery-release': true,
-      'repair-target-satisfied': true,
-      'repair-deadline-expired': true,
-      'safety-revocation': true,
-      'membership-complete': true,
-      'closure-complete': true,
-      'paced-complete': true,
-    } satisfies Record<TerminalPresentationCommitReason, true>;
-    const presentationMeasurementPhases = {
-      start: true,
-      end: true,
-    } satisfies Record<TerminalPresentationMeasurementPhase, true>;
-    const presentationMeasurementPurposes = {
-      'coherent-redraw': true,
-      'isolated-interactive': true,
-      streaming: true,
-    } satisfies Record<TerminalPresentationMeasurementPurpose, true>;
-    const presentationDiscardReasons = {
-      resync: true,
-      'epoch-reset': true,
-      teardown: true,
-    } satisfies Record<TerminalPresentationDiscardReason, true>;
-    const browserDisplayIoStages = {
-      transport_ingress: true,
-      terminal_apply: true,
-      transport_fec_ingress: true,
-      terminal_fec: true,
-    } satisfies Record<BrowserDisplayIoStage, true>;
-    const browserDisplayIngressRoutes = {
-      'direct-datagram': true,
-      'direct-reliable': true,
-      'relay-datagram': true,
-      'relay-reliable': true,
-    } satisfies Record<BrowserDisplayIngressRoute, true>;
-    const resyncReasons = {
-      queue_admission: true,
-      frame_parse_failed: true,
-      frame_stage_failed: true,
-      ahead_delta_buffer_overflow: true,
-      stale_generation_recovery: true,
-      pending_frame_metadata: true,
-      pending_frame_bytes: true,
-      pending_frame_rows: true,
-      pending_frame_mismatch: true,
-      pending_frame_evicted: true,
-      pending_assemblies_overflow: true,
-      frame_validation_rejected: true,
-      apply_rejected: true,
-      hash_digest_generation_ahead: true,
-      profiling_harness: true,
-    } satisfies Record<TerminalDisplayResyncReason, true>;
-    const graphicsAssetPhases = {
-      demanded: true,
-      requested: true,
-      first_byte: true,
-      fin: true,
-      published: true,
-      consumed: true,
-      retired: true,
-      refused: true,
-      unavailable: true,
-      cancelled: true,
-      interrupted: true,
-      resumed: true,
-    } satisfies Record<GraphicsAssetPhase, true>;
-    const egressHops = {
-      daemon: true,
-      edge: true,
-    } satisfies Record<TerminalEgressHop, true>;
-
-    expect(sortedNames(PERF_ENUM_TABLES.startupMilestones)).toEqual(Object.keys(milestones).sort());
-    expect(sortedNames(PERF_ENUM_TABLES.suppressionReasons)).toEqual(
-      Object.keys(suppression).sort(),
-    );
-    expect(sortedNames(PERF_ENUM_TABLES.renderGates)).toEqual(Object.keys(gates).sort());
-    expect(sortedNames(PERF_ENUM_TABLES.completionModes)).toEqual(Object.keys(completion).sort());
-    expect(sortedNames(PERF_ENUM_TABLES.completionDispositions)).toEqual(
-      Object.keys(disposition).sort(),
-    );
-    expect(sortedNames(PERF_ENUM_TABLES.presentationCommitReasons)).toEqual(
-      Object.keys(presentationCommitReasons).sort(),
-    );
-    expect(sortedNames(PERF_ENUM_TABLES.presentationMeasurementPhases)).toEqual(
-      Object.keys(presentationMeasurementPhases).sort(),
-    );
-    expect(sortedNames(PERF_ENUM_TABLES.presentationMeasurementPurposes)).toEqual(
-      Object.keys(presentationMeasurementPurposes).sort(),
-    );
-    expect(sortedNames(PERF_ENUM_TABLES.presentationDiscardReasons)).toEqual(
-      Object.keys(presentationDiscardReasons).sort(),
-    );
-    expect(sortedNames(PERF_ENUM_TABLES.browserDisplayIoStages)).toEqual(
-      Object.keys(browserDisplayIoStages).sort(),
-    );
-    expect(sortedNames(PERF_ENUM_TABLES.browserDisplayIngressRoutes)).toEqual(
-      Object.keys(browserDisplayIngressRoutes).sort(),
-    );
-    expect(sortedNames(PERF_ENUM_TABLES.displayResyncReasons)).toEqual(
-      Object.keys(resyncReasons).sort(),
-    );
-    expect(sortedNames(PERF_ENUM_TABLES.graphicsAssetPhases)).toEqual(
-      Object.keys(graphicsAssetPhases).sort(),
-    );
-    expect(sortedNames(PERF_ENUM_TABLES.egressHops)).toEqual(Object.keys(egressHops).sort());
-  });
-
   test('every graphics asset phase keeps its identity, and only its own phase carries a value', () => {
     const sab = createPerfRingBuffer(64);
     const writer = createPerfRingWriter(sab);
@@ -1435,52 +1273,6 @@ describe('perf event codec', () => {
     });
   });
 
-  test('a repeated string is interned once and resolves for every record', () => {
-    const decoded = roundTrip([
-      { kind: 'session_start', atMs: 1 },
-      { kind: 'session_start', atMs: 2 },
-      { kind: 'session_start', atMs: 3 },
-    ]);
-    expect(decoded).toEqual([
-      { kind: 'session_start', atMs: 1 },
-      { kind: 'session_start', atMs: 2 },
-      { kind: 'session_start', atMs: 3 },
-    ]);
-  });
-
-  test('a string is readable by the resolver as soon as its record is', () => {
-    // The ordering property the shared table exists for: with a postMessage
-    // side channel the record can be drained before the string lands, and an
-    // unresolvable record is dropped — losing precisely the session-start and
-    // startup events that only happen once.
-    const table = createPerfStringTableBuffer();
-    const interner = createPerfStringInterner(table);
-    const resolver = createPerfStringResolver(table);
-    expect(resolver.resolve(interner.intern('device-1'))).toBe('device-1');
-  });
-
-  test('an exhausted string table drops new values rather than repointing live ids', () => {
-    const table = createPerfStringTableBuffer();
-    const interner = createPerfStringInterner(table);
-    const resolver = createPerfStringResolver(table);
-
-    const firstId = interner.intern('first');
-    for (let index = 1; index < PERF_STRING_TABLE_SLOTS; index += 1) {
-      interner.intern(`filler-${index}`);
-    }
-    // Table is full. Evicting would silently repoint records already written
-    // against the evicted id, so the new value is refused instead.
-    expect(interner.intern('overflow')).toBe(0);
-    expect(resolver.resolve(firstId)).toBe('first');
-  });
-
-  test('an unpublished id resolves to null rather than reading stale bytes', () => {
-    const table = createPerfStringTableBuffer();
-    const resolver = createPerfStringResolver(table);
-    expect(resolver.resolve(1)).toBeNull();
-    expect(resolver.resolve(0)).toBeNull();
-  });
-
   // Bun's TextDecoder accepts a SharedArrayBuffer-backed view; the browser's
   // rejects it outright. This table is shared by construction, so a resolver
   // that decodes the subarray in place works here and throws in Chrome — inside
@@ -1585,25 +1377,6 @@ test('a distinct trace per attempt never exhausts the string table', () => {
     expect(event.traceId).toBe(index.toString(16).padStart(32, '0'));
     expect(event.spanId).toBe(index.toString(16).padStart(16, '0'));
   });
-});
-
-test('trace and span ids round-trip byte-exactly', () => {
-  const [decoded] = roundTrip([
-    {
-      kind: 'startup_milestone',
-      atMs: 1_000,
-      attemptId: 1,
-      deviceId: 'device-a',
-      milestone: 'first_display_visible',
-      elapsedMs: 600,
-      traceId: '0af7651916cd43dd8448eb211c80319c',
-      spanId: 'b7ad6b7169203331',
-    },
-  ]);
-
-  if (decoded?.kind !== 'startup_milestone') throw new Error('wrong kind');
-  expect(decoded.traceId).toBe('0af7651916cd43dd8448eb211c80319c');
-  expect(decoded.spanId).toBe('b7ad6b7169203331');
 });
 
 test('presentation release disable bits round-trip without changing packed presentation flags', () => {

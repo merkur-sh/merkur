@@ -443,7 +443,6 @@ fn reused_key_retires_old_pairs_and_has_one_queue_entry() {
     state.clear_sources();
     assert!(state.sources.is_empty());
     assert!(state.pairs.is_empty());
-    assert!(state.sources.is_empty());
 }
 
 #[test]

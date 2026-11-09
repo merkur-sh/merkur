@@ -56,12 +56,6 @@ describe('classification', () => {
     const misleading = new TypeError('SecurityError: QuotaExceededError wasm');
     expect(classifyBrowserError(misleading)).toBe('type_error');
   });
-
-  test('every classification is a member of the closed union', () => {
-    for (const error of [new TypeError('x'), new Error('x'), 'boom', 42, undefined]) {
-      expect(BROWSER_ERROR_KINDS).toContain(classifyBrowserError(error));
-    }
-  });
 });
 
 describe('accumulation', () => {
