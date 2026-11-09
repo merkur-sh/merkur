@@ -93,7 +93,12 @@ rust_e2e_testing_test(
     lint_config = ":lints",
     proc_macro_deps = all_crate_deps(proc_macro_dev = True),
     rustc_env = {"MERKUR_IMAGE_WORKER": "$(rootpath //packages/merkur-image-worker:merkur-image-worker)"},
-    tags = ["no-sandbox"],
+    # `dataplane`: the tests CI's `macos-dataplane` job runs (`--test_tag_filters=dataplane`), and
+    # the `macos` job leaves out; the dataplane's and the simulator's tests carry it.
+    tags = [
+        "dataplane",
+        "no-sandbox",
+    ],
     deps = _DEV_DEPS + all_crate_deps(normal_dev = True),
 )
 
@@ -138,6 +143,7 @@ rust_e2e_testing_test(
     crate = ":merkur-dataplane",
     lint_config = ":lints",
     proc_macro_deps = all_crate_deps(proc_macro_dev = True),
+    tags = ["dataplane"],
     deps = _DEV_DEPS + all_crate_deps(normal_dev = True),
 )
 
@@ -149,7 +155,10 @@ rust_test(
     data = [":merkur-dataplane"],
     lint_config = ":lints",
     rustc_env = {"MERKUR_DATAPLANE_BIN": "$(rootpath :merkur-dataplane)"},
-    tags = ["no-sandbox"],
+    tags = [
+        "dataplane",
+        "no-sandbox",
+    ],
     deps = all_crate_deps(normal = True),
 )
 

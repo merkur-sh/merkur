@@ -26,11 +26,11 @@ jobs:
       runs-on: macos-26
     secrets: inherit
   # Every unit test and static gate: Bazel runs the ones whose inputs changed and answers the
-  # rest from the remote cache. macOS splits `//...` in two disjoint halves on two runners: its
-  # three cores are what a dataplane commit's macOS tests wait on, and the dataplane's and the
-  # simulator's tests hold half of that work, sharing little with the other half. The second half
-  # also subtracts `//:protocol`, a suite that would bring the dataplane's tests back; every test
-  # the suite names is a target of `//...` in its own right, which one half or the other runs.
+  # rest from the remote cache. macOS splits `//...` in two halves on two runners: its three cores
+  # are what a dataplane commit's macOS tests wait on, and the dataplane's and the simulator's
+  # tests, the ones tagged `dataplane`, hold half of that work and share little with the rest. A
+  # tag filter applies after test suites expand, so the halves are complements whatever a suite
+  # names; a negative target pattern on a suite would subtract every test in it.
   test:
     name: test (${{ matrix.name }})
     strategy:
@@ -39,13 +39,12 @@ jobs:
         include:
           - name: linux
             os: ubuntu-26.04
-            targets: //...
           - name: macos-dataplane
             os: macos-26
-            targets: //apps/daemon/dataplane/... //tools/bazel/sim/...
+            tags: dataplane
           - name: macos
             os: macos-26
-            targets: //... -//apps/daemon/dataplane/... -//tools/bazel/sim/... -//:protocol
+            tags: -dataplane
     runs-on: ${{ matrix.os }}
     # A change that moves every Rust action's key (a toolchain bump, a rules_rust setting) leaves
     # the remote cache cold, and a four-CPU runner then builds the whole crate graph.
@@ -64,20 +63,15 @@ jobs:
       # libraries, Mesa's Vulkan drivers and a virtual display, and the WebGPU tests run headed
       # on it. The display's number is fixed: it is part of every test's cache key.
       - if: runner.os == 'Linux'
-        env:
-          TARGETS: ${{ matrix.targets }}
         run: |
           pnpm exec playwright install-deps chromium firefox webkit
           sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers xvfb
           Xvfb :99 -screen 0 1920x1080x24 &
-          read -ra targets <<< "$TARGETS"
-          bazel test --test_env=DISPLAY=:99 --test_env=BENCH_HEADED=1 -- "${targets[@]}"
+          bazel test //... --test_env=DISPLAY=:99 --test_env=BENCH_HEADED=1
       - if: runner.os == 'macOS'
         env:
-          TARGETS: ${{ matrix.targets }}
-        run: |
-          read -ra targets <<< "$TARGETS"
-          bazel test -- "${targets[@]}"
+          TAGS: ${{ matrix.tags }}
+        run: bazel test //... --test_tag_filters="$TAGS"
       # Bazel's own trace of the run, which `bun run profile:query <file> bazel-critical-path` and
       # the other `bazel-*` queries read.
       - if: always()

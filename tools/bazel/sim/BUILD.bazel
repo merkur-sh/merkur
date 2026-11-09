@@ -52,7 +52,11 @@ rust_library(
         proc_macro = True,
         proc_macro_dev = True,
     ),
-    tags = ["noclippy"],
+    # `dataplane`: CI's `macos-dataplane` job runs these (`//apps/daemon/dataplane:unit`).
+    tags = [
+        "dataplane",
+        "noclippy",
+    ],
     deps = [":merkur_sim"] + SIM_DEPS + all_crate_deps(
         normal = True,
         normal_dev = True,
