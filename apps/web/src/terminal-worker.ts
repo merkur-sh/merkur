@@ -128,7 +128,12 @@ import type {
 
 import { type GpuRenderer, selectRenderer } from './terminal-renderer';
 
-import type { TerminalWorkerTuning, WorkerCommand, WorkerEvent } from './terminal-worker-protocol';
+import type {
+  PerfGridConvergenceLastComparison,
+  TerminalWorkerTuning,
+  WorkerCommand,
+  WorkerEvent,
+} from './terminal-worker-protocol';
 
 import { advanceInputSequence } from './transport/input-sequence-domain';
 
@@ -528,6 +533,7 @@ interface PendingPerfGridConvergence {
   readonly repair: boolean;
   attempts: number;
   selectiveRepairCount: number;
+  lastComparison: PerfGridConvergenceLastComparison | null;
   response: PerfGridConvergenceResponseEdge | null;
 }
 
@@ -678,6 +684,7 @@ function startPerfGridConvergence(
     repair: cmd.repair,
     attempts: 0,
     selectiveRepairCount: 0,
+    lastComparison: null,
     response: null,
   };
   if (!perfEnabled || !workerReady || wasmTerminal === null || ringWakePort === null) {
@@ -779,6 +786,18 @@ function evaluatePerfGridConvergence(): void {
     finishPerfGridConvergence(true, null);
     return;
   }
+  pending.lastComparison = comparison.kind === 'retry' ? comparison.reason : comparison.kind;
+  if (comparison.kind === 'await-display') {
+    // The daemon has sent display this grid has not applied yet. Keep its
+    // observation and evaluate again when a frame is applied
+    // (`observeViewerPresentation`); asking the daemon again cannot move the
+    // browser forward, and only the deadline bounds the wait.
+    perfGridConvergenceTimer.arm(
+      () => finishPerfGridConvergence(false, 'timeout'),
+      Math.max(1, pending.deadlineAtMs - performance.now()),
+    );
+    return;
+  }
   pending.response = null;
   if (comparison.kind === 'repair') {
     if (!pending.repair) {
@@ -829,6 +848,7 @@ function finishPerfGridConvergence(
     failureReason,
     attempts: Math.max(1, pending.attempts),
     selectiveRepairCount: pending.selectiveRepairCount,
+    lastComparison: pending.lastComparison,
     generation: response?.generation ?? displayEpoch.generation,
     lastAdmittedDisplaySeq:
       response?.lastAdmittedDisplaySeq ?? appliedHighWater(displayEpoch.generation),
@@ -3549,6 +3569,7 @@ function observeViewerPresentation(): void {
       frameId: viewer.applied_frame_id(),
       displayKind: viewer.applied_snapshot() ? 'display_snapshot' : 'display_delta',
     } satisfies WorkerEvent);
+    if (pendingPerfGridConvergence !== null) evaluatePerfGridConvergence();
   }
   if (perfEnabled && viewer.take_presentation_trace()) {
     presentationTraceWords.set(

@@ -275,8 +275,15 @@ attempt immediately without allowing the same failed input to spin.
 The owner loop applies every PTY read the reader thread had already queued, then
 flushes in the same turn; a "now" decision runs at the bottom of that turn, never
 through a zero-delay timer rearm. The only waits on the flush path are refusal evidence
-(snapshot backoff, zero-progress admission retry) and a row's re-send deadline, and that
+(snapshot backoff, zero-progress admission retry) and a re-send deadline, and that
 deadline is never shorter than the path's measured round trip.
+
+A row is repaired by its own re-send deadline. A header-only frame (a cursor move, the
+`input_seq` advertisement a key that changes nothing visible leaves, an owed END) owns no
+row, so the newest critical one carries the same deadline itself: unconfirmed past it, or
+proven lost by an ACK, the header reads as unknown and the next flush admits it again; an
+ACK that applies it retires the deadline. A lost one would otherwise stay lost for as long as
+the terminal is idle, with the cursor and the browser's input barrier left behind it.
 
 The input ACK holds packet construction on the carrier its input arrived on, the edge tunnel
 or the peer's direct session, until the same turn's flush has admitted the peer's header-only
@@ -404,8 +411,9 @@ present, and the user's own interrupt and its echo queued behind them.)
   newest admitted send is unconfirmed past its re-send deadline or retired by selective ACK
   evidence; snapshots. A header change that answers no input while rows wait for a grant leaves
   with the paid state that carries them. (Typing latency is
-  not a presentation question; a lost header-only state leaves no row the re-send deadline
-  could repair; a lost window must recover without a grant the browser cannot know to send.
+  not a presentation question; a header-only state recovers by its own re-send deadline, not
+  by row repair, so no grant may be spent on it; a lost window must recover without a grant
+  the browser cannot know to send.
   Sent on its own, a flood's cursor moved on every PTY read, so every flush between grants put a
   header-only datagram on the wire, about 1,600 a second at 120 Hz and most of the downlink's
   datagrams, each showing the cursor over rows that had not arrived.)

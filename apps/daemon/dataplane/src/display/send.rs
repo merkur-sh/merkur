@@ -26,9 +26,10 @@ use merkur_codec::{
 };
 
 use crate::connection::{
-    DisplayDatagramProtection, FecEvidenceByPath, K1ProtectionDecision, PathTargets,
-    PeerDisplayState, PeerMap, PeerPaths, PeerTransport, PerPeerDisplayCache, SelectableRowShape,
-    SendIntent, SentDatagram, SentPaths, SentRow, SentRows, display_row_is_selectable, pick_path,
+    DisplayDatagramProtection, FecEvidenceByPath, HeaderOnlySend, K1ProtectionDecision,
+    PathTargets, PeerDisplayState, PeerMap, PeerPaths, PeerTransport, PerPeerDisplayCache,
+    SelectableRowShape, SendIntent, SentDatagram, SentPaths, SentRow, SentRows,
+    display_row_is_selectable, pick_path,
 };
 #[cfg(test)]
 use crate::connection::{SimDatagramMetadata, SimDatagramRole};
@@ -4008,7 +4009,7 @@ fn build_captured_datagram_batches<const ROW_STORAGE: usize>(
         header,
         input_seq,
         &policy,
-        header_signal != peer.last_admitted_critical_header_signal,
+        header_signal != peer.header_signal_held(now_ms),
         compressor,
         scratch,
         frames,
@@ -5400,7 +5401,7 @@ pub(crate) fn send_peer_datagram_delta_with_worker<const ROW_STORAGE: usize>(
     // cannot change before the frames that carry them are built.
     let head = terminal.display_header_state();
     let header_signal = head.signal;
-    let header_changed = header_signal != peer.last_admitted_critical_header_signal;
+    let header_changed = header_signal != peer.header_signal_held(now_ms);
     let waits_on_grant = peer_waits_on_grant(peer, now_ms);
     let header_exempt = header_changed
         && (!waits_on_grant
@@ -5559,9 +5560,9 @@ pub(crate) fn send_peer_datagram_delta_with_worker<const ROW_STORAGE: usize>(
     // as `current_row_hashes`.
     let closure_digest = terminal.closure_digest(&head.header, current_row_hashes);
     // A grant buys a row-bearing state. Rows that encode to nothing leave a
-    // header-only update, which is grant-exempt: a lost one has no row the
-    // re-send deadline could repair, so it must never be the state a grant
-    // was spent on.
+    // header-only update, which is grant-exempt: it recovers by its own
+    // re-send deadline (`header_only_unconfirmed`), not by row repair, so it
+    // must never be the state a grant was spent on.
     let new_state = admission == DisplayAdmission::State && !buffers.rows.is_empty();
     let admission = if admission == DisplayAdmission::State && !new_state {
         DisplayAdmission::Exempt
@@ -6563,6 +6564,7 @@ pub(crate) fn send_input_routing_if_changed(
         // word, and restores the old modes if the rest of the transaction turns
         // these back off.
         peer.last_admitted_critical_header_signal = 0;
+        peer.header_only_unconfirmed = None;
     }
 }
 
@@ -7352,6 +7354,7 @@ pub(crate) fn send_jumbo_display_frame(
             // retransmitted commit lane is its guaranteed-delivery exception
             // to cross-carrier replication.
             peer.last_admitted_critical_header_signal = header_signal;
+            peer.header_only_unconfirmed = None;
         }
     } else {
         warn!(
@@ -7389,6 +7392,12 @@ fn record_sent_datagram_with_protection(
     peer.note_display_seq_sent(datagram.seq);
     if datagram.utility == DisplayUtility::Critical {
         peer.last_admitted_critical_header_signal = datagram.header_signal;
+        // A row-bearing frame's rows carry the header again when they are
+        // repaired; a header-only frame has only its own deadline.
+        peer.header_only_unconfirmed = datagram.rows.is_empty().then(|| HeaderOnlySend {
+            seq: datagram.seq,
+            resend_after_ms: now_ms + peer_row_resend_interval_ms(peer, now_ms),
+        });
     }
     record_display_datagram_snapshot(peer, datagram, now_ms, sent_via, protection);
 }
@@ -7743,6 +7752,7 @@ pub(crate) async fn finish_snapshot_prepare(
                 .references
                 .note_snapshot_sent(&snapshot_grid, cols, &snapshot_graphics, coded);
             peer.last_admitted_critical_header_signal = header_signal;
+            peer.header_only_unconfirmed = None;
             peer.last_admitted_sync_epoch = peer
                 .last_admitted_sync_epoch
                 .max(completed_sync_update_epoch);
@@ -7882,7 +7892,7 @@ fn peer_next_flush_delay_ms(
         // wakeup for new screen states. Only grant-exempt work wakes the owner:
         // input-caused urgent feedback, a header change the paid state will
         // not carry, and repair of a row whose newest admitted send is overdue.
-        if (header_signal != peer.last_admitted_critical_header_signal
+        if (header_signal != peer.header_signal_held(now_ms)
             && header_change_is_grant_exempt(peer, header_signal, current_row_hashes, now_ms))
             || peer.latest_input_seq != peer.last_advertised_input_seq
             || scheduler_urgent_feedback(
@@ -7911,9 +7921,7 @@ fn peer_next_flush_delay_ms(
         if peer.display_cache.has_repair_due_rows(now_ms) {
             return Some(admission_retry_delay_ms(peer, now_ms, header_signal, false));
         }
-        return peer
-            .display_cache
-            .next_row_resend_due_ms(now_ms)
+        return next_resend_due_ms(peer, now_ms)
             .map(|due_ms| (due_ms - now_ms).max(0.0).ceil() as u64);
     }
     if peer_has_display_emit_reason(
@@ -7948,9 +7956,21 @@ fn peer_next_flush_delay_ms(
         ));
         return Some(floors);
     }
-    peer.display_cache
-        .next_row_resend_due_ms(now_ms)
+    next_resend_due_ms(peer, now_ms)
         .map(|due_ms| ((due_ms - now_ms).max(0.0).ceil() as u64).max(snapshot_backoff_delay))
+}
+
+/// The earliest re-send deadline still ahead: an unconfirmed row's, or the
+/// unconfirmed header-only frame's. A header already due reads as a header
+/// change, which the emit reasons above schedule, so it adds no wakeup here.
+fn next_resend_due_ms(peer: &PeerDisplayState, now_ms: f64) -> Option<f64> {
+    match (
+        peer.display_cache.next_row_resend_due_ms(now_ms),
+        peer.header_resend_due_ms(now_ms),
+    ) {
+        (Some(rows), Some(header)) => Some(rows.min(header)),
+        (rows, header) => rows.or(header),
+    }
 }
 
 pub(crate) fn has_active_display_peers(peers: &PeerMap) -> bool {
@@ -8050,7 +8070,7 @@ fn scheduler_urgent_feedback(
     now_ms: f64,
 ) -> bool {
     let causal_input_advanced = peer.latest_input_seq != peer.last_row_advertised_input_seq;
-    let header_changed = header_signal != peer.last_admitted_critical_header_signal;
+    let header_changed = header_signal != peer.header_signal_held(now_ms);
     let cached_rows = peer.display_cache.selectable_row_shape(
         current_row_hashes,
         now_ms,
@@ -8094,14 +8114,14 @@ fn peer_has_display_emit_reason(
             || peer.latest_input_seq != peer.last_row_advertised_input_seq
             || peer.latest_input_seq != peer.last_advertised_input_seq
             || peer.presentation_end_owed
-            || (header_signal != peer.last_admitted_critical_header_signal
+            || (header_signal != peer.header_signal_held(now_ms)
                 && header_change_is_grant_exempt(peer, header_signal, current_row_hashes, now_ms))
             || peer.display_cache.has_repair_due_rows(now_ms);
     }
     terminal_dirty
         || peer.needs_snapshot
         || peer.needs_full_diff
-        || peer_has_header_only_reason(peer, header_signal)
+        || peer_has_header_only_reason(peer, header_signal, now_ms)
         || peer
             .display_cache
             .has_selectable_rows(current_row_hashes, now_ms)
@@ -8144,9 +8164,9 @@ fn peer_has_runnable_display_work(
 /// echo dead until unrelated output happened to dirty the terminal. The digest
 /// heartbeat is not a backstop for it — that frame carries generation, row
 /// hashes and an up-to sequence, and no `input_seq` at all.
-fn peer_has_header_only_reason(peer: &PeerDisplayState, header_signal: u128) -> bool {
+fn peer_has_header_only_reason(peer: &PeerDisplayState, header_signal: u128, now_ms: f64) -> bool {
     peer.latest_input_seq != peer.last_advertised_input_seq
-        || header_signal != peer.last_admitted_critical_header_signal
+        || header_signal != peer.header_signal_held(now_ms)
         || peer.presentation_end_owed
 }
 

@@ -2,14 +2,18 @@ import type { PerfGridConvergenceResponseEdge } from './worker-peer-control';
 
 export type PerfGridConvergenceComparison =
   | { readonly kind: 'converged' }
+  | { readonly kind: 'await-display' }
   | { readonly kind: 'retry'; readonly reason: 'generation' | 'dimensions' | 'sequence' }
   | { readonly kind: 'repair'; readonly rows: readonly number[] };
 
 /**
  * Compare one quiescent daemon observation with the terminal worker's current
- * authoritative state. Sequence equality is intentional: a response older OR
- * newer than the local high-water describes a different instant and must be
- * re-probed, never misclassified as divergence.
+ * authoritative state. Hashes are compared only at the exact generation and
+ * sequence the daemon reported. A response ahead of the local state names
+ * display the browser has not applied yet (still in flight, or being recovered
+ * after a loss), so the same observation holds until that display lands. A
+ * response behind it describes an older instant and must be re-probed, never
+ * misclassified as divergence.
  */
 export function comparePerfGridConvergence(
   response: PerfGridConvergenceResponseEdge,
@@ -21,7 +25,10 @@ export function comparePerfGridConvergence(
     readonly rowHashes: Uint32Array;
   },
 ): PerfGridConvergenceComparison {
-  if (response.generation !== local.generation) {
+  if (response.generation > local.generation) {
+    return { kind: 'await-display' };
+  }
+  if (response.generation < local.generation) {
     return { kind: 'retry', reason: 'generation' };
   }
   if (
@@ -31,7 +38,10 @@ export function comparePerfGridConvergence(
   ) {
     return { kind: 'retry', reason: 'dimensions' };
   }
-  if (response.lastAdmittedDisplaySeq !== local.lastAppliedDisplaySeq) {
+  if (response.lastAdmittedDisplaySeq > local.lastAppliedDisplaySeq) {
+    return { kind: 'await-display' };
+  }
+  if (response.lastAdmittedDisplaySeq < local.lastAppliedDisplaySeq) {
     return { kind: 'retry', reason: 'sequence' };
   }
 

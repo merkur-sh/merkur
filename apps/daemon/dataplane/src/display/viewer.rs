@@ -2787,9 +2787,9 @@ mod tests {
     }
 
     /// A carrier can disappear after admitting a header-only input-sequence
-    /// barrier. That record owns no rows and therefore no row re-send deadline;
-    /// retirement itself must wake the flush scheduler or the replacement
-    /// remains parked until unrelated terminal activity.
+    /// barrier. That record owns no rows; its own header re-send deadline is a
+    /// round trip away, and retirement must not wait for it: the replacement
+    /// carrier is armed at once.
     #[tokio::test(flavor = "current_thread")]
     async fn direct_carrier_replacement_wakes_a_parked_header_only_barrier() {
         const COLS: u16 = 80;
@@ -2825,10 +2825,12 @@ mod tests {
             !sim.peer_has_unacked_rows(&peer),
             "the admitted barrier must be header-only and own no row deadline",
         );
-        assert_eq!(
-            sim.flush_due_in_ms(),
-            None,
-            "a header-only in-flight attempt leaves the flush timer parked",
+        let header_due = sim
+            .flush_due_in_ms()
+            .expect("a header-only in-flight attempt keeps its re-send deadline armed");
+        assert!(
+            header_due > 0.0,
+            "inside its interval the header is presumed delivered, not re-sent",
         );
 
         sim.replace_direct_carrier(&peer);

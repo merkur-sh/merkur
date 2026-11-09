@@ -74,6 +74,7 @@ function gridConvergenceResult(
     failureReason: null,
     attempts: 1,
     selectiveRepairCount,
+    lastComparison: null,
     generation: 3,
     lastAdmittedDisplaySeq: 19,
     rows: 24,

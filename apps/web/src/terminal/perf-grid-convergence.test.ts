@@ -30,11 +30,17 @@ describe('performance grid convergence comparison', () => {
       kind: 'retry',
       reason: 'generation',
     });
+    expect(comparePerfGridConvergence(response(), { ...local, generation: 10 })).toEqual({
+      kind: 'await-display',
+    });
     expect(comparePerfGridConvergence(response(), { ...local, lastAppliedDisplaySeq: 14 })).toEqual(
       {
         kind: 'retry',
         reason: 'sequence',
       },
+    );
+    expect(comparePerfGridConvergence(response(), { ...local, lastAppliedDisplaySeq: 12 })).toEqual(
+      { kind: 'await-display' },
     );
     expect(comparePerfGridConvergence(response(), { ...local, cols: 81 })).toEqual({
       kind: 'retry',

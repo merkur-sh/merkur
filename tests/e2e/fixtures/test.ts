@@ -379,6 +379,12 @@ function isPerfGridConvergenceResult(value: unknown): value is PerfGridConvergen
     isNonNegativeSafeInteger(value.attempts) &&
     value.attempts > 0 &&
     isNonNegativeSafeInteger(value.selectiveRepairCount) &&
+    (value.lastComparison === null ||
+      value.lastComparison === 'await-display' ||
+      value.lastComparison === 'generation' ||
+      value.lastComparison === 'dimensions' ||
+      value.lastComparison === 'sequence' ||
+      value.lastComparison === 'repair') &&
     isPositiveUint32(value.generation) &&
     isUint32(value.lastAdmittedDisplaySeq) &&
     isNonNegativeSafeInteger(value.rows) &&

@@ -768,6 +768,13 @@ impl<'a> Iterator for SentRowsIter<'a> {
     }
 }
 
+/// A datagram-lane header-only frame awaiting the browser's ACK.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct HeaderOnlySend {
+    pub(crate) seq: u32,
+    pub(crate) resend_after_ms: f64,
+}
+
 pub struct SentDatagram {
     pub sent_at_ms: f64,
     pub rows: SentRows,
@@ -3056,6 +3063,13 @@ pub struct PeerDisplayState {
     /// cursor frame. Zero is the unsent sentinel (terminal dimensions make a
     /// real packed header signal non-zero).
     pub last_admitted_critical_header_signal: u128,
+    /// The datagram-lane header-only frame that carried
+    /// `last_admitted_critical_header_signal`, until the browser applies it.
+    /// A row is repaired by its own re-send deadline; a header-only state has
+    /// no row, so this is its deadline. Past it, or once an ACK proves the
+    /// frame lost, [`Self::header_signal_held`] reads zero and the next flush
+    /// admits the header again, with the `input_seq` advertisement it carries.
+    pub(crate) header_only_unconfirmed: Option<HeaderOnlySend>,
     /// A coherent non-END original was admitted and still needs a coherent
     /// END, even if subsequent terminal damage collapses to an unchanged grid.
     /// Pure obligation, no clock: it used to be a deadline that also carried a
@@ -3601,6 +3615,7 @@ impl PeerDisplayState {
             echo_horizon: 0,
             last_display_seq_sent: 0,
             last_admitted_critical_header_signal: 0,
+            header_only_unconfirmed: None,
             presentation_end_owed: false,
             display_admission_retry: DisplayAdmissionRetry::default(),
             display_credit: crate::display::credit::DisplayCredit::new(1),
@@ -3893,6 +3908,26 @@ impl PeerDisplayState {
         }
     }
 
+    /// The critical header the browser is known to hold, for deciding whether
+    /// the header must be admitted: the last admitted one, or zero (nothing is
+    /// known) once the header-only frame that carried it is unconfirmed past
+    /// its re-send deadline or proven lost.
+    pub(crate) fn header_signal_held(&self, now_ms: f64) -> u128 {
+        match self.header_only_unconfirmed {
+            Some(send) if send.resend_after_ms <= now_ms => 0,
+            _ => self.last_admitted_critical_header_signal,
+        }
+    }
+
+    /// When an unconfirmed header-only frame becomes due for re-admission,
+    /// while that is still ahead of `now_ms`. Once it is due, the header reads
+    /// as changed and needs no further wakeup.
+    pub(crate) fn header_resend_due_ms(&self, now_ms: f64) -> Option<f64> {
+        self.header_only_unconfirmed
+            .map(|send| send.resend_after_ms)
+            .filter(|&due_ms| due_ms > now_ms)
+    }
+
     /// Retire display work owned exclusively by one displaced carrier. Attempts
     /// that also rode the other path stay valid; sole-path rows and header state
     /// become immediately sendable on the survivor.
@@ -3900,6 +3935,7 @@ impl PeerDisplayState {
         let (requeued_rows, header_retired) = self.display_cache.retire_path_attempts(path);
         if header_retired {
             self.last_admitted_critical_header_signal = 0;
+            self.header_only_unconfirmed = None;
         }
         if header_retired
             || self
@@ -3964,6 +4000,7 @@ impl PeerDisplayState {
         // question of a header change that was in flight at the break. A
         // routing word in flight on the old carrier is resent on the same terms.
         self.last_admitted_critical_header_signal = 0;
+        self.header_only_unconfirmed = None;
         self.input_routing_sent = None;
         // Carrier delivery/loss evidence is attachment-scoped. A successor can
         // share the display generation and the edge's daemon-facing QUIC half,
@@ -3993,6 +4030,7 @@ impl PeerDisplayState {
         self.last_datagram_seq = 0;
         self.last_display_seq_sent = 0;
         self.last_admitted_critical_header_signal = 0;
+        self.header_only_unconfirmed = None;
         self.input_routing_sent = None;
         self.presentation_end_owed = false;
         self.row_presentation_head = 0;

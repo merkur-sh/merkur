@@ -41,6 +41,14 @@ export interface TerminalWorkerDiagnostics {
 
 export type PerfGridConvergenceFailureReason = 'not-ready' | 'mismatch' | 'superseded' | 'timeout';
 
+/** What the last daemon observation compared as before the probe finished. */
+export type PerfGridConvergenceLastComparison =
+  | 'await-display'
+  | 'generation'
+  | 'dimensions'
+  | 'sequence'
+  | 'repair';
+
 export interface PerfGridConvergenceResult {
   readonly observationEpoch: number;
   readonly probeId: number;
@@ -48,6 +56,8 @@ export interface PerfGridConvergenceResult {
   readonly failureReason: PerfGridConvergenceFailureReason | null;
   readonly attempts: number;
   readonly selectiveRepairCount: number;
+  /** Null when converged on the first comparison, or when no response arrived. */
+  readonly lastComparison: PerfGridConvergenceLastComparison | null;
   readonly generation: number;
   readonly lastAdmittedDisplaySeq: number;
   readonly rows: number;

@@ -1597,6 +1597,83 @@ fn an_unacked_row_stays_schedulable_and_becomes_runnable_at_its_deadline() {
     );
 }
 
+/// A lost header-only frame has no row for the row re-send deadline to repair,
+/// so it carries its own: the header (with the `input_seq` advertisement a
+/// key that changed nothing visible leaves) must come back once that deadline
+/// passes unconfirmed, with no ACK, NACK or terminal damage to raise an edge.
+#[test]
+fn an_unconfirmed_header_only_frame_is_readmitted_at_its_deadline() {
+    use crate::connection::{HeaderOnlySend, PerPeerDisplayCache};
+
+    let resend_interval_ms = DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS;
+    let sent_at_ms = 1_000.0;
+    let header = 0x1234_u128;
+
+    let mut peer = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
+    peer.authenticated = true;
+    peer.noise = Some(established_daemon_noise());
+    peer.needs_snapshot = false;
+    peer.display_cache = PerPeerDisplayCache::new();
+    peer.display_cache.resize(2, 1);
+    peer.display_cache.acked_row_exact[0] = true;
+    peer.display_cache.sent_row_confirmed[0] = true;
+    let current = vec![peer.display_cache.acked_row_hashes[0]];
+    peer.last_admitted_critical_header_signal = header;
+    peer.header_only_unconfirmed = Some(HeaderOnlySend {
+        seq: 1,
+        resend_after_ms: sent_at_ms + resend_interval_ms,
+    });
+    peer.last_display_seq_sent = 1;
+
+    assert!(
+        !peer_has_runnable_display_work(&peer, false, header, &current, sent_at_ms),
+        "inside its interval the header is presumed delivered",
+    );
+    let due_ms = sent_at_ms + resend_interval_ms;
+    assert_eq!(peer.header_resend_due_ms(sent_at_ms), Some(due_ms));
+    assert!(
+        peer_next_flush_delay_ms(
+            &peer,
+            PendingDisplayDamage::CLEAN,
+            header,
+            &current,
+            sent_at_ms
+        )
+        .is_some_and(|delay_ms| delay_ms > 0),
+        "the owner loop must stay awake for the header's re-send deadline",
+    );
+
+    assert_eq!(peer.header_signal_held(due_ms), 0);
+    assert!(
+        peer_has_runnable_display_work(&peer, false, header, &current, due_ms),
+        "an unconfirmed header past its deadline is runnable with no event required",
+    );
+    assert_eq!(
+        peer_next_flush_delay_ms(&peer, PendingDisplayDamage::CLEAN, header, &current, due_ms),
+        Some(0),
+    );
+
+    // Confirmed, it is quiet for good.
+    peer.header_only_unconfirmed = None;
+    assert!(!peer_has_runnable_display_work(
+        &peer,
+        false,
+        header,
+        &current,
+        due_ms + 10_000.0
+    ));
+    assert_eq!(
+        peer_next_flush_delay_ms(
+            &peer,
+            PendingDisplayDamage::CLEAN,
+            header,
+            &current,
+            due_ms + 10_000.0
+        ),
+        None,
+    );
+}
+
 /// A peer whose browser is gone must not be offered the whole screen every
 /// flush interval for the length of the carrier-gap window.
 ///
@@ -12921,7 +12998,11 @@ async fn a_refused_causal_header_remains_pending_until_a_carrier_accepts_it() {
         "a carrier refusal must preserve the causal retry predicate"
     );
     assert!(
-        peer_has_header_only_reason(&peers[&peer_id], terminal.current_display_header_signal()),
+        peer_has_header_only_reason(
+            &peers[&peer_id],
+            terminal.current_display_header_signal(),
+            100.0
+        ),
         "the next owner-loop turn must still see runnable header work"
     );
 
@@ -13429,15 +13510,23 @@ async fn owed_same_grid_end_retries_without_spinning_and_parks_after_admission()
     let peer = &peers[&peer_id];
     assert!(!peer.presentation_end_owed);
     assert_eq!(peer.display_admission_retry.until_ms, 0.0);
-    assert_eq!(
+    // Parked, not spinning: the only wakeup left is the admitted header-only
+    // END's own re-send deadline, a full interval away.
+    let header_due_ms = peer
+        .header_only_unconfirmed
+        .expect("the admitted END is a header-only frame awaiting its ACK")
+        .resend_after_ms;
+    assert!(header_due_ms > 101.0);
+    assert_eq!(peer.header_resend_due_ms(101.0), Some(header_due_ms));
+    assert!(
         peer_next_flush_delay_ms(
             peer,
             PendingDisplayDamage::CLEAN,
             terminal.current_display_header_signal(),
             &current,
             101.0
-        ),
-        None
+        )
+        .is_some_and(|delay_ms| delay_ms > 0)
     );
 }
 

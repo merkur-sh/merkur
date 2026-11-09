@@ -15,8 +15,8 @@ use tracing::debug;
 #[cfg(test)]
 use crate::connection::DisplayDatagramProtection;
 use crate::connection::{
-    DisplayDatagramOutcome, PeerDisplayState, PeerMap, PeerTransport, PerPeerDisplayCache, SentRow,
-    TransportHint,
+    DisplayDatagramOutcome, HeaderOnlySend, PeerDisplayState, PeerMap, PeerTransport,
+    PerPeerDisplayCache, SentRow, TransportHint,
 };
 use crate::display::planner::ReceiverProfileBucket;
 use crate::display::policy::{DISPLAY_ACK_MASK_WINDOW, DISPLAY_ACK_MASK_WORDS, LOSS_PACKET_THRESHOLD};
@@ -541,6 +541,19 @@ pub(crate) fn handle_display_ack(
             }
         };
         peer.display_cache.record_datagram_outcome(&sent, outcome);
+        if peer
+            .header_only_unconfirmed
+            .is_some_and(|send| send.seq == seq)
+        {
+            // Applied, the browser holds the header. Lost or expired, it holds
+            // no copy, so the header is due again now rather than at its
+            // re-send deadline.
+            peer.header_only_unconfirmed =
+                (resolution != DisplayAckResolution::Applied).then_some(HeaderOnlySend {
+                    seq,
+                    resend_after_ms: now_ms,
+                });
+        }
         if resolution == DisplayAckResolution::Lost {
             // Retire the entry, but do NOT disown its rows from here. A row this
             // datagram carried may already have been re-sent at a newer sequence
@@ -2099,6 +2112,73 @@ mod tests {
             },
         );
         peer
+    }
+
+    /// A header-only frame is the only carrier of a header change (and of the
+    /// `input_seq` advertisement a non-echoing key leaves); no row repair can
+    /// bring it back. An ACK that applies it retires its deadline, and one that
+    /// proves it lost makes the header due at once.
+    #[test]
+    fn an_ack_retires_or_reopens_the_unconfirmed_header_only_frame() {
+        let (event_tx, _event_rx) = unbounded();
+        let mut terminal = TerminalState::new(1, 1, event_tx);
+        let header_only_peer = |terminal: &mut TerminalState| {
+            let mut peer = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
+            peer.generation = 1;
+            peer.display_cache.resize(1, 1);
+            for seq in 1..=4 {
+                peer.display_cache.sent_datagrams.insert(
+                    seq,
+                    SentDatagram {
+                        mz: crate::connection::SentMz::default(),
+                        sent_at_ms: f64::from(seq),
+                        rows: SentRows::default(),
+                        sent_via: SentPaths::single(PeerTransport::Edge),
+                        header_only: true,
+                        reliable: false,
+                        protection: DisplayDatagramProtection::Unprotected,
+                    },
+                );
+            }
+            peer.last_display_seq_sent = 4;
+            let header = terminal.current_display_header_signal();
+            peer.last_admitted_critical_header_signal = header;
+            peer.header_only_unconfirmed = Some(HeaderOnlySend {
+                seq: 1,
+                resend_after_ms: 1_000.0,
+            });
+            (peer, header)
+        };
+
+        let (mut applied, header) = header_only_peer(&mut terminal);
+        handle_display_ack(
+            &mut applied,
+            DisplayAck::dense(1, 4),
+            20.0,
+            PeerTransport::Edge,
+            &terminal_row_hashes(&mut terminal),
+            false,
+        );
+        assert_eq!(applied.header_only_unconfirmed, None);
+        assert_eq!(applied.header_signal_held(2_000.0), header);
+
+        let (mut lost, header) = header_only_peer(&mut terminal);
+        assert_eq!(lost.header_signal_held(20.0), header);
+        handle_display_ack(
+            &mut lost,
+            // Sequences 4, 3 and 2 applied; 1 is behind three successors.
+            DisplayAck::new(1, 4, [0b0111, 0, 0, 0]),
+            20.0,
+            PeerTransport::Edge,
+            &terminal_row_hashes(&mut terminal),
+            false,
+        );
+        assert_eq!(
+            lost.header_signal_held(20.0),
+            0,
+            "a lost header-only frame leaves the browser no known header"
+        );
+        assert_eq!(lost.header_resend_due_ms(20.0), None);
     }
 
     #[test]

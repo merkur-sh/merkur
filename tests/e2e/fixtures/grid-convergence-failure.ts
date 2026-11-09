@@ -15,6 +15,15 @@ export function gridConvergenceFailureDetail(value: unknown): string {
     result.failureReason === 'mismatch'
   )
     fields.push(`failureReason=${result.failureReason}`);
+  if (
+    result.lastComparison === null ||
+    result.lastComparison === 'await-display' ||
+    result.lastComparison === 'generation' ||
+    result.lastComparison === 'dimensions' ||
+    result.lastComparison === 'sequence' ||
+    result.lastComparison === 'repair'
+  )
+    fields.push(`lastComparison=${result.lastComparison}`);
   for (const key of [
     'observationEpoch',
     'probeId',
