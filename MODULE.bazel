@@ -1,5 +1,6 @@
 module(name = "merkur")
 
+bazel_dep(name = "apple_support", version = "1.24.2")
 bazel_dep(name = "aspect_rules_js", version = "3.5.1")
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
@@ -51,17 +52,14 @@ rust.toolchain(
     edition = "2024",
     # SSSE3 is the x86_64 CPU floor: merkur-fec's one x86_64 SIMD lane is `pshufb`, and the crate
     # refuses to compile without it.
-    # getrandom picks no entropy source for wasm32-unknown-unknown on its own; the browser's
-    # is `crypto.getRandomValues`.
     extra_rustc_flags_triples = {
-        "wasm32-unknown-unknown": ['--cfg=getrandom_backend="wasm_js"'],
         "x86_64-apple-darwin": ["-Ctarget-feature=+ssse3"],
         "x86_64-unknown-linux-gnu": ["-Ctarget-feature=+ssse3"],
     },
+    # The browser's wasm32-unknown-unknown is `//tools/bazel/rust`'s toolchain, not one of these.
     extra_target_triples = [
         "aarch64-apple-darwin",
         "aarch64-unknown-linux-gnu",
-        "wasm32-unknown-unknown",
         "x86_64-apple-darwin",
         "x86_64-unknown-linux-gnu",
     ],
@@ -85,7 +83,6 @@ rust.toolchain(
         "llvm-tools-1.99.0-x86_64-unknown-linux-gnu.tar.xz": "91a6db5668c08ee68e330e5b0fda27c11b79b90592627e89f7c5db12af2ff0ba",
         "rust-std-1.99.0-aarch64-apple-darwin.tar.xz": "a7c6de8aa21e7c31163a7656295b321bb85f5dce55ed8ea95ac9ac561202bb5b",
         "rust-std-1.99.0-aarch64-unknown-linux-gnu.tar.xz": "1cf7e2ef58ed1cfa6f1adea18e155cbf254c1951f39e5f5e3376879f55fd64a4",
-        "rust-std-1.99.0-wasm32-unknown-unknown.tar.xz": "b760b0c9b08a6843c05de0098bd6802e23178ff473c4715ae57c1d679125bf22",
         "rust-std-1.99.0-x86_64-apple-darwin.tar.xz": "18ee81961a73c3ae966ecb1e8f6096438c90aeefece8856201a6ecc17f5bc850",
         "rust-std-1.99.0-x86_64-unknown-linux-gnu.tar.xz": "3e58dff2d0b72196b5ea4e90536e174d400de88564a52694686b81e091169933",
         "rustc-1.99.0-aarch64-apple-darwin.tar.xz": "334a66714ca316d71bbe5efe44f71762d0b276cea73be2987374693a837f7450",
@@ -95,9 +92,19 @@ rust.toolchain(
     },
     versions = ["1.99.0"],
 )
-use_repo(rust, "rust_toolchains")
+use_repo(
+    rust,
+    "rust_linux_aarch64__aarch64-unknown-linux-gnu__stable_tools",
+    "rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools",
+    "rust_macos_aarch64__aarch64-apple-darwin__stable_tools",
+    "rust_macos_x86_64__x86_64-apple-darwin__stable_tools",
+    "rust_toolchains",
+)
 
-register_toolchains("@rust_toolchains//:all")
+register_toolchains(
+    "@rust_toolchains//:all",
+    "//tools/bazel/rust:all",
+)
 
 # Third-party crates resolve from the workspace manifests and `Cargo.lock`, which stay the source
 # of truth; the `[patch.crates-io]` crates outside the workspace resolve as local mirrors.
@@ -232,6 +239,30 @@ http_archive(
     sha256 = "63b2bcd2a1800a143d51590784bb84caa98a695cf65614364968a8be9cd31173",
     urls = ["https://commondatastorage.googleapis.com/chrome-linux-sysroot/63b2bcd2a1800a143d51590784bb84caa98a695cf65614364968a8be9cd31173"],
     type = "tar.xz",
+)
+
+# The browser's standard library alone, which `//tools/bazel/rust`'s wasm32 toolchain pairs with the
+# host's own rustc. rules_rust's toolchain for a target triple unpacks a second rustc, clippy, cargo,
+# rustfmt and llvm-tools beside it, 460 MB that took 55-70 s of every CI Bazel job.
+http_archive(
+    name = "rust_std_wasm32",
+    build_file_content = '''load("@rules_rust//rust:toolchain.bzl", "rust_stdlib_filegroup")
+
+rust_stdlib_filegroup(
+    name = "rust_std",
+    srcs = glob([
+        "lib/rustlib/wasm32-unknown-unknown/lib/*.rlib",
+        "lib/rustlib/wasm32-unknown-unknown/lib/*.rmeta",
+        "lib/rustlib/wasm32-unknown-unknown/lib/*.wasm*",
+        "lib/rustlib/wasm32-unknown-unknown/lib/*.a",
+        "lib/rustlib/wasm32-unknown-unknown/lib/self-contained/**",
+    ], allow_empty = True),
+    visibility = ["//visibility:public"],
+)
+''',
+    sha256 = "b760b0c9b08a6843c05de0098bd6802e23178ff473c4715ae57c1d679125bf22",
+    strip_prefix = "rust-std-1.99.0-wasm32-unknown-unknown/rust-std-wasm32-unknown-unknown",
+    urls = ["https://static.rust-lang.org/dist/rust-std-1.99.0-wasm32-unknown-unknown.tar.xz"],
 )
 
 http_archive(

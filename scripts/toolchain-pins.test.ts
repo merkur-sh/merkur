@@ -20,6 +20,22 @@ test('Bazel builds with the Rust release rust-toolchain.toml names', () => {
   expect(captures('MODULE.bazel', /versions = \["([^"]+)"\]/g)).toEqual([channel ?? '']);
   for (const archive of captures('MODULE.bazel', /"[a-z-]+-(\d+\.\d+\.\d+)-[a-z0-9_-]+\.tar\.xz"/g))
     expect(archive).toBe(channel ?? '');
+  for (const archive of captures(
+    'MODULE.bazel',
+    /rust-std-(\d+\.\d+\.\d+)-wasm32-unknown-unknown/g,
+  ))
+    expect(archive).toBe(channel ?? '');
+  expect(captures('tools/bazel/rust/BUILD.bazel', /^_RUST_VERSION = "([^"]+)"$/gm)).toEqual([
+    channel ?? '',
+  ]);
+});
+
+test('macOS builds declare the Xcode .xcode-version names', () => {
+  const pinned = read('.xcode-version').trim();
+  const versions = captures('tools/bazel/BUILD.bazel', /^ {4}version = "([^"]+)",$/gm);
+  expect(versions.length).toBe(1);
+  // The declared version adds the build, `26.5.0.17F42` for `26.5.0`.
+  expect(versions[0]?.startsWith(`${pinned}.`)).toBe(true);
 });
 
 test('Bazel and CI run the Bun release .bun-version names', () => {

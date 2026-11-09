@@ -1,3 +1,5 @@
+load("@apple_support//xcode:xcode_config.bzl", "xcode_config")
+load("@apple_support//xcode:xcode_version.bzl", "xcode_version")
 load("//tools/bazel:files.bzl", "package_files")
 
 package(default_visibility = ["//visibility:public"])
@@ -8,3 +10,30 @@ exports_files([
     "files.bzl",
     "sources.bzl",
 ])
+
+# The Xcode every macOS build uses, `.xcode-version`'s, which a macOS host's `.bazelrc` line names
+# in place of Bazel's probe of every Xcode installed (41-67 s on a CI runner, before any macOS
+# action may run). The strings are the probe's for that Xcode, so no action's key moves;
+# `scripts/toolchain-pins.test.ts` holds the version to `.xcode-version`.
+xcode_version(
+    name = "xcode_26_5_0_17F42",
+    aliases = [
+        "26",
+        "26.5",
+        "26.5.0",
+        "26.5.0.17F42",
+        "17F42",
+    ],
+    default_ios_sdk_version = "26.5",
+    default_macos_sdk_version = "26.5",
+    default_tvos_sdk_version = "26.5",
+    default_visionos_sdk_version = "26.5",
+    default_watchos_sdk_version = "26.5",
+    version = "26.5.0.17F42",
+)
+
+xcode_config(
+    name = "xcode",
+    default = ":xcode_26_5_0_17F42",
+    versions = [":xcode_26_5_0_17F42"],
+)

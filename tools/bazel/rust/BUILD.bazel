@@ -1,3 +1,4 @@
+load("@rules_rust//rust:toolchain.bzl", "rust_toolchain")
 load("//tools/bazel:files.bzl", "package_files")
 
 package(default_visibility = ["//visibility:public"])
@@ -9,3 +10,70 @@ config_setting(
     name = "wasm32",
     constraint_values = ["@platforms//cpu:wasm32"],
 )
+
+# The Rust release `rust-toolchain.toml` names; `scripts/toolchain-pins.test.ts` holds it equal.
+_RUST_VERSION = "1.99.0"
+
+# The hosts that build WebAssembly, each with the rules_rust repository of its own native toolchain.
+_HOSTS = {
+    "aarch64-apple-darwin": ("rust_macos_aarch64__aarch64-apple-darwin__stable_tools", "aarch64", "osx"),
+    "aarch64-unknown-linux-gnu": ("rust_linux_aarch64__aarch64-unknown-linux-gnu__stable_tools", "aarch64", "linux"),
+    "x86_64-apple-darwin": ("rust_macos_x86_64__x86_64-apple-darwin__stable_tools", "x86_64", "osx"),
+    "x86_64-unknown-linux-gnu": ("rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools", "x86_64", "linux"),
+}
+
+# wasm32-unknown-unknown: the host's rustc, rust-lld and tools, which already compile for every
+# target, with the browser's standard library (`@rust_std_wasm32`). These are the attributes
+# rules_rust gives its own toolchain for the triple.
+[rust_toolchain(
+    name = "wasm32_on_" + host,
+    binary_ext = ".wasm",
+    cargo = "@%s//:cargo" % repository,
+    cargo_clippy = "@%s//:cargo_clippy_bin" % repository,
+    channel = "stable",
+    clippy_driver = "@%s//:clippy_driver_bin" % repository,
+    default_edition = "2024",
+    dylib_ext = ".wasm",
+    exec_triple = host,
+    # getrandom picks no entropy source for wasm32-unknown-unknown on its own; the browser's is
+    # `crypto.getRandomValues`.
+    extra_rustc_flags = ['--cfg=getrandom_backend="wasm_js"'],
+    linker = "@%s//:rust-lld" % repository,
+    linker_type = "direct",
+    llvm_cov = "@%s//:llvm_cov_bin" % repository,
+    llvm_lib = "@%s//:llvm_lib" % repository,
+    llvm_profdata = "@%s//:llvm_profdata_bin" % repository,
+    opt_level = {
+        "dbg": "0",
+        "fastbuild": "1",
+        "opt": "3",
+    },
+    rust_doc = "@%s//:rustdoc" % repository,
+    rust_objcopy = "@%s//:rust-objcopy" % repository,
+    rust_std = "@rust_std_wasm32//:rust_std",
+    rustc = "@%s//:rustc" % repository,
+    rustc_lib = "@%s//:rustc_lib" % repository,
+    rustfmt = "@%s//:rustfmt_bin" % repository,
+    staticlib_ext = ".a",
+    stdlib_linkflags = [],
+    # Out of `//...`: analyzing all four would fetch every host's toolchain on every host; toolchain
+    # resolution analyzes only the one the build runs on.
+    tags = ["manual"],
+    target_triple = "wasm32-unknown-unknown",
+    version = _RUST_VERSION,
+) for host, (repository, _, _) in _HOSTS.items()]
+
+[toolchain(
+    name = "wasm32_on_%s_toolchain" % host,
+    exec_compatible_with = [
+        "@platforms//cpu:" + cpu,
+        "@platforms//os:" + os,
+    ],
+    target_compatible_with = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:none",
+    ],
+    target_settings = ["@rules_rust//rust/toolchain/channel:stable"],
+    toolchain = ":wasm32_on_" + host,
+    toolchain_type = "@rules_rust//rust:toolchain",
+) for host, (_, cpu, os) in _HOSTS.items()]

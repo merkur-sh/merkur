@@ -79,6 +79,12 @@ build:macos_aarch64 --platforms=//tools/bazel/platforms:macos_aarch64
 build --macos_minimum_os=13.0
 build --host_macos_minimum_os=13.0
 
+# On a macOS host, the Xcode `.xcode-version` names, declared rather than probed: Bazel's probe asks
+# every installed Xcode for its version and SDKs, 41-67 s on a CI runner with seven of them, and no
+# macOS compile or link starts before it ends (`//tools/bazel:xcode`).
+common --enable_platform_specific_config
+common:macos --xcode_version_config=//tools/bazel:xcode
+
 # BuildBuddy's remote cache, which CI alone writes. A workstation reads it on the commands that
 # build the whole tree or install its programs (`test:unit`, `check`, `build:native`,
 # `build:wasm`), which name `--config=remote-cache`: what CI built and the workstation never did

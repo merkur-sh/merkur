@@ -70,7 +70,7 @@ Every toolchain is prebuilt and pinned by digest, with one source of truth each,
 
 | Tool | Pinned by |
 | --- | --- |
-| Rust | `rust-toolchain.toml`, through `rules_rust` |
+| Rust | `rust-toolchain.toml`, through `rules_rust`; WebAssembly compiles with the host's own rustc and the release's wasm32 standard library (`@rust_std_wasm32`, the toolchains in `tools/bazel/rust/BUILD.bazel`), not a second copy of the compiler |
 | Bun | `.bun-version` (`tools/bazel/bun/extensions.bzl`) |
 | Node | `.node-version`, through `rules_nodejs` |
 | pnpm | `packageManager` in `package.json` |
@@ -83,8 +83,10 @@ macOS builds use the selected Xcode's SDK, and the Secure Enclave bridge its Swi
 `.xcode-version` names the Xcode: CI moves its copy to `/Applications/Xcode-<version>.app`, where
 Xcodes installs it on a workstation (`xcodes install <version> --select`), because the SDK's real
 path is in every macOS link's and C build script's key; another Xcode builds correctly but reads
-nothing of CI's from the remote cache (`bun run dev:doctor` says so). `.bazelrc` pins the
-minimum macOS to the daemon's, 13, rather than the SDK's version.
+nothing of CI's from the remote cache (`bun run dev:doctor` says so). A macOS host declares that
+Xcode (`//tools/bazel:xcode`, which `.bazelrc` names) rather than having Bazel probe every installed
+Xcode before its first macOS action; the declaration carries the probe's own strings, so it moves
+no key. `.bazelrc` pins the minimum macOS to the daemon's, 13, rather than the SDK's version.
 
 `//tools/bazel/native:natlab_runtime` copies the pinned target-platform Bun and Node executables
 into declared build outputs. The NAT lab stages these files with its Linux native programs into
