@@ -104,6 +104,11 @@ common:remote-cache --guard_against_concurrent_changes=lite
 common:remote-cache --remote_cache_compression
 common:ci --config=remote-cache
 common:ci --remote_upload_local_results
+# Every external archive is pinned by checksum. A runner starts with no repository cache, so without
+# this each job fetched them from GitHub and the other release hosts, and one outage there failed
+# every job of a release. BuildBuddy's Remote Asset API serves a checksum it has fetched before from
+# its own store, so an outage at the origin reaches no job once an archive has been fetched once.
+common:ci --experimental_remote_downloader=grpcs://remote.buildbuddy.io
 # A remote cache lookup waits on the network, about half a second from a runner; with one action in
 # flight per CPU, the lookups held a four-CPU runner to well under half its CPUs. The CPU and memory
 # each action reserves still bound what runs locally.
