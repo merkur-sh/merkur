@@ -4583,12 +4583,17 @@ impl Terminal {
         bits
     }
 
+    /// Whether the presented grid shows the editor anchor and dimensions the
+    /// applied one holds: the condition a speculative line is seeded under.
+    pub(crate) fn prediction_anchor_presented(&self) -> bool {
+        self.presentation_editor_anchor == self.editor_anchor
+            && self.presentation_editor_anchor_generation == self.editor_anchor_generation
+            && self.presentation_grid.columns() == self.term.grid().columns()
+            && self.presentation_grid.screen_lines() == self.term.grid().screen_lines()
+    }
+
     fn ensure_shadow_line(&mut self, visible: bool) -> bool {
-        if self.presentation_editor_anchor != self.editor_anchor
-            || self.presentation_editor_anchor_generation != self.editor_anchor_generation
-            || self.presentation_grid.columns() != self.term.grid().columns()
-            || self.presentation_grid.screen_lines() != self.term.grid().screen_lines()
-        {
+        if !self.prediction_anchor_presented() {
             self.ensure_refusal = CursorCause::FlushAnchorNotPresented;
             return false;
         }

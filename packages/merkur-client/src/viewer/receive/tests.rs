@@ -195,6 +195,10 @@ impl DisplayGrid for FakeGrid {
         false
     }
 
+    fn prediction_anchor_presented(&self) -> bool {
+        true
+    }
+
     fn alt_screen_active(&self) -> bool {
         false
     }

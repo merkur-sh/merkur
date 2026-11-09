@@ -200,8 +200,15 @@ impl Prediction {
         self.authority_revision = self.authority_revision.wrapping_add(1);
     }
 
+    /// Whether the next printable would be modelled: the host's admission
+    /// question, so it includes the grid's own seeding condition. A host that
+    /// types once this is true never seals a line on an anchor it has applied
+    /// but not yet presented.
     pub(super) fn armed<G: DisplayGrid>(&self, grid: &G, epoch_reset: bool) -> bool {
-        !epoch_reset && !self.barrier.is_open() && grid.prediction_granted()
+        !epoch_reset
+            && !self.barrier.is_open()
+            && grid.prediction_granted()
+            && grid.prediction_anchor_presented()
     }
 
     pub(super) fn authoritative_input(&self) -> u32 {

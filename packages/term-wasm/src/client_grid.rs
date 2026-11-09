@@ -176,6 +176,10 @@ impl DisplayGrid for ClientGrid {
         self.terminal.prediction_granted()
     }
 
+    fn prediction_anchor_presented(&self) -> bool {
+        self.terminal.prediction_anchor_presented()
+    }
+
     fn alt_screen_active(&self) -> bool {
         self.terminal.alt_screen_active()
     }

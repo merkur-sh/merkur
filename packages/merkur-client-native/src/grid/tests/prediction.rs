@@ -112,6 +112,14 @@ impl Prompt {
     /// A session whose snapshot shows `PROMPT` under `mode_flags`, anchored
     /// after it.
     fn new(mode_flags: u32) -> Self {
+        let mut prompt = Self::unpresented(mode_flags);
+        prompt.viewer.present_now(0.0);
+        prompt
+    }
+
+    /// The same prompt with its snapshot and anchor applied but not yet
+    /// presented.
+    fn unpresented(mode_flags: u32) -> Self {
         let mut viewer = Viewer::new(NativeGrid::new(COLS, ROWS));
         viewer.fence(0.0, DisplayFence { lineage: 1 });
         viewer.receive(
@@ -131,7 +139,6 @@ impl Prompt {
             &encode_proto_frame(MSG_TYPE_EDITOR_ANCHOR, &anchor),
             NUMBERING,
         );
-        viewer.present_now(0.0);
         Self {
             viewer,
             seq: 0,
@@ -190,6 +197,23 @@ fn typed_keys_are_modelled_confirmed_by_their_echo_and_then_shown() {
     let stats = prompt.stats();
     assert_eq!((stats.confirmed, stats.mismatched), (3, 0));
     assert_eq!(stats.state, PredictionState::Visible);
+}
+
+/// `armed` is a host's admission question. A prompt whose anchor the grid has
+/// applied but not presented refuses the first key and seals the line behind
+/// it, so a host that typed on `armed` modelled none of the line.
+#[test]
+fn armed_waits_for_the_prompt_anchor_to_be_presented() {
+    let mut prompt = Prompt::unpresented(PREDICTION_SAFE);
+    assert!(
+        !prompt.viewer.prediction_armed(),
+        "an applied but unpresented anchor cannot seed a line"
+    );
+    prompt.viewer.present_now(prompt.now);
+    assert!(prompt.viewer.prediction_armed());
+    assert!(prompt.typed('l'), "the first key after `armed` is modelled");
+    assert!(prompt.typed('s'));
+    assert_eq!(prompt.stats().modelled, 2);
 }
 
 #[test]

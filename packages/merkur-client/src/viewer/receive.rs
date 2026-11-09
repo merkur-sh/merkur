@@ -109,6 +109,10 @@ pub trait DisplayGrid {
     /// Whether the mode word carries the daemon's authenticated prompt grant
     /// (`terminalModeAllowsPrediction`).
     fn prediction_granted(&self) -> bool;
+    /// Whether the presented grid shows the editor anchor and dimensions the
+    /// applied one holds, which a speculative line is seeded from. Until it
+    /// does, a printable is refused and seals the line.
+    fn prediction_anchor_presented(&self) -> bool;
     fn alt_screen_active(&self) -> bool;
     /// The daemon's prompt anchor; closed voids it.
     fn set_editor_anchor(&mut self, generation: u32, row: u16, col: u16, open: bool);
