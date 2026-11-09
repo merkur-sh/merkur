@@ -133,6 +133,8 @@ async function harness() {
     firstDisplayGpuFence: { awaitingFirstApplied: () => false, resetEpoch() {} },
     perfEnabled: false,
     perfWriter: null,
+    pendingPerfGridConvergence: null,
+    evaluatePerfGridConvergence() {},
     syncDimensionsFromWasm() {},
     updatePhysDimensions() {},
     offscreenCanvas: { width: 0, height: 0 },

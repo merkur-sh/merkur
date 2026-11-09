@@ -150,6 +150,8 @@ async function createRoutingHarness(committedMode: number) {
     observedViewerPresentations: 0,
     resumePresentationPending: false,
     perfEnabled: false,
+    pendingPerfGridConvergence: null,
+    evaluatePerfGridConvergence() {},
     performance: { now: () => now },
     self: {
       postMessage: (event: (typeof posts)[number]) => {
