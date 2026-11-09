@@ -106,6 +106,7 @@ and `bun run profile:diff a.json.gz b.json.gz bazel-slow-actions` compares two r
 - A Bun test's inputs are its module target (`tools/bazel/modules.bzl`); a test that reruns too
   often depends on more than it reads, often through a literal URL naming a directory or the
   repository's root.
-- On CI, each test job keeps its run's profile as the `bazel-profile-<OS>-<run id>` artifact
+- On CI, each test job (`linux`, `macos-dataplane`, `macos`) keeps its run's profile as the
+  `bazel-profile-<job>-<run id>` artifact
   (`gh run download <run id> --pattern 'bazel-profile-*'`), which the same queries read; the
   BuildBuddy invocation link the job prints shows the timing and every cache miss too.
