@@ -245,7 +245,7 @@ export function exactValueCommand(value: string, marker: string): string {
   const first = shellQuote(marker.slice(0, splitAt));
   const second = shellQuote(marker.slice(splitAt));
   return (
-    `actual=${quoted}; actual_hex=$(printf '%s' "$actual" | od -An -tx1 | tr -d ' \\n'); ` +
+    `actual=${quoted}; actual_hex=$(printf '%s' "$actual" | od -An -v -tx1 | tr -d ' \\n'); ` +
     `[ "$actual_hex" = '${expectedHex}' ] && printf '%s%s\\n' ${first} ${second}\n`
   );
 }
