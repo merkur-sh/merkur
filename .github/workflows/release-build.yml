@@ -115,7 +115,9 @@ jobs:
       - name: Build server, web, edge and STUN once
         run: |
           mkdir -p dist/ci-release
+          # Downloaded, not referenced in the remote cache: see scripts/ci/build-daemon.sh.
           identity=(
+            --remote_download_outputs=all
             "--//tools/bazel/release:commit=$COMMIT"
             "--//tools/bazel/release:version=$VERSION"
             "--//tools/bazel/release:release_public_key=$MERKUR_RELEASE_MLDSA87_PUBLIC_KEY"
@@ -123,7 +125,7 @@ jobs:
           )
           bazel build --config=release "${identity[@]}" //tools/bazel/release:deployment
           cp "$(bazel info --config=release "${identity[@]}" execution_root)/$(bazel cquery --config=release "${identity[@]}" --output=files //tools/bazel/release:deployment)" dist/ci-release/deployment.tar.gz
-          bazel run --config=release //tools/bazel/release:service_binaries
+          bazel run --config=release --remote_download_outputs=all //tools/bazel/release:service_binaries
           cp dist/services/merkur-edge dist/services/merkur-stun dist/ci-release/
           cp apps/daemon/NOTICES.txt dist/ci-release/NOTICES.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -5,8 +5,12 @@ set -euo pipefail
 mkdir -p dist/ci-release
 # The CLI embeds the notices of the shipped dependency closure.
 bun run scripts/generate-third-party-notices.ts
+# Every output this build reads is downloaded, not left in the remote cache: a release starts
+# from a cache that may have evicted what an earlier action wrote, and an intermediate that is
+# only referenced there fails the build ("Lost inputs no longer available remotely").
 flags=(
   --config=release
+  --remote_download_outputs=all
   "--//tools/bazel/release:version=$VERSION"
   "--//tools/bazel/release:sequence=$SEQUENCE"
   "--//tools/bazel/release:release_public_key=$MERKUR_RELEASE_MLDSA87_PUBLIC_KEY"
