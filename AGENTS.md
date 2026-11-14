@@ -141,7 +141,7 @@ CI verifies; this machine runs the narrowest proof. Several sessions and Docker 
 share it, so tree-wide runs (the static gates, `bun run gates --run`, `check`, test
 suites, e2e, long Docker runs) happen locally only when the owner asks for one. Locally,
 run the one test file or `bazel test //<crate dir>:unit --test_arg=<filter>` that reproduces
-the failure and then passes. The pre-commit hook checks the staged files (secrets, ratchet, anti-slop);
+the failure and then passes. The pre-commit hook checks staged files (secrets, ratchet, anti-slop, CodeQL);
 never bypass it. Then commit, push, and follow the CI run (`gh run watch`) to its end; a
 red run your change caused is fixed in the next commit. Do not chase failures provably
 outside the change.

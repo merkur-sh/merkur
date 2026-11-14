@@ -5,6 +5,10 @@ bun run scripts/secret-scanning.ts staged
 if [ -f scripts/check-ratchet.ts ]; then
   bun run scripts/check-ratchet.ts --staged
 fi
+# Code scanning's JavaScript analysis over the staged files, before they reach main.
+if [ -f scripts/codeql-local.ts ]; then
+  bun run scripts/codeql-local.ts staged
+fi
 # The anti-slop baseline is what a commit is held to: until HEAD or the index carries it, the
 # gate is not adopted on this branch and a commit from the shared checkout must not wait on it.
 if [ -f scripts/check-slop.ts ] &&

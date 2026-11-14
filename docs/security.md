@@ -1279,6 +1279,13 @@ Each query and model has fixtures beside it whose lines carry the alerts expecte
 and with it the libraries the queries compile against, is the one the pinned
 `github/codeql-action` installs.
 
+Commits land on `main` before its CodeQL run, so the pre-commit hook runs the JavaScript analysis
+first (`check:codeql`, `scripts/codeql-local.ts`): the same bundle, suite, models and
+`paths-ignore`, over the staged JavaScript and TypeScript, failing on any finding. It extracts only
+the staged files, so a flow through an unstaged file is left to the workflow. `bun run
+setup:codeql` installs the bundle the workflow's pinned action names, verified against the
+release's SHA-256, into the user cache directory, one directory per action commit.
+
 ## Security Non-Goals
 
 Merkur does not protect against:
