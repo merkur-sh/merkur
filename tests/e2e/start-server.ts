@@ -8,10 +8,14 @@ import { prepareE2EWebArtifact } from '../../scripts/e2e-web-artifacts';
 import {
   KEYD_OPAQUE_SERVER_SETUP,
   KEYD_SESSION_TOKEN_SEED,
-  keydExecutable,
   spawnKeyd,
   writeKeydCredentials,
 } from '../../scripts/keyd';
+import {
+  NATIVE_PROGRAMS_SYNCED_ENV,
+  nativeProgram,
+  syncNativeArtifacts,
+} from '../../scripts/native-artifacts';
 
 import { prepareE2EDatabase, removeE2EDatabase, sweepOrphanedE2EDatabases } from './runtime-files';
 
@@ -121,7 +125,12 @@ try {
     [KEYD_OPAQUE_SERVER_SETUP]: OPAQUE_SERVER_SETUP,
     [KEYD_SESSION_TOKEN_SEED]: Buffer.alloc(32, 0xe2).toString('base64url'),
   });
-  keyd = await spawnKeyd(keydExecutable(PROJECT_ROOT), keydPaths, {
+  // Playwright starts this server before its global setup, so keyd comes from the synced
+  // programs, synced here unless a harness synced them for every phase (as natlab's container,
+  // which has no Bazel, relies on); global setup's sync is then Bazel's no-op.
+  if (process.env[NATIVE_PROGRAMS_SYNCED_ENV] === undefined)
+    await syncNativeArtifacts(PROJECT_ROOT);
+  keyd = await spawnKeyd(nativeProgram(PROJECT_ROOT, 'merkur-keyd'), keydPaths, {
     PATH: process.env.PATH ?? '',
     RUST_LOG: 'warn',
   });

@@ -16,6 +16,7 @@ targets=(
   //apps/tui:merkur-tui
   //apps/edge:merkur-edge
   //apps/stun:merkur-stun
+  //apps/keyd:merkur-keyd
 )
 bazel build "$platform" --config=release "${targets[@]}"
 execution_root="$(bazel info "$platform" execution_root)"
@@ -46,11 +47,13 @@ for target in "${targets[@]:1}"; do
   file="$(bazel cquery "$platform" --config=release --output=files "$target")"
   cp "$execution_root/$file" "$snapshot/bin/$(basename "$file")"
 done
-mkdir -p "$snapshot/repo/apps/daemon/dist" "$snapshot/repo/apps/edge/dist"
+mkdir -p "$snapshot/repo/apps/daemon/dist" "$snapshot/repo/apps/edge/dist" \
+  "$snapshot/repo/apps/keyd/dist"
 for program in merkur-dataplane merkur-image-worker merkur-tui; do
   cp "$snapshot/bin/$program" "$snapshot/repo/apps/daemon/dist/$program"
 done
 cp "$snapshot/bin/merkur-edge" "$snapshot/repo/apps/edge/dist/merkur-edge"
+cp "$snapshot/bin/merkur-keyd" "$snapshot/repo/apps/keyd/dist/merkur-keyd"
 
 evidence="$REPO_ROOT/test-results/natlab-native/$(date -u +%Y%m%dT%H%M%SZ)-$$"
 mkdir -p "$evidence"
