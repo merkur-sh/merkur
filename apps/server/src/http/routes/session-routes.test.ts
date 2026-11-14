@@ -15,6 +15,7 @@ import {
   type EdgeRegistryService,
   EdgeRegistryServiceTag,
 } from '../../services/edge-registry-service';
+import { KeyServiceTag } from '../../services/key-service';
 import {
   type DaemonPresence,
   type RealtimeCoordinationService,
@@ -42,12 +43,16 @@ import {
   PREVIOUS_SESSION_REQUEST_COMMITMENT,
   SESSION_REQUEST_COMMITMENT,
   type SentDaemonMessage,
+  sessionKeys,
   TEST_DELEGATION_ID,
   TEST_USER_ID,
+  useSessionKeyd,
   VALID_CERT_HASH,
-  VERIFY_KEY,
+  verifyKey,
 } from '../../services/session-test-fixture';
 import { sessionRoutesPlugin } from './session-routes';
+
+useSessionKeyd();
 
 // A test runServerProgram that provides exactly the services the session routes
 // use, mirroring the real signature so the plugin type-checks.
@@ -61,6 +66,7 @@ function makeRunServerProgram(
 ): typeof runServerProgram {
   const dependencies = Layer.mergeAll(
     Layer.succeed(ServerConfigService, config),
+    Layer.succeed(KeyServiceTag, sessionKeys()),
     Layer.succeed(RealtimeCoordinationServiceTag, coordination),
     Layer.succeed(EdgeRegistryServiceTag, edgeRegistry),
     Layer.succeed(DaemonControlServiceTag, control),
@@ -196,7 +202,7 @@ describe('session-routes /sessions/request edge fields', () => {
     expect(
       verifySessionAuthorizationToken(
         sessionToken as string,
-        VERIFY_KEY,
+        verifyKey(),
         (expiresAtMs as number) - 1,
       ),
     ).toMatchObject({
@@ -707,7 +713,7 @@ describe('session authorization renewal', () => {
     const unregistered = await request(TEST_DELEGATION_ID, 'https://gone.edge.example:4433/');
     expect(unregistered.status).toBe(200);
     expect(((await unregistered.json()) as { edgeCertHashes: unknown }).edgeCertHashes).toBeNull();
-    const capability = verifySessionAuthorizationToken(body.sessionToken, VERIFY_KEY, Date.now());
+    const capability = verifySessionAuthorizationToken(body.sessionToken, verifyKey(), Date.now());
     expect(capability).toMatchObject({
       u: TEST_USER_ID,
       g: TEST_DELEGATION_ID,

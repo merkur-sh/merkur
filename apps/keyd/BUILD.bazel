@@ -1,0 +1,31 @@
+load("@crates//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//cargo:defs.bzl", "extract_cargo_lints")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+load("//tools/bazel:files.bzl", "package_files")
+
+package(default_visibility = ["//visibility:public"])
+
+package_files()
+
+extract_cargo_lints(
+    name = "lints",
+    manifest = "Cargo.toml",
+    workspace = "//:Cargo.toml",
+)
+
+rust_binary(
+    name = "merkur-keyd",
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    lint_config = ":lints",
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    deps = ["//packages/merkur-authorization:merkur_authorization"] + all_crate_deps(normal = True),
+)
+
+rust_test(
+    name = "unit",
+    crate = ":merkur-keyd",
+    lint_config = ":lints",
+    proc_macro_deps = all_crate_deps(proc_macro_dev = True),
+    deps = ["//packages/merkur-e2e:merkur_e2e"] + all_crate_deps(normal_dev = True),
+)

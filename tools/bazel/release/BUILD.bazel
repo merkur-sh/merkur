@@ -180,11 +180,19 @@ release_binary(
     tags = _RELEASE,
 )
 
+# The app host's key service, deployed with the server it serves (deploy/app/merkur-keyd.service).
+release_binary(
+    name = "merkur-keyd",
+    binary = "//apps/keyd:merkur-keyd",
+    tags = _RELEASE,
+)
+
 checkout_sync(
     name = "service_binaries",
     executable = True,
     sources = {
         ":merkur-edge": "dist/services",
+        ":merkur-keyd": "dist/services",
         ":merkur-stun": "dist/services",
     },
     tags = _RELEASE,

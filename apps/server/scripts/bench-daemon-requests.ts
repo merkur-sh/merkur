@@ -23,11 +23,11 @@ import { fullGC, heapStats } from 'bun:jsc';
 
 import {
   daemonHttpProofHeaders,
-  deriveSessionAuthorizationKeyPair,
   deriveSoftwareDaemonP256PublicKey,
   signDaemonProof,
   verifyDaemonProof,
 } from '@merkur/auth';
+import { deriveUserAuthorizationPublicKey } from '@merkur/shared/user-authorization';
 import { Effect, Layer, Metric } from 'effect';
 
 import { percentile, perfEnvInteger } from '../../../scripts/perf/harness';
@@ -49,7 +49,7 @@ const ORIGIN = 'http://127.0.0.1';
 const DAEMON_ID = 'daemon-1';
 const SEED = Buffer.alloc(32, 0x22).toString('base64url');
 const PUBLIC_KEY = Buffer.from(
-  deriveSessionAuthorizationKeyPair(Buffer.from(SEED, 'base64url')).verifyKey,
+  deriveUserAuthorizationPublicKey(Buffer.from(SEED, 'base64url')),
 ).toString('base64url');
 const P256_PUBLIC_KEY = Buffer.from(
   deriveSoftwareDaemonP256PublicKey(Buffer.from(SEED, 'base64url')),

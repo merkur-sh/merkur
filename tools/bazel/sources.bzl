@@ -5,6 +5,7 @@ PACKAGES = [
     "//apps/daemon",
     "//apps/daemon/dataplane",
     "//apps/edge",
+    "//apps/keyd",
     "//apps/server",
     "//apps/site",
     "//apps/stun",

@@ -14,13 +14,18 @@
 [Unit]
 Description=Merkur application server
 Documentation=https://github.com/merkur-sh/merkur
-After=network-online.target docker.service
+# The server holds none of its keys; it refuses to start without keyd's socket.
+After=network-online.target docker.service merkur-keyd.service
 Wants=network-online.target
+Requires=merkur-keyd.service
 
 [Service]
 Type=exec
 EnvironmentFile=/etc/merkur/server.env
 Environment=HOST=127.0.0.1 PORT=3000 HOME=/nonexistent
+Environment=KEYD_SOCKET=/run/merkur-keyd/keyd.sock
+# Reaches keyd's socket (mode 0660, group merkur-keyd) and nothing else of keyd's.
+SupplementaryGroups=merkur-keyd
 ExecStart=/deployment/server/server
 BindReadOnlyPaths=/usr/local/lib/merkur/server/current:/deployment
 BindReadOnlyPaths=/usr/local/lib/merkur/server/current/migrations:/migrations

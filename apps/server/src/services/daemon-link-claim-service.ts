@@ -23,6 +23,7 @@ import { DatabaseService } from '../db/client';
 import { tryDatabaseTransactionPromise, withDatabaseTransaction } from '../db/transaction';
 import type { DatabaseSchema } from '../db/types';
 import { type InfrastructureError, infrastructureError } from './errors';
+import { KeyServiceTag } from './key-service';
 import { MAX_LINKED_MACHINES, machineCountSql, readMachineUsage } from './machine-usage';
 import { enqueueDeviceResync, NotificationOutboxServiceTag } from './notification-outbox-service';
 
@@ -118,12 +119,13 @@ export const DaemonLinkClaimServiceLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DatabaseService;
     const config = yield* ServerConfigService;
+    const keys = yield* KeyServiceTag;
     return createDaemonLinkClaimService(
       db,
       {
         publicOrigin: config.publicOrigin,
         tokenHmacSecret: Redacted.value(config.tokenHmacSecret),
-        sessionTokenVerifyKey: config.sessionTokenVerifyKeyB64,
+        sessionTokenVerifyKey: keys.publicKeys.sessionCapability,
       },
       (yield* NotificationOutboxServiceTag).wake,
     );

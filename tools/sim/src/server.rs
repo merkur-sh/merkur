@@ -185,8 +185,9 @@ impl Account {
         .expect("a daemon attach ticket")
     }
 
-    /// The session capability for `request`, as `createSessionAuthorizationToken`
-    /// writes it for an issuance: bound to the client's one-use bootstrap.
+    /// The session capability for `request`, as the server's session service
+    /// writes it for an issuance and `merkur-keyd` signs it: bound to the
+    /// client's one-use bootstrap.
     fn session_token(
         &self,
         request: &IssuanceRequest,

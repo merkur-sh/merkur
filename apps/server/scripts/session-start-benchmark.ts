@@ -2,7 +2,6 @@ import '@merkur/shared/e2e-wasm-bun';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { cpus, release as osRelease } from 'node:os';
-import { deriveSessionAuthorizationKeyPair } from '@merkur/auth';
 import {
   createDaemonControlCommandAckMessage,
   type DaemonControlRegisteredMessage,
@@ -406,7 +405,6 @@ async function cleanupBenchmarkKeys(): Promise<void> {
 }
 
 function testConfig(configuredRedisUrl: string): ServerConfig {
-  const { signingKey, verifyKey } = deriveSessionAuthorizationKeyPair(new Uint8Array(32));
   return {
     host: '127.0.0.1',
     port: 3000,
@@ -420,8 +418,6 @@ function testConfig(configuredRedisUrl: string): ServerConfig {
     tokenHmacSecret: 'bench',
     authAllowRegistration: false,
     githubReleasesToken: undefined,
-    sessionTokenSigningKey: signingKey,
-    sessionTokenVerifyKeyB64: Buffer.from(verifyKey).toString('base64url'),
     sessionTokenTtlMs: 60_000,
     webPushVapidPublicKey: undefined,
     webPushVapidPrivateKey: undefined,

@@ -15,6 +15,7 @@ mod canonical;
 mod link;
 mod records;
 mod root_envelope;
+mod session_capability;
 
 pub use canonical::{
     MAX_SAFE_INTEGER, decode_exact, decode_len, encode, encoded_len, require_id, require_origin,
@@ -33,6 +34,10 @@ pub use records::{
     verify_session_delegation_proof,
 };
 pub use root_envelope::{ROOT_ENVELOPE_NONCE_BYTES, RootEnvelope};
+pub use session_capability::{
+    SESSION_CAPABILITY_CONTEXT, SESSION_CAPABILITY_MAX_LIFETIME_MS, SessionCapability,
+    SessionCapabilityPayload, parse_session_capability,
+};
 
 pub const SEED_BYTES: usize = 32;
 pub const PUBLIC_KEY_BYTES: usize = merkur_e2e::DAEMON_IDENTITY_PUBLIC_KEY_BYTES;

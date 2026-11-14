@@ -1,13 +1,14 @@
-import { buildPushPayload, type VapidKeys } from '@block65/webcrypto-web-push';
+import { encryptNotification } from '@block65/webcrypto-web-push';
 import { createEntityId } from '@merkur/auth';
-import { Cause, Clock, Context, Data, Effect, Layer, Queue, Redacted } from 'effect';
+import { Cause, Clock, Context, Data, Effect, Layer, Queue } from 'effect';
 import type { Kysely } from 'kysely';
-import { type ServerConfig, ServerConfigService } from '../config';
+import { ServerConfigService } from '../config';
 import { DatabaseService } from '../db/client';
 import { tryDatabaseTransactionPromise, withDatabaseTransaction } from '../db/transaction';
 import type { DatabaseSchema } from '../db/types';
 import { createLogger, errorLogContext, type Logger, logWithLoggerEffect } from '../logger';
 import { type InfrastructureError, infrastructureError } from './errors';
+import { type KeyService, KeyServiceTag } from './key-service';
 
 const TERMINAL_BELL_RATE_LIMIT_MS = 5_000;
 // Hard cap for the insertion-ordered in-memory rate-limit map.
@@ -20,6 +21,10 @@ const PUSH_TTL_SECONDS = 60;
 const PUSH_SEND_TIMEOUT_MS = 5_000;
 const PUSH_SEND_CONCURRENCY = 8;
 const FAILED_SIGN_IN_QUEUE_CAPACITY = 1_000;
+// Resource bound on cached VAPID authorizations, one per push-service origin.
+const VAPID_HEADER_CACHE_MAX = 1_000;
+// keyd's JWTs live 12 hours; one is replaced an hour before it would lapse in flight.
+const VAPID_REFRESH_MARGIN_SECONDS = 3_600;
 
 interface FailedSignInNotification {
   readonly userId: string;
@@ -96,24 +101,61 @@ export const PushNotificationServiceLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DatabaseService;
     const config = yield* ServerConfigService;
-    return yield* createPushNotificationService(db, config, createLogger('server'));
+    const keys = yield* KeyServiceTag;
+    // KeyServiceLive refuses to start with a contact and no VAPID key, or the reverse.
+    const vapid =
+      keys.publicKeys.vapid === null || config.webPushContact === undefined
+        ? null
+        : createVapidSigner(keys, keys.publicKeys.vapid, config.webPushContact);
+    return yield* createPushNotificationService(db, vapid, createLogger('server'));
   }),
 );
 
+/** What a push request needs of VAPID: the public key and an `Authorization` per push service. */
+export interface VapidSigner {
+  readonly publicKey: string;
+  authorization(audience: string): Effect.Effect<string, InfrastructureError>;
+}
+
+/**
+ * keyd signs one RFC 8292 JWT per push-service origin, reused until an hour before it expires,
+ * so a burst of notifications costs one keyd request per push service.
+ */
+export function createVapidSigner(
+  keys: KeyService,
+  publicKey: string,
+  contact: string,
+): VapidSigner {
+  const headers = new Map<string, { readonly header: string; readonly refreshAt: number }>();
+  return {
+    publicKey,
+    authorization: (audience) =>
+      Effect.gen(function* () {
+        const nowSeconds = Math.floor((yield* Clock.currentTimeMillis) / 1000);
+        const cached = headers.get(audience);
+        if (cached !== undefined && cached.refreshAt > nowSeconds) return cached.header;
+        const { jwt, expiresAt } = yield* keys
+          .vapidJwt(audience, contact)
+          .pipe(Effect.mapError(infrastructureError('keyd', 'vapid-jwt')));
+        const header = `vapid t=${jwt}, k=${publicKey}`;
+        // Resource bound, though the trusted push services are few: evict the oldest at the
+        // bound, as the rate-limit maps do.
+        headers.delete(audience);
+        if (headers.size >= VAPID_HEADER_CACHE_MAX) {
+          const oldest = headers.keys().next().value;
+          if (oldest !== undefined) headers.delete(oldest);
+        }
+        headers.set(audience, { header, refreshAt: expiresAt - VAPID_REFRESH_MARGIN_SECONDS });
+        return header;
+      }),
+  };
+}
+
 export const createPushNotificationService = Effect.fnUntraced(function* (
   db: Kysely<DatabaseSchema>,
-  config: Pick<ServerConfig, 'webPush'>,
+  vapid: VapidSigner | null,
   logger: Logger,
 ) {
-  const vapidPublicKey = config.webPush?.publicKey ?? null;
-  const vapid: VapidKeys | null =
-    config.webPush === undefined
-      ? null
-      : {
-          subject: config.webPush.contact,
-          publicKey: config.webPush.publicKey,
-          privateKey: Redacted.value(config.webPush.privateKey),
-        };
   const lastTerminalBellPushAt = new Map<string, number>();
   const lastFailedSignInPushAt = new Map<string, number>();
 
@@ -126,7 +168,7 @@ export const createPushNotificationService = Effect.fnUntraced(function* (
 
   const service: PushNotificationService = {
     getVapidPublicKey(): string | null {
-      return vapid === null ? null : vapidPublicKey;
+      return vapid?.publicKey ?? null;
     },
 
     upsertSubscription: Effect.fnUntraced(function* (
@@ -380,43 +422,64 @@ export const createPushNotificationService = Effect.fnUntraced(function* (
   }
 });
 
+/** RFC 8291 `aes128gcm` to the subscription's keys, under keyd's VAPID authorization. */
 async function sendPushNotification(
-  vapid: VapidKeys,
+  authorization: string,
   subscription: { readonly endpoint: string; readonly p256dh: string; readonly auth: string },
   payload: string,
   signal: AbortSignal,
 ): Promise<void> {
   if (!isTrustedPushDestination(subscription.endpoint)) throw new UntrustedPushDestination();
-  const request = await buildPushPayload(
-    { data: payload, options: { ttl: PUSH_TTL_SECONDS, urgency: 'high' } },
+  const body = await encryptNotification(
     {
       endpoint: subscription.endpoint,
       expirationTime: null,
       keys: { p256dh: subscription.p256dh, auth: subscription.auth },
     },
-    vapid,
+    new TextEncoder().encode(payload),
   );
   const response = await fetch(subscription.endpoint, {
     redirect: 'error',
-    method: request.method,
-    headers: request.headers,
-    body: request.body,
+    method: 'POST',
+    headers: {
+      authorization,
+      ttl: String(PUSH_TTL_SECONDS),
+      urgency: 'high',
+      'content-encoding': 'aes128gcm',
+      'content-length': String(body.byteLength),
+      'content-type': 'application/octet-stream',
+    },
+    body,
     signal,
   });
-  const body = await response.text();
+  const answer = await response.text();
   if (!response.ok) {
-    throw new PushServiceRejection(response.status, body, Object.fromEntries(response.headers));
+    throw new PushServiceRejection(response.status, answer, Object.fromEntries(response.headers));
   }
 }
 
 export function sendPushNotificationEffect(
-  vapid: VapidKeys,
+  vapid: VapidSigner,
   subscription: { readonly endpoint: string; readonly p256dh: string; readonly auth: string },
   payload: string,
 ): Effect.Effect<void, InfrastructureError> {
-  return Effect.tryPromise({
-    try: (signal) => sendPushNotification(vapid, subscription, payload, signal),
-    catch: infrastructureError('push-notification', 'send-terminal-bell-push'),
+  return Effect.gen(function* () {
+    const endpoint = yield* Effect.try({
+      try: () => new URL(subscription.endpoint),
+      catch: infrastructureError('push-notification', 'send-terminal-bell-push'),
+    });
+    // Checked before keyd signs anything for it, and again where the request is sent.
+    if (!isTrustedPushDestination(subscription.endpoint)) {
+      return yield* infrastructureError(
+        'push-notification',
+        'send-terminal-bell-push',
+      )(new UntrustedPushDestination());
+    }
+    const authorization = yield* vapid.authorization(endpoint.origin);
+    yield* Effect.tryPromise({
+      try: (signal) => sendPushNotification(authorization, subscription, payload, signal),
+      catch: infrastructureError('push-notification', 'send-terminal-bell-push'),
+    });
   }).pipe(
     Effect.timeoutOrElse({
       duration: PUSH_SEND_TIMEOUT_MS,

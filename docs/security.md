@@ -6,7 +6,8 @@ credential is made and revoked, and what the design deliberately does not cover.
 is this. The application server runs the account, the device list, presence, and short-lived
 session issuance. It never holds a password, a user-root seed, a client delegate seed, a daemon
 identity seed, or a terminal key, so a compromised server database or session signer cannot forge
-a user signature, impersonate a daemon, or decrypt a terminal. The edge (Merkur's blind relay)
+a user signature, impersonate a daemon, or decrypt a terminal. Its own keys, the OPAQUE setup and
+the capability signer, live in a separate key service it can ask but not read. The edge (Merkur's blind relay)
 splices ciphertext it cannot read. Only the browser profile or native terminal client and the daemon
 see terminal plaintext.
 
@@ -23,6 +24,7 @@ Contents:
 
 - [Trust Boundaries](#trust-boundaries)
 - [Accounts: OPAQUE And The User Root](#accounts-opaque-and-the-user-root)
+- [Server Key Custody](#server-key-custody)
 - [Browser Delegations](#browser-delegations)
 - [Logout, Revocation, And Presence](#logout-revocation-and-presence)
 - [Linking A Daemon](#linking-a-daemon)
@@ -51,7 +53,8 @@ compromised.
 
 | Component | Trusted for | Can observe or retain |
 | --- | --- | --- |
-| Application server | OPAQUE execution, account policy, delegation checks, refresh rotation, device ownership, presence, session allocation, capability signing, revocation delivery | OPAQUE records; the public user root and its encrypted envelope; delegation certificates and revocations; daemon public identity and binding; account, IP, timing, and bootstrap metadata. Never a password, seed, or terminal key. |
+| Application server | Account policy, delegation checks, refresh rotation, device ownership, presence, session allocation, revocation delivery; asking keyd for OPAQUE and capability operations | OPAQUE records; the public user root and its encrypted envelope; delegation certificates and revocations; daemon public identity and binding; account, IP, timing, and bootstrap metadata. Never a password, seed, or terminal key, nor the OPAQUE setup, capability key or VAPID key. |
+| Key service (`merkur-keyd`) | The OPAQUE server half and each account's attempt budget, session-capability signing, VAPID signing | The OPAQUE server setup, the capability signing key, the VAPID key, and per-account attempt counts. No network; reachable only by the server's socket. |
 | Browser origin and profile | Password entry, OPAQUE client work, root unlock, delegation storage, one-use ML-KEM state, terminal decryption, rendering, input | The selected account and terminal. A profile with a live delegation is a trusted device until its fixed expiry unless revoked. |
 | Native terminal client | Password entry, OPAQUE client work, root unlock, sealed delegation storage, one-use ML-KEM state, terminal decryption, ANSI rendering and input | Its selected account and terminal. The local OS and host terminal are trusted with input and output; its delegation has the same fixed expiry and revocation rules as a browser's. |
 | Daemon control service | Authenticating the daemon's persistent WSS connection and delivering session and revocation commands | Daemon identity, command contents, timing. Never terminal frames or delegate secrets. |
@@ -158,9 +161,11 @@ immutable password string.
 
 The server stores an OPAQUE registration record bound to the user id and server origin, not a
 password hash. The record plus the server setup are still offline-guessing material, so password
-strength matters. The browser pins the server public key as `VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY`;
-startup requires `OPAQUE_SERVER_SETUP` with its matching `OPAQUE_SERVER_PUBLIC_KEY` and compares
-the compiled pin with the setup before migrations, so a stale image fails closed.
+strength matters, and the setup never enters the application server: `merkur-keyd`, a separate
+process on the app host, holds it and runs the server half of every OPAQUE exchange
+([Server Key Custody](#server-key-custody)). The browser pins the server public key as
+`VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY`; startup compares the compiled pin with the key keyd holds
+before migrations, so a stale image fails closed.
 
 The composition root supplies that immutable artifact pin separately from the Effect
 configuration provider; runtime `VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY` overrides cannot
@@ -250,6 +255,36 @@ and no session can be issued for it.
 Sign-in, sign-up and reset flows share one key space and each names its kind; a finish consumes the
 id it is offered and accepts only its own kind, so a reset flow id completes no sign-in and the
 reverse.
+
+## Server Key Custody
+
+The application server parses untrusted input, so the keys whose theft costs most are not in it.
+`merkur-keyd` (`apps/keyd`), a separate process on the app host, holds the OPAQUE server setup,
+the ML-DSA-87 key that signs session capabilities, and the VAPID key that signs web push, and
+performs a fixed set of operations with them over a Unix socket. Code running inside a compromised
+server can ask for an operation while it runs; it cannot take a key away, so once the hole is
+closed there is nothing to rotate. That matters most for the two expensive keys: replacing the
+OPAQUE setup invalidates every password, and replacing the capability key relinks every daemon.
+
+keyd runs as its own system user with no network (`PrivateNetwork=yes`), its keys delivered as
+systemd credentials from `/etc/merkur/keyd/`. Before reading them it disables core files, makes
+itself undumpable and locks its pages in memory. The server, a dynamic user in keyd's group,
+can open the socket (mode 0660) and nothing else of keyd's: not its credentials, its attempt log
+or its memory. Root on the host, and the hosting provider, remain able to read any key; keyd
+narrows the application server's reach, not theirs.
+
+Every OPRF evaluation under an account's key is a password guess to whoever holds the answer, so
+keyd counts them itself and the server cannot reset the count: per account, at most 10 attempts
+in any minute and 20 not handed back in any 24 hours, a verified sign-in handing its attempt back.
+A compromised server can therefore guess online at that rate, never offline. The count is an
+fsynced log replayed at start, so a restart does not reset it. A spent budget holds password
+sign-in, password change and reset for that account until its oldest attempt ages out; browsers
+already holding a delegation, and their terminals, keep working.
+
+keyd signs a capability only when its issue time is within 30 seconds of keyd's own clock, so a
+compromised server cannot bank capabilities to use after it is cleaned up; each expires at most
+five minutes after it was signed. The payload keyd parses is the one the daemon verifies
+(`merkur-authorization`'s `parse_session_capability`).
 
 ## Browser Delegations
 
@@ -762,6 +797,11 @@ creation to five per address per hour (a finish that creates no account hands it
 email identity, code mail is limited to twenty requests per source address and five messages per
 recipient per hour, so the form cannot be used to flood a stranger's inbox. Sign-up codes and
 password-reset codes spend the same two budgets.
+
+Beneath these, keyd keeps each account's own attempt budget ([Server Key
+Custody](#server-key-custody)), which no Redis outage or server compromise can reset. Its refusal
+is `429 attempts_exhausted` with `retry-after`, distinct from the per-source `rate_limited`, so the
+sign-in form can say the wait belongs to the account.
 
 A source address is an IPv4 address or an IPv6 /64 (`resolveRateLimitSource`). A host chooses the
 low 64 bits of its own IPv6 address, so a key on the whole address would give one subscriber an

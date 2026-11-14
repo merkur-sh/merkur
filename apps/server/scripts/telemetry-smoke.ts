@@ -14,7 +14,6 @@ import '@merkur/shared/e2e-wasm-bun';
  * *different* dataset header than traces and logs, and Axiom accepts only
  * protobuf on /v1/metrics.
  */
-import { deriveSessionAuthorizationKeyPair } from '@merkur/auth';
 import { Effect, Layer, ManagedRuntime, Metric, Redacted } from 'effect';
 
 import { type ServerConfig, ServerConfigService, type TelemetryConfig } from '../src/config';
@@ -206,12 +205,10 @@ const config: ServerConfig = {
   authIdentity: 'username',
   emailDelivery: undefined,
   trustedProxyHops: 1,
-  sessionTokenSigningKey: deriveSessionAuthorizationKeyPair(new Uint8Array(32)).signingKey,
-  sessionTokenVerifyKeyB64: 'A'.repeat(3_456),
   sessionTokenTtlMs: 60_000,
-  webPush: undefined,
+  webPushContact: undefined,
   edgeRegistrationKeys: new Map(),
-  opaqueServerSetup: Redacted.make(Buffer.alloc(128).toString('base64url')),
+  keydSocket: '/run/merkur-keyd/keyd.sock',
   opaqueServerPublicKey: Buffer.alloc(32).toString('base64url'),
   stunTicketKey: new Uint8Array(32),
   edgeAttachTicketKey: new Uint8Array(64).fill(11),

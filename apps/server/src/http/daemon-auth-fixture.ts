@@ -1,8 +1,5 @@
-import {
-  deriveSessionAuthorizationKeyPair,
-  deriveSoftwareDaemonP256PublicKey,
-  verifyDaemonProof,
-} from '@merkur/auth';
+import { deriveSoftwareDaemonP256PublicKey, verifyDaemonProof } from '@merkur/auth';
+import { deriveUserAuthorizationPublicKey } from '@merkur/shared/user-authorization';
 import { Effect, Layer, Redacted } from 'effect';
 
 import { type ServerConfig, ServerConfigService } from '../config';
@@ -22,8 +19,10 @@ import { type RateLimitService, RateLimitServiceTag } from '../services/rate-lim
 import { RedisError, type RedisService, RedisServiceTag } from '../services/redis-service';
 
 export const DAEMON_TEST_SEED = Buffer.alloc(32, 0x22).toString('base64url');
-const pair = deriveSessionAuthorizationKeyPair(Buffer.from(DAEMON_TEST_SEED, 'base64url'));
-const publicKey = Buffer.from(pair.verifyKey).toString('base64url');
+// The daemon's ML-DSA-87 identity: the same FIPS 204 expansion of the seed `signDaemonProof` signs with.
+const publicKey = Buffer.from(
+  deriveUserAuthorizationPublicKey(Buffer.from(DAEMON_TEST_SEED, 'base64url')),
+).toString('base64url');
 const p256PublicKey = Buffer.from(
   deriveSoftwareDaemonP256PublicKey(Buffer.from(DAEMON_TEST_SEED, 'base64url')),
 ).toString('base64url');
@@ -113,13 +112,11 @@ export function daemonAuthFixture(
     authAllowRegistration: false,
     authIdentity: 'username',
     emailDelivery: undefined,
-    opaqueServerSetup: Redacted.make(''),
+    keydSocket: '/run/merkur-keyd/keyd.sock',
     opaqueServerPublicKey: '',
     trustedProxyHops: 0,
-    sessionTokenSigningKey: pair.signingKey,
-    sessionTokenVerifyKeyB64: publicKey,
     sessionTokenTtlMs: 60_000,
-    webPush: undefined,
+    webPushContact: undefined,
     edgeRegistrationKeys: new Map(),
     telemetry: undefined,
     traceLevel: 'Info',

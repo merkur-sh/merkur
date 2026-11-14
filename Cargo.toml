@@ -3,6 +3,7 @@ resolver = "3"
 members = [
   "apps/daemon/dataplane",
   "apps/edge",
+  "apps/keyd",
   "apps/stun",
   "apps/tui",
   "packages/merkur-stun-protocol",

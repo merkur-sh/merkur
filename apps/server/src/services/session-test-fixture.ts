@@ -1,6 +1,8 @@
+import { afterAll, beforeAll } from 'bun:test';
+import { rm } from 'node:fs/promises';
+import path from 'node:path';
 import {
   deriveDaemonIdentityKeyCommitment,
-  deriveSessionAuthorizationKeyPair,
   deriveSessionRequestCommitment,
   deriveSoftwareDaemonP256PublicKey,
 } from '@merkur/auth';
@@ -21,6 +23,8 @@ import type { ServerConfig } from '../config';
 import { type DaemonControlService, DaemonUnavailable } from './daemon-control-service';
 import type { DeviceService } from './device-service';
 import type { EdgeRegistration, EdgeRegistryService } from './edge-registry-service';
+import type { KeyService } from './key-service';
+import { keydCredentials, startTestKeyService, type TestKeyService } from './keyd-test-support';
 import type {
   CreatedSessionPresence,
   DaemonPresence,
@@ -68,9 +72,33 @@ export const PREVIOUS_SESSION_REQUEST_COMMITMENT = deriveSessionRequestCommitmen
   new Uint8Array(1_568).fill(0x55),
 );
 
-const { signingKey: SIGNING_KEY, verifyKey } = deriveSessionAuthorizationKeyPair(
-  new Uint8Array(32).fill(11),
-);
+let keyd: TestKeyService | undefined;
+let keydCredentialDirectory: string | undefined;
+
+/** One real keyd for a session test file, which signs every capability its services issue. */
+export function useSessionKeyd(): void {
+  beforeAll(async () => {
+    keydCredentialDirectory = await keydCredentials();
+    keyd = await startTestKeyService(keydCredentialDirectory);
+  });
+  afterAll(async () => {
+    await keyd?.stop();
+    if (keydCredentialDirectory !== undefined)
+      await rm(path.dirname(keydCredentialDirectory), { recursive: true, force: true });
+  });
+}
+
+/** The keyd `useSessionKeyd` started. */
+export function sessionKeys(): KeyService {
+  if (keyd === undefined) throw new Error('call useSessionKeyd() in this test file');
+  return keyd.service;
+}
+
+/** The ML-DSA-87 key daemons verify this file's capabilities with. */
+export function verifyKey(): Uint8Array {
+  return Buffer.from(sessionKeys().publicKeys.sessionCapability, 'base64url');
+}
+
 export const DEFAULT_DAEMON_PRESENCE: DaemonPresence = {
   daemonId: 'daemon-1',
   userId: TEST_USER_ID,
@@ -170,13 +198,11 @@ export function createFakeConfig(): ServerConfig {
     authAllowRegistration: true,
     authIdentity: 'username',
     emailDelivery: undefined,
-    opaqueServerSetup: Redacted.make(Buffer.alloc(128).toString('base64url')),
+    keydSocket: '/run/merkur-keyd/keyd.sock',
     opaqueServerPublicKey: Buffer.alloc(32).toString('base64url'),
     trustedProxyHops: 1,
-    sessionTokenSigningKey: SIGNING_KEY,
-    sessionTokenVerifyKeyB64: Buffer.from(VERIFY_KEY).toString('base64url'),
     sessionTokenTtlMs: 60_000,
-    webPush: undefined,
+    webPushContact: undefined,
     edgeRegistrationKeys: new Map(),
     telemetry: undefined,
     traceLevel: 'Info',
@@ -326,5 +352,3 @@ export function createFakeDeviceService(
     touchDaemon: () => unused('touchDaemon'),
   };
 }
-
-export const VERIFY_KEY = verifyKey;

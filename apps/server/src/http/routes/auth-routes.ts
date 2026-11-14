@@ -615,6 +615,12 @@ function routeOptions(logger: Logger, set: { headers: Record<string, unknown> },
       }
       if (error instanceof AuthError) {
         switch (error.code) {
+          // keyd's per-account attempt budget: unlike a per-source limit, it can hold for a
+          // day, so the browser is told which one it met.
+          case 'attempts_exhausted':
+            if (error.retryAfterSeconds !== undefined)
+              set.headers[RETRY_AFTER_HEADER] = String(error.retryAfterSeconds);
+            return status(STATUS_TOO_MANY_REQUESTS, { error: 'attempts_exhausted' as const });
           case 'invalid_credentials':
           case 'invalid_delegation':
             return status(STATUS_UNAUTHORIZED, { error: 'authentication_failed' as const });

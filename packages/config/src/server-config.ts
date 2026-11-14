@@ -1,12 +1,4 @@
-import { createECDH, timingSafeEqual } from 'node:crypto';
-import {
-  deriveSessionAuthorizationKeyPair,
-  type MlDsa87SigningKey,
-  SESSION_AUTHORIZATION_MAX_LIFETIME_MS,
-  SESSION_AUTHORIZATION_PUBLIC_KEY_BYTES,
-  SESSION_AUTHORIZATION_SEED_BYTES,
-  validateOpaqueServerSetup,
-} from '@merkur/auth';
+import { SESSION_AUTHORIZATION_MAX_LIFETIME_MS } from '@merkur/auth';
 import { MAX_STUN_SERVER_CHARS, MAX_STUN_SERVERS } from '@merkur/daemon-control-protocol';
 import { Context, Data, Effect, Layer, type LogLevel, Option, Redacted } from 'effect';
 
@@ -130,12 +122,6 @@ export interface BoxHostConfig {
   readonly timeoutMs: number;
 }
 
-export interface WebPushConfig {
-  readonly publicKey: string;
-  readonly privateKey: Redacted.Redacted<string>;
-  readonly contact: string;
-}
-
 /** Immutable artifact pin, supplied only at the server composition boundary. */
 export const OpaqueWebBuildPin = Context.Reference<string | undefined>('OpaqueWebBuildPin', {
   defaultValue: () => undefined,
@@ -172,9 +158,9 @@ export interface ServerConfig {
    * mail key it never uses is a half-configured deployment, not a spare.
    */
   readonly emailDelivery: EmailDeliveryConfig | undefined;
-  /** Stable OPAQUE server setup; replacing it invalidates every password record. */
-  readonly opaqueServerSetup: Redacted.Redacted<string>;
-  /** Public half pinned into the web build; must match opaqueServerSetup. */
+  /** `merkur-keyd`'s socket: every operation on the server's keys goes through it. */
+  readonly keydSocket: string;
+  /** The OPAQUE public key pinned into the web build; keyd's key must equal it. */
   readonly opaqueServerPublicKey: string;
   /**
    * Number of reverse proxies that append to `X-Forwarded-For` in front of this
@@ -184,13 +170,9 @@ export interface ServerConfig {
    * than silently choosing between a spoofable limiter and a shared bucket.
    */
   readonly trustedProxyHops: number;
-  /** Expanded ML-DSA-87 secret key, derived once at startup from the configured seed. */
-  /** Expanded ML-DSA-87 key in WebAssembly memory, held for the process lifetime. */
-  readonly sessionTokenSigningKey: MlDsa87SigningKey;
-  /** Canonical base64url encoding of the exact 2,592-byte ML-DSA-87 public key. */
-  readonly sessionTokenVerifyKeyB64: string;
   readonly sessionTokenTtlMs: number;
-  readonly webPush: WebPushConfig | undefined;
+  /** The VAPID `sub` claim; set exactly when keyd holds a VAPID key. */
+  readonly webPushContact: string | undefined;
   /** Distinct fixed HMAC-SHA-512 request-authentication key for every edge id. */
   readonly edgeRegistrationKeys: ReadonlyMap<string, Uint8Array>;
   /**
@@ -293,32 +275,16 @@ export const ServerConfigLive = Layer.effect(
       from: Option.getOrUndefined(yield* serverEnvironment.EMAIL_FROM.config),
       resendApiUrl: Option.getOrUndefined(yield* serverEnvironment.RESEND_API_URL.config),
     });
-    const opaqueServerSetupRaw = yield* revealRequiredSecret(
-      yield* serverEnvironment.OPAQUE_SERVER_SETUP.config,
-      'OPAQUE_SERVER_SETUP',
-    );
-    const opaqueServerPublicKeyRaw = yield* revealRequiredSecret(
-      yield* serverEnvironment.OPAQUE_SERVER_PUBLIC_KEY.config,
-      'OPAQUE_SERVER_PUBLIC_KEY',
-    );
+    const keydSocket = yield* serverEnvironment.KEYD_SOCKET.config;
     // The composition boundary provides Docker's immutable artifact pin.
     // Source and standalone builds read the VITE value through Effect Config.
-    const opaqueWebPublicKeyRaw =
+    const opaqueServerPublicKey = yield* parseOpaquePublicKeyPin(
       (yield* OpaqueWebBuildPin) ??
-      (yield* serverEnvironment.VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY.config);
-    const opaque = yield* parseOpaqueServerConfiguration(
-      opaqueServerSetupRaw,
-      opaqueServerPublicKeyRaw,
-      opaqueWebPublicKeyRaw,
+        (yield* serverEnvironment.VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY.config),
     );
     const trustedProxyHops = yield* validateTrustedProxyHops(
       yield* serverEnvironment.TRUSTED_PROXY_HOPS.config,
     );
-    const sessionTokenSeed = yield* revealRequiredSecret(
-      yield* serverEnvironment.SESSION_TOKEN_MLDSA87_SEED.config,
-      'SESSION_TOKEN_MLDSA87_SEED',
-    );
-    const sessionTokenKeys = yield* parseSessionTokenSeed(sessionTokenSeed);
     // Validity window for the ML-DSA-87 session authorization a browser carries to a
     // daemon. Every reconnect requests a fresh token, so this stays short.
     const sessionTokenTtlMsRaw = yield* serverEnvironment.SESSION_TOKEN_TTL_MS.config;
@@ -333,19 +299,8 @@ export const ServerConfigLive = Layer.effect(
     // emit a link code, so the ceiling is much higher than a normal API call.
     const boxHostTimeoutMs = yield* serverEnvironment.BOX_HOST_TIMEOUT_MS.config;
     const boxHost = yield* validateBoxHost(boxHostUrl, boxHostToken, boxHostTimeoutMs);
-    const webPushVapidPublicKey = Option.getOrUndefined(
-      yield* serverEnvironment.WEB_PUSH_VAPID_PUBLIC_KEY.config,
-    );
-    const webPushVapidPrivateKey = yield* revealOptionalSecret(
-      yield* serverEnvironment.WEB_PUSH_VAPID_PRIVATE_KEY.config,
-      'WEB_PUSH_VAPID_PRIVATE_KEY',
-    );
-    const webPushContact = Option.getOrUndefined(yield* serverEnvironment.WEB_PUSH_CONTACT.config);
-
-    const webPush = yield* validateWebPush(
-      webPushVapidPublicKey,
-      webPushVapidPrivateKey,
-      webPushContact,
+    const webPushContact = yield* validateWebPushContact(
+      Option.getOrUndefined(yield* serverEnvironment.WEB_PUSH_CONTACT.config),
     );
 
     const edgeRegistrationKeysRaw = yield* revealRequiredSecret(
@@ -417,18 +372,16 @@ export const ServerConfigLive = Layer.effect(
       authAllowRegistration,
       authIdentity,
       emailDelivery,
-      opaqueServerSetup: Redacted.make(opaque.serverSetup),
-      opaqueServerPublicKey: opaque.serverPublicKey,
+      keydSocket,
+      opaqueServerPublicKey,
       trustedProxyHops,
       stunTicketKey,
       edgeAttachTicketKey,
       stunServers,
       boxHostStunObservers,
       boxHost,
-      sessionTokenSigningKey: sessionTokenKeys.signingKey,
-      sessionTokenVerifyKeyB64: sessionTokenKeys.verifyKeyB64,
       sessionTokenTtlMs,
-      webPush,
+      webPushContact,
       edgeRegistrationKeys,
       telemetry,
       traceLevel,
@@ -615,47 +568,6 @@ function revealOptionalSecret(
   return revealRequiredSecret(secret.value, field).pipe(Effect.map((value) => value));
 }
 
-function parseSessionTokenSeed(
-  encodedSeed: string,
-): Effect.Effect<{ signingKey: MlDsa87SigningKey; verifyKeyB64: string }, ServerConfigError> {
-  return Effect.try({
-    try: () => {
-      if (encodedSeed.length !== 43 || !/^[A-Za-z0-9_-]{43}$/.test(encodedSeed)) {
-        throw new ServerConfigError({
-          field: 'SESSION_TOKEN_MLDSA87_SEED',
-          message: 'SESSION_TOKEN_MLDSA87_SEED must be canonical base64url for 32 bytes',
-        });
-      }
-      const seed = Buffer.from(encodedSeed, 'base64url');
-      try {
-        if (
-          seed.byteLength !== SESSION_AUTHORIZATION_SEED_BYTES ||
-          seed.toString('base64url') !== encodedSeed
-        ) {
-          throw new ServerConfigError({
-            field: 'SESSION_TOKEN_MLDSA87_SEED',
-            message: 'SESSION_TOKEN_MLDSA87_SEED must be canonical base64url for 32 bytes',
-          });
-        }
-        const { signingKey, verifyKey } = deriveSessionAuthorizationKeyPair(seed);
-        if (verifyKey.byteLength !== SESSION_AUTHORIZATION_PUBLIC_KEY_BYTES) {
-          throw new Error('ML-DSA-87 returned an invalid public-key length');
-        }
-        return { signingKey, verifyKeyB64: Buffer.from(verifyKey).toString('base64url') };
-      } finally {
-        seed.fill(0);
-      }
-    },
-    catch: (error) =>
-      error instanceof ServerConfigError
-        ? error
-        : new ServerConfigError({
-            field: 'SESSION_TOKEN_MLDSA87_SEED',
-            message: 'Cannot derive SESSION_TOKEN_MLDSA87_SEED signing key',
-          }),
-  });
-}
-
 function validatePort(value: number): Effect.Effect<number, ServerConfigError> {
   if (Number.isSafeInteger(value) && value >= 1 && value <= 65_535) {
     return Effect.succeed(value);
@@ -810,53 +722,31 @@ function buildWebsiteConfig(fields: {
   });
 }
 
-function validateWebPush(
-  publicKey: string | undefined,
-  privateKey: string | undefined,
+/** A `mailto:` address or an HTTPS URL; whether keyd holds the key it goes with is checked at startup. */
+function validateWebPushContact(
   contact: string | undefined,
-): Effect.Effect<WebPushConfig | undefined, ServerConfigError> {
-  if (publicKey === undefined && privateKey === undefined && contact === undefined)
-    return Effect.succeed(undefined);
+): Effect.Effect<string | undefined, ServerConfigError> {
+  if (contact === undefined) return Effect.succeed(undefined);
   return Effect.try({
     try: () => {
-      if (publicKey === undefined || privateKey === undefined || contact === undefined)
-        throw new Error('incomplete');
-      const publicBytes = Buffer.from(publicKey, 'base64url');
-      const privateBytes = Buffer.from(privateKey, 'base64url');
-      try {
-        if (
-          publicBytes.length !== 65 ||
-          publicBytes[0] !== 4 ||
-          publicBytes.toString('base64url') !== publicKey ||
-          privateBytes.length !== 32 ||
-          privateBytes.toString('base64url') !== privateKey
-        )
-          throw new Error('invalid key');
-        const ecdh = createECDH('prime256v1');
-        ecdh.setPrivateKey(privateBytes);
-        if (!timingSafeEqual(ecdh.getPublicKey(), publicBytes)) throw new Error('mismatched key');
-        const url = new URL(contact);
-        if (url.protocol === 'mailto:') {
-          if (!url.pathname.includes('@') || url.search || url.hash)
-            throw new Error('invalid contact');
-        } else if (
-          url.protocol !== 'https:' ||
-          !url.hostname ||
-          url.username ||
-          url.password ||
-          url.hash
-        )
+      const url = new URL(contact);
+      if (url.protocol === 'mailto:') {
+        if (!url.pathname.includes('@') || url.search || url.hash)
           throw new Error('invalid contact');
-        return { publicKey, privateKey: Redacted.make(privateKey), contact };
-      } finally {
-        privateBytes.fill(0);
-      }
+      } else if (
+        url.protocol !== 'https:' ||
+        !url.hostname ||
+        url.username ||
+        url.password ||
+        url.hash
+      )
+        throw new Error('invalid contact');
+      return contact;
     },
     catch: () =>
       new ServerConfigError({
-        field: 'WEB_PUSH_VAPID_PUBLIC_KEY',
-        message:
-          'Web push requires a matching canonical P-256 VAPID keypair and a mailto: or HTTPS contact together',
+        field: 'WEB_PUSH_CONTACT',
+        message: 'WEB_PUSH_CONTACT must be a mailto: address or an HTTPS URL',
       }),
   });
 }
@@ -939,57 +829,18 @@ function validateTokenHmacSecret(value: string): Effect.Effect<string, ServerCon
   }
 }
 
-function parseOpaqueServerConfiguration(
-  serverSetup: string,
-  serverPublicKey: string,
-  webPublicKey: string,
-): Effect.Effect<
-  { readonly serverSetup: string; readonly serverPublicKey: string },
-  ServerConfigError
-> {
-  return Effect.tryPromise({
-    try: async () => {
-      const derived = await validateOpaqueServerSetup(serverSetup);
-      const derivedBytes = Buffer.from(derived, 'base64url');
-      const configuredBytes = Buffer.from(serverPublicKey, 'base64url');
-      const webBytes = Buffer.from(webPublicKey, 'base64url');
-      try {
-        if (
-          configuredBytes.byteLength !== 32 ||
-          configuredBytes.toString('base64url') !== serverPublicKey ||
-          !timingSafeEqual(derivedBytes, configuredBytes)
-        ) {
-          throw new ServerConfigError({
-            field: 'OPAQUE_SERVER_PUBLIC_KEY',
-            message: 'OPAQUE_SERVER_PUBLIC_KEY must be canonical and match OPAQUE_SERVER_SETUP',
-          });
-        }
-        if (
-          webBytes.byteLength !== 32 ||
-          webBytes.toString('base64url') !== webPublicKey ||
-          !timingSafeEqual(derivedBytes, webBytes)
-        ) {
-          throw new ServerConfigError({
-            field: 'VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY',
-            message:
-              'VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY must be canonical and match OPAQUE_SERVER_SETUP',
-          });
-        }
-      } finally {
-        derivedBytes.fill(0);
-        configuredBytes.fill(0);
-        webBytes.fill(0);
-      }
-      return { serverSetup, serverPublicKey };
-    },
-    catch: (error) =>
-      error instanceof ServerConfigError
-        ? error
-        : new ServerConfigError({
-            field: 'OPAQUE_SERVER_SETUP',
-            message: 'OPAQUE_SERVER_SETUP must be a canonical OPAQUE server setup',
-          }),
-  });
+/** The web build's OPAQUE pin: canonical base64url of the 32-byte Ristretto255 key. */
+function parseOpaquePublicKeyPin(value: string): Effect.Effect<string, ServerConfigError> {
+  const bytes = Buffer.from(value, 'base64url');
+  if (bytes.byteLength === 32 && bytes.toString('base64url') === value) {
+    return Effect.succeed(value);
+  }
+  return Effect.fail(
+    new ServerConfigError({
+      field: 'VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY',
+      message: 'VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY must be canonical base64url for 32 bytes',
+    }),
+  );
 }
 
 function parseAccessTokenHmacKey(value: string): Effect.Effect<Uint8Array, ServerConfigError> {

@@ -455,7 +455,6 @@
   "apps/server/src/services/auth-service.ts": {
     "no-array-filter-map": 1,
     "no-conditional-empty-object-spread": 2,
-    "no-manual-tag-comparison": 1,
     "no-unknown-parameters": 1,
     "require-safety-comment-for-type-assertion": 1
   },

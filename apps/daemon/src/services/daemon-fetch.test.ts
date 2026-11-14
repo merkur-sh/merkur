@@ -3,21 +3,19 @@ import { treaty } from '@elysia/eden';
 import {
   daemonBodyDigest,
   daemonHttpTranscript,
-  deriveSessionAuthorizationKeyPair,
   deriveSoftwareDaemonP256PublicKey,
   parseDaemonHttpProof,
   signDaemonProof,
   verifyDaemonProof,
 } from '@merkur/auth';
 import type { App } from '@merkur/server';
+import { deriveUserAuthorizationPublicKey } from '@merkur/shared/user-authorization';
 import { Effect } from 'effect';
 
 import { createDaemonFetch } from './daemon-fetch';
 
 const seed = Buffer.alloc(32, 0x22);
-const publicKey = Buffer.from(deriveSessionAuthorizationKeyPair(seed).verifyKey).toString(
-  'base64url',
-);
+const publicKey = Buffer.from(deriveUserAuthorizationPublicKey(seed)).toString('base64url');
 
 describe('daemon request signing', () => {
   test('signs Eden JSON and OTLP text after serialization and refuses redirects', async () => {

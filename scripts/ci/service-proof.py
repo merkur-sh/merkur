@@ -8,6 +8,8 @@ from release_state import read_state, write_state
 
 root = Path('dist/service-proofs')
 SERVICES = ('merkur-edge', 'merkur-stun')
+# The app host's key service, deployed with the server it serves.
+KEYD = 'merkur-keyd'
 
 
 # The verified deployment's server, which deploy-services.sh extracts beside the release.
@@ -23,7 +25,7 @@ def service_digest(name):
 
 
 if sys.argv[1] == 'record':
-    identities = {name: service_digest(name) for name in SERVICES}
+    identities = {name: service_digest(name) for name in (*SERVICES, KEYD)}
     identities['server'] = digest(SERVER)
     (root / 'identities.json').write_text(json.dumps(identities))
     parent, state = read_state()
@@ -38,6 +40,8 @@ elif sys.argv[1] == 'verify-app':
         raise ValueError(f'app: installed {report["version"]}, not {os.environ["VERSION"]}')
     if report['server'] != digest(SERVER) or report['active'] != 'active':
         raise ValueError('app: the server is not the verified deployment')
+    if report[KEYD] != service_digest(KEYD) or report['keydActive'] != 'active':
+        raise ValueError('app: merkur-keyd does not run the retained binary')
 else:
     host = sys.argv[2]
     report = json.loads((root / f'{host}.json').read_text())

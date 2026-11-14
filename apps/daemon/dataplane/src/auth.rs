@@ -5,7 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use libcrux_ml_dsa::ml_dsa_87::{self, MLDSA87Signature, MLDSA87VerificationKey};
 use ring::rand::{SecureRandom, SystemRandom};
-use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use serde::Deserialize;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 #[cfg(test)]
@@ -13,13 +14,14 @@ use zeroize::Zeroizing;
 
 use merkur_authorization::{
     DELEGATION_LIFETIME_MS as USER_DELEGATION_LIFETIME_MS, MAX_SAFE_INTEGER,
+    SESSION_CAPABILITY_CONTEXT as SESSION_TOKEN_CONTEXT,
+    SESSION_CAPABILITY_MAX_LIFETIME_MS as SESSION_TOKEN_MAX_LIFETIME_MS, SessionCapability,
+    parse_session_capability,
 };
 pub use merkur_authorization::{
     DaemonBinding, DelegationCertificate, RevocationStatement, RevocationTarget,
 };
 
-const SESSION_TOKEN_CONTEXT: &[u8] = b"merkur-session-authorization";
-const SESSION_TOKEN_MAX_LIFETIME_MS: u64 = 300_000;
 const SESSION_TOKEN_CLOCK_SKEW_MS: u64 = 30_000;
 const SESSION_TOKEN_ID_MAX_BYTES: usize = 128;
 const SESSION_TOKEN_MAX_BYTES: usize = 8 * 1024;
@@ -374,23 +376,6 @@ pub struct ValidatedSession {
     pub request_commitment: [u8; COMMITMENT_BYTES],
 }
 
-/// Exact canonical payload signed by the application server. Field declaration
-/// order is protocol order because reserialization must reproduce the signed
-/// JSON bytes byte-for-byte: `{u,g,b,d,s,k,q,iat,e}`.
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct SessionTokenPayload {
-    u: String,
-    g: String,
-    b: String,
-    d: String,
-    s: String,
-    k: String,
-    q: String,
-    iat: u64,
-    e: u64,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuthError {
     MalformedToken,
@@ -499,26 +484,11 @@ impl SessionAuthority {
         let payload_b64 = payload_b64.expect("checked above");
         let signature_b64 = signature_b64.expect("checked above");
 
-        let payload_bytes = decode_canonical(payload_b64).map_err(|_| AuthError::MalformedToken)?;
-        let payload: SessionTokenPayload =
-            serde_json::from_slice(&payload_bytes).map_err(|_| AuthError::MalformedToken)?;
-        if serde_json::to_vec(&payload).map_err(|_| AuthError::MalformedToken)? != payload_bytes {
-            return Err(AuthError::MalformedToken);
-        }
-        let daemon_identity_key_hash = decode_canonical_array::<COMMITMENT_BYTES>(&payload.k)
-            .map_err(|_| AuthError::MalformedToken)?;
-        let request_commitment = decode_canonical_array::<COMMITMENT_BYTES>(&payload.q)
-            .map_err(|_| AuthError::MalformedToken)?;
-        if !valid_protocol_id(&payload.u)
-            || !valid_protocol_id(&payload.g)
-            || !valid_protocol_id(&payload.b)
-            || !valid_protocol_id(&payload.d)
-            || !valid_protocol_id(&payload.s)
-            || payload.e <= payload.iat
-            || payload.e - payload.iat > SESSION_TOKEN_MAX_LIFETIME_MS
-        {
-            return Err(AuthError::MalformedToken);
-        }
+        let SessionCapability {
+            payload,
+            daemon_identity_key_hash,
+            request_commitment,
+        } = parse_session_capability(payload_b64).map_err(|_| AuthError::MalformedToken)?;
         if payload.d != self.daemon_id {
             return Err(AuthError::WrongDaemon);
         }
@@ -875,7 +845,7 @@ mod tests {
     struct SessionAuthorizationVector {
         verify_key_base64_url: String,
         token: String,
-        payload: SessionTokenPayload,
+        payload: merkur_authorization::SessionCapabilityPayload,
         verify_at_ms: u64,
         context: String,
     }

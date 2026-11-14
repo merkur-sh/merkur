@@ -1,7 +1,9 @@
 import {
-  createSessionAuthorizationToken,
+  assembleSessionAuthorizationToken,
+  createSessionAuthorizationPayloadSegment,
   deriveDaemonIdentityKeyCommitment,
   deriveSessionRequestCommitment,
+  type SessionAuthorizationClaims,
 } from '@merkur/auth';
 import { MAX_STUN_SERVERS } from '@merkur/daemon-control-protocol';
 import { normalizeEdgeWebTransportUrl, spanAttributes } from '@merkur/shared';
@@ -16,7 +18,8 @@ import { DeviceServiceTag } from './device-service';
 import { createEdgeAttachTicketIssuer } from './edge-attach-ticket';
 import { EdgeRegistryServiceTag } from './edge-registry-service';
 import { selectEdge } from './edge-selection';
-import type { InfrastructureError } from './errors';
+import { type InfrastructureError, infrastructureError } from './errors';
+import { KeyServiceTag } from './key-service';
 import { RealtimeCoordinationServiceTag } from './realtime-coordination-service';
 import type { RedisError } from './redis-service';
 import type { SessionIssuanceStateError } from './session-issuance-contract';
@@ -176,7 +179,17 @@ export const SessionServiceLive = Layer.effect(
     const deviceService = yield* DeviceServiceTag;
     const edgeRegistry = yield* EdgeRegistryServiceTag;
     const sessionIssuance = yield* SessionIssuanceServiceTag;
+    const keys = yield* KeyServiceTag;
     const logger = createLogger('session-service');
+    // keyd signs the capability; a refusal or an unreachable keyd is this
+    // server failing, not the browser's request.
+    const signCapability = (claims: SessionAuthorizationClaims) => {
+      const payloadSegment = createSessionAuthorizationPayloadSegment(claims);
+      return keys.signCapability(payloadSegment).pipe(
+        Effect.map((signature) => assembleSessionAuthorizationToken(payloadSegment, signature)),
+        Effect.mapError(infrastructureError('keyd', 'sign-capability')),
+      );
+    };
     const edgeAttachTickets = createEdgeAttachTicketIssuer(config.edgeAttachTicketKey);
     const stunTickets = createStunTicketIssuer(
       config.stunTicketKey,
@@ -265,7 +278,7 @@ export const SessionServiceLive = Layer.effect(
       return {
         edgeCertHashes: edge === undefined ? null : [...edge.certHashes],
         sessionTokenExpiresInMs: config.sessionTokenTtlMs,
-        sessionToken: createSessionAuthorizationToken({
+        sessionToken: yield* signCapability({
           userId: principal.userId,
           delegationId: principal.delegationId,
           browserNodeId: input.browserNodeId,
@@ -275,7 +288,6 @@ export const SessionServiceLive = Layer.effect(
           sessionRequestCommitment: input.commitment,
           issuedAtMs,
           expiresAtMs: issuedAtMs + config.sessionTokenTtlMs,
-          signingKey: config.sessionTokenSigningKey,
         }),
       };
     });
@@ -359,7 +371,8 @@ export const SessionServiceLive = Layer.effect(
 
                     const issuedAtMs = yield* Clock.currentTimeMillis;
                     const expiresAtMs = issuedAtMs + config.sessionTokenTtlMs;
-                    const sessionToken = createSessionAuthorizationToken({
+                    // keyd signs while the presence claim and the edge lookup run.
+                    const sessionTokenFiber = yield* signCapability({
                       userId: principal.userId,
                       delegationId: principal.delegationId,
                       browserNodeId: input.browserNodeId,
@@ -369,8 +382,7 @@ export const SessionServiceLive = Layer.effect(
                       sessionRequestCommitment,
                       issuedAtMs,
                       expiresAtMs,
-                      signingKey: config.sessionTokenSigningKey,
-                    });
+                    }).pipe(Effect.forkScoped);
                     const presence = yield* measureEffect(
                       coordination.createSessionForDaemonPresence({
                         sessionId,
@@ -400,6 +412,7 @@ export const SessionServiceLive = Layer.effect(
                     if (edge === null) {
                       return yield* Effect.fail(new EdgeTemporarilyUnavailableError());
                     }
+                    const sessionToken = yield* Fiber.join(sessionTokenFiber);
 
                     return {
                       expiresAtMs,

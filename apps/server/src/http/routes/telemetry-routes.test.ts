@@ -1,9 +1,5 @@
 import { describe, expect, spyOn, test } from 'bun:test';
-import {
-  daemonHttpProofHeaders,
-  deriveSessionAuthorizationKeyPair,
-  signDaemonProof,
-} from '@merkur/auth';
+import { daemonHttpProofHeaders, signDaemonProof } from '@merkur/auth';
 import {
   BROWSER_ERROR_KINDS,
   BROWSER_ERROR_SOURCES,
@@ -341,12 +337,10 @@ const INGEST_CONFIG: ServerConfig = {
   authIdentity: 'username',
   emailDelivery: undefined,
   trustedProxyHops: 1,
-  sessionTokenSigningKey: deriveSessionAuthorizationKeyPair(new Uint8Array(32)).signingKey,
-  sessionTokenVerifyKeyB64: 'A'.repeat(3_456),
   sessionTokenTtlMs: 60_000,
-  webPush: undefined,
+  webPushContact: undefined,
   edgeRegistrationKeys: new Map(),
-  opaqueServerSetup: Redacted.make(Buffer.alloc(128).toString('base64url')),
+  keydSocket: '/run/merkur-keyd/keyd.sock',
   opaqueServerPublicKey: Buffer.alloc(32).toString('base64url'),
   stunTicketKey: new Uint8Array(32),
   edgeAttachTicketKey: new Uint8Array(64).fill(11),

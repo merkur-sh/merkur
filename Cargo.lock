@@ -2414,6 +2414,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "merkur-keyd"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "libc",
+ "merkur-authorization",
+ "merkur-e2e",
+ "opaque-ke",
+ "p256",
+ "rand_core 0.6.4",
+ "ring",
+ "serde_json",
+ "sha2 0.10.9",
+ "tracing",
+ "tracing-subscriber",
+ "zeroize",
+]
+
+[[package]]
 name = "merkur-stun"
 version = "0.1.0"
 dependencies = [

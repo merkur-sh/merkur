@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { deriveSessionAuthorizationKeyPair } from '@merkur/auth';
 import { ReleaseResponse } from '@merkur/shared/api-schema';
 import { Effect, Layer, Redacted } from 'effect';
 import { Value } from 'typebox/value';
@@ -393,13 +392,11 @@ function createConfig(): ServerConfig {
     authAllowRegistration: true,
     authIdentity: 'username',
     emailDelivery: undefined,
-    opaqueServerSetup: Redacted.make(Buffer.alloc(128).toString('base64url')),
+    keydSocket: '/run/merkur-keyd/keyd.sock',
     opaqueServerPublicKey: Buffer.alloc(32).toString('base64url'),
     trustedProxyHops: 1,
-    sessionTokenSigningKey: deriveSessionAuthorizationKeyPair(new Uint8Array(32)).signingKey,
-    sessionTokenVerifyKeyB64: 'A'.repeat(3_456),
     sessionTokenTtlMs: 60_000,
-    webPush: undefined,
+    webPushContact: undefined,
     edgeRegistrationKeys: new Map(),
     telemetry: undefined,
     traceLevel: 'Info',

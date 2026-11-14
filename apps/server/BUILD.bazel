@@ -21,7 +21,26 @@ js_library(
     deps = [":node_modules"],
 )
 
+# The tests that run the real merkur-keyd (`src/services/keyd-test-support.ts`).
+_KEYD = {"tools": {"//apps/keyd:merkur-keyd": "merkur-keyd"}}
+
 bun_test_files(
+    files = {
+        test: _KEYD
+        for test in [
+            "src/http/routes/auth-routes.test.ts",
+            "src/http/routes/session-routes.test.ts",
+            "src/services/account-deletion-sweep.test.ts",
+            "src/services/auth-service-account.test.ts",
+            "src/services/auth-service-email.test.ts",
+            "src/services/auth-service-password.test.ts",
+            "src/services/auth-service-reset.test.ts",
+            "src/services/auth-service.test.ts",
+            "src/services/key-service.keyd.test.ts",
+            "src/services/push-notification-service.test.ts",
+            "src/services/session-service.test.ts",
+        ]
+    },
     tests = glob(
         ["**/*.test.ts"],
         exclude = IGNORED,

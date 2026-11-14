@@ -244,4 +244,24 @@ describe('createAuth password reset', () => {
     // The account and token are cleared, never set.
     expect(installed).toEqual([null, null]);
   }, 30_000);
+
+  test("an account whose attempts are spent keeps the reset and says it is the account's", async () => {
+    serve('email', {
+      '/api/auth/reset/code': [{ status: 200, body: { flowId: CODE_FLOW } }],
+      '/api/auth/reset/verify': [{ status: 200, body: { flowId: PROVEN_FLOW, devices: [] } }],
+      '/api/auth/reset/start': [{ status: 429, body: { error: 'attempts_exhausted' } }],
+    });
+    const { auth: created, installed } = await auth('email');
+    created.onAuthResetOpen('');
+    await created.onAuthResetStart(ADDRESS);
+    await created.onAuthResetCodeSubmit(submit({ code: '123456' }));
+
+    await created.onAuthResetConfirm(submit({ password: 'a second correct horse battery' }));
+
+    expect(created.authReset()?.step).toBe('confirm');
+    expect(created.authError()).toBe(
+      'Too many sign-in attempts for this account. Try again later, or use a device that is still signed in.',
+    );
+    expect(installed).toEqual([]);
+  }, 30_000);
 });

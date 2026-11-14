@@ -4,6 +4,7 @@ import { ServerConfigService } from '../config';
 import { DaemonControlServiceTag } from './daemon-control-service';
 import { DeviceServiceTag } from './device-service';
 import { type EdgeRegistration, EdgeRegistryServiceTag } from './edge-registry-service';
+import { KeyServiceTag } from './key-service';
 import { RealtimeCoordinationServiceTag } from './realtime-coordination-service';
 import { SessionIssuanceServiceTag } from './session-issuance-service';
 import {
@@ -21,9 +22,13 @@ import {
   createFakeSessionIssuanceService,
   DAEMON_BINDING_JSON,
   DAEMON_IDENTITY_PUBLIC_KEY,
+  sessionKeys,
   TEST_DELEGATION_ID,
   TEST_USER_ID,
+  useSessionKeyd,
 } from './session-test-fixture';
+
+useSessionKeyd();
 
 const principal = { userId: TEST_USER_ID, delegationId: TEST_DELEGATION_ID };
 const request = {
@@ -63,6 +68,7 @@ function serviceLayer(
     Layer.provide(
       Layer.mergeAll(
         Layer.succeed(ServerConfigService, createFakeConfig()),
+        Layer.succeed(KeyServiceTag, sessionKeys()),
         Layer.succeed(
           DeviceServiceTag,
           createFakeDeviceService(DAEMON_IDENTITY_PUBLIC_KEY, binding),

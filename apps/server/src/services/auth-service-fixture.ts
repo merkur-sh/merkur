@@ -7,8 +7,9 @@
  * and `published` are live bindings: a test reads what its `beforeEach` made, and replaces the
  * service through `setService`.
  */
-import { beforeEach, expect, setDefaultTimeout } from 'bun:test';
-import { createOpaqueServerSetup } from '@merkur/auth';
+import { afterAll, afterEach, beforeAll, beforeEach, expect, setDefaultTimeout } from 'bun:test';
+import { rm } from 'node:fs/promises';
+import path from 'node:path';
 import { AuthSessionResponse, AuthStartResponse } from '@merkur/shared/api-schema';
 import { OPAQUE_PASSWORD_STRETCHING } from '@merkur/shared/opaque-password-policy';
 import {
@@ -31,6 +32,7 @@ import {
   type AuthSessionResult,
   createAuthService,
 } from './auth-service';
+import { keydCredentials, startTestKeyService, type TestKeyService } from './keyd-test-support';
 import type { MailSender } from './mail-sender';
 import { deliverPendingNotifications } from './notification-outbox-service';
 import type { RedisCommandClient, RedisService } from './redis-service';
@@ -47,19 +49,30 @@ export const ROOT_KEY_COMMITMENT = deriveUserRootKeyCommitment(ROOT.publicKey);
 
 export let db: Kysely<DatabaseSchema>;
 export let service: AuthService;
+/** The test's own keyd: one per test, so no test inherits another's spent attempts. */
+export let keys: TestKeyService;
 export const published: Array<{ channel: string; message: string }> = [];
 
 export function useAuthServiceFixture(): void {
   // A test here runs several production Argon2id finishes, which CI's parallel test processes
   // slow from under a second to several. Nothing asserts on time, so the limit only guards a hang.
   setDefaultTimeout(30_000);
+  let credentials: string;
+  beforeAll(async () => {
+    credentials = await keydCredentials();
+  });
+  afterAll(async () => {
+    await rm(path.dirname(credentials), { recursive: true, force: true });
+  });
   beforeEach(async () => {
     published.length = 0;
     await opaque.ready;
+    keys = await startTestKeyService(credentials);
     db = await createMigratedKyselyDatabase<DatabaseSchema>(':memory:');
     service = createAuthService(
       db,
       createFakeRedis(),
+      keys.service,
       {
         accessToken: {
           hmacKey: new Uint8Array(64).fill(0x44),
@@ -69,13 +82,15 @@ export function useAuthServiceFixture(): void {
         tokenHmacSecret: 'test-token-hmac-secret',
         allowRegistration: true,
         identity: { kind: 'username' },
-        opaqueServerSetup: await createOpaqueServerSetup(),
         publicOrigin: ORIGIN,
       },
       deliverPendingNotifications(db, createFakeRedis(), {
         getDaemonPresence: () => Effect.succeed(null),
       }).pipe(Effect.orDie),
     );
+  });
+  afterEach(async () => {
+    await keys.stop();
   });
 }
 
@@ -127,6 +142,7 @@ export async function useEmailIdentity(
   service = createAuthService(
     db,
     createFakeRedis(),
+    keys.service,
     {
       accessToken: {
         hmacKey: new Uint8Array(64).fill(0x44),
@@ -136,7 +152,6 @@ export async function useEmailIdentity(
       tokenHmacSecret: 'test-token-hmac-secret',
       allowRegistration: true,
       identity: { kind: 'email', mail: recordingMail(sent) },
-      opaqueServerSetup: await createOpaqueServerSetup(),
       publicOrigin: ORIGIN,
       ...overrides,
     },

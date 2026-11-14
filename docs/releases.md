@@ -147,17 +147,26 @@ running one, and the unit binds it read-only at `/deployment` and its migrations
 `/migrations`. A version is installed once: shipping it again with different bytes fails.
 The server holds no durable state of its own: its database is sqld, reached through `DB_URL`.
 
+`merkur-keyd` (`deploy/app/merkur-keyd.service`) runs beside the server under its own system
+user, with no network and its keys loaded as systemd credentials from `/etc/merkur/keyd/`; the
+server unit requires it and joins its group to reach its socket. Each release installs the
+retained keyd binary into `/usr/local/lib/merkur/keyd/<version>`, behind
+`/usr/local/bin/merkur-keyd`, with the server it serves: their socket protocol is one release's
+contract.
+
 The edge and STUN run under systemd on the service hosts (`apps/edge/merkur-edge.service`,
 `apps/stun/merkur-stun.service`) the same way. Only the edge's egress cap runs as root,
 before the relay starts; the edge's identity lives in its unit's state directory.
 
 Production server deployment is a stage of the tag-triggered release workflow
 (`scripts/ci/deploy-services.sh`). CI verifies the signed bundle, ships that verified
-directory to the app host over SSH pinned to the host's key in the manifest, and runs
-`scripts/ci/install-app-release.sh` there, which restarts the server, waits for it to log
-`server_started` and reports the SHA-512 of the executable it runs; CI requires that digest to
-be the verified one. Secrets never travel: the host holds them in `/etc/merkur/server.env`
-and `/etc/merkur/data.env`. Retain the exact local signed bundle so rollout checks can
+directory and the retained `merkur-keyd` to the app host over SSH pinned to the host's key in
+the manifest, and runs `scripts/ci/install-app-release.sh` there. It refuses a host whose keyd
+keys are missing or whose `server.env` still names one, restarts keyd and waits for
+`keyd: listening`, restarts the server and waits for it to log `server_started`, and reports the
+SHA-512 of both executables it runs; CI requires each digest to be the retained one. Secrets
+never travel: the host holds them in `/etc/merkur/server.env`, `/etc/merkur/data.env` and
+`/etc/merkur/keyd/`. Retain the exact local signed bundle so rollout checks can
 compare it with production:
 
 ```sh

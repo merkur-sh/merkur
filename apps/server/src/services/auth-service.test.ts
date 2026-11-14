@@ -1,5 +1,4 @@
 import { describe, expect, spyOn, test } from 'bun:test';
-import { createOpaqueServerSetup } from '@merkur/auth';
 import { OPAQUE_PASSWORD_STRETCHING } from '@merkur/shared/opaque-password-policy';
 import {
   createDelegationRevocationStatement,
@@ -23,6 +22,7 @@ import {
   db,
   finishClientLogin,
   finishRegistration,
+  keys,
   loginWithNewDelegation,
   OLD_PASSWORD,
   ORIGIN,
@@ -103,6 +103,7 @@ describe('AuthService user-root OPAQUE flows', () => {
       createAuthService(
         db,
         createFakeRedis(),
+        keys.service,
         {
           accessToken: {
             hmacKey: new Uint8Array(64).fill(0x44),
@@ -112,7 +113,6 @@ describe('AuthService user-root OPAQUE flows', () => {
           tokenHmacSecret: 'test-token-hmac-secret',
           allowRegistration: false,
           identity: { kind: 'username' },
-          opaqueServerSetup: await createOpaqueServerSetup(),
           publicOrigin: ORIGIN,
         },
         deliverPendingNotifications(db, createFakeRedis(), {
@@ -131,7 +131,6 @@ describe('AuthService user-root OPAQUE flows', () => {
   // existing account as well as for a new username, so with sign-up closed the
   // two must be indistinguishable or the error enumerates usernames.
   test('a closed sign-up answers an existing username exactly as a new one', async () => {
-    const opaqueServerSetup = await createOpaqueServerSetup();
     const config = {
       accessToken: {
         hmacKey: new Uint8Array(64).fill(0x44),
@@ -140,13 +139,13 @@ describe('AuthService user-root OPAQUE flows', () => {
       },
       tokenHmacSecret: 'test-token-hmac-secret',
       identity: { kind: 'username' },
-      opaqueServerSetup,
       publicOrigin: ORIGIN,
     } as const;
     setService(
       createAuthService(
         db,
         createFakeRedis(),
+        keys.service,
         { ...config, allowRegistration: true },
         deliverPendingNotifications(db, createFakeRedis(), {
           getDaemonPresence: () => Effect.succeed(null),
@@ -158,6 +157,7 @@ describe('AuthService user-root OPAQUE flows', () => {
       createAuthService(
         db,
         createFakeRedis(),
+        keys.service,
         { ...config, allowRegistration: false },
         deliverPendingNotifications(db, createFakeRedis(), {
           getDaemonPresence: () => Effect.succeed(null),

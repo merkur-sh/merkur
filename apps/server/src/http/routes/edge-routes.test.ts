@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { deriveSessionAuthorizationKeyPair } from '@merkur/auth';
 import { Effect, Layer, Redacted } from 'effect';
 import { Elysia } from 'elysia';
 
@@ -96,13 +95,11 @@ function createFakeConfig(): ServerConfig {
     authAllowRegistration: true,
     authIdentity: 'username',
     emailDelivery: undefined,
-    opaqueServerSetup: Redacted.make(Buffer.alloc(128).toString('base64url')),
+    keydSocket: '/run/merkur-keyd/keyd.sock',
     opaqueServerPublicKey: Buffer.alloc(32).toString('base64url'),
     trustedProxyHops: 1,
-    sessionTokenSigningKey: deriveSessionAuthorizationKeyPair(new Uint8Array(32)).signingKey,
-    sessionTokenVerifyKeyB64: 'A'.repeat(3_456),
     sessionTokenTtlMs: 60_000,
-    webPush: undefined,
+    webPushContact: undefined,
     edgeRegistrationKeys: new Map([
       [EDGE_ID, EDGE_KEY],
       ['iad-2', SECOND_EDGE_KEY],

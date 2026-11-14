@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, spyOn, test } from 'bun:test';
-import {
-  deriveSessionAuthorizationKeyPair,
-  deriveSoftwareDaemonP256PublicKey,
-  hashToken,
-  signDaemonProof,
-} from '@merkur/auth';
+import { deriveSoftwareDaemonP256PublicKey, hashToken, signDaemonProof } from '@merkur/auth';
+import { deriveUserAuthorizationPublicKey } from '@merkur/shared/user-authorization';
 import { Effect } from 'effect';
 import { type Kysely, sql } from 'kysely';
 
@@ -13,9 +9,7 @@ import type { DatabaseSchema } from '../db/types';
 import { createDeviceService } from './device-service';
 
 const SEED = Buffer.alloc(32, 0x22);
-const PUBLIC_KEY = Buffer.from(deriveSessionAuthorizationKeyPair(SEED).verifyKey).toString(
-  'base64url',
-);
+const PUBLIC_KEY = Buffer.from(deriveUserAuthorizationPublicKey(SEED)).toString('base64url');
 
 const HMAC_SECRET = 'test-hmac-secret';
 const PUBLIC_ORIGIN = 'https://merkur.test';

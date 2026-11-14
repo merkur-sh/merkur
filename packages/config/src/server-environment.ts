@@ -186,23 +186,14 @@ export const serverEnvironment = {
       'Rybbit API key, sent as `Authorization: Bearer`. It marks the event as ingestion from this server and never reaches the website.',
     example: '',
   },
-  OPAQUE_SERVER_SETUP: {
-    config: Config.Redacted('OPAQUE_SERVER_SETUP'),
-    required: true,
-    secret: true,
-    requirement: 'Yes',
-    notes:
-      'Stable canonical OPAQUE server setup. Replacing it invalidates every OPAQUE registration record. Keep it secret and durable.',
-    example: '',
-  },
-  OPAQUE_SERVER_PUBLIC_KEY: {
-    config: Config.Redacted('OPAQUE_SERVER_PUBLIC_KEY'),
+  KEYD_SOCKET: {
+    config: Config.NonEmptyString('KEYD_SOCKET'),
     required: true,
     secret: false,
     requirement: 'Yes',
     notes:
-      'Canonical public key derived from `OPAQUE_SERVER_SETUP`; startup fails if they do not match.',
-    example: '',
+      'Unix socket of `merkur-keyd`, which holds the OPAQUE server setup, the ML-DSA-87 session-capability key and the web-push VAPID key and performs every operation that needs them. The server holds none of them; startup fails when keyd is unreachable.',
+    example: '/run/merkur-keyd/keyd.sock',
   },
   VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY: {
     config: Config.NonEmptyString('VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY'),
@@ -210,7 +201,7 @@ export const serverEnvironment = {
     secret: false,
     requirement: 'Build + standalone startup',
     notes:
-      'Must equal `OPAQUE_SERVER_PUBLIC_KEY`. The browser pins this value; the deployment build validates it and compiles it into the server for a pre-migration startup comparison.',
+      'The OPAQUE server public key the browser pins. The deployment build compiles it into the server, and startup fails unless it equals the key `merkur-keyd` holds.',
     example: '',
   },
   TRUSTED_PROXY_HOPS: {
@@ -221,15 +212,6 @@ export const serverEnvironment = {
     notes:
       'Number of reverse proxies in front of the server that append to `X-Forwarded-For`. `0` ignores the header and keys rate limits on the socket address; production is `1`, behind Caddy. Wrong values either let a client forge its own rate-limit key or collapse every client into one bucket, so there is no default.',
     example: '0',
-  },
-  SESSION_TOKEN_MLDSA87_SEED: {
-    config: Config.Redacted('SESSION_TOKEN_MLDSA87_SEED'),
-    required: true,
-    secret: true,
-    requirement: 'Yes',
-    notes:
-      'Canonical unpadded base64url for exactly 32 random bytes used to derive the fixed ML-DSA-87 session-authorization keypair. Existing daemons must relink after an intentional hard-cut key replacement.',
-    example: '',
   },
   SESSION_TOKEN_TTL_MS: {
     config: Config.Int('SESSION_TOKEN_TTL_MS').pipe(Config.withDefault(60_000)),
@@ -310,31 +292,13 @@ export const serverEnvironment = {
       "The `STUN_SERVERS` entries that run on the box host, spelled exactly as there. Left out of a box daemon's list, because a box reaches its own host without crossing its NAT and would classify it from a private address. Empty by default.",
     example: '',
   },
-  WEB_PUSH_VAPID_PUBLIC_KEY: {
-    config: Config.option(Config.NonEmptyString('WEB_PUSH_VAPID_PUBLIC_KEY')),
-    required: false,
-    secret: false,
-    requirement: 'Optional group',
-    notes:
-      'Canonical unpadded base64url P-256 public key. Configure together with `WEB_PUSH_VAPID_PRIVATE_KEY` and `WEB_PUSH_CONTACT`; partial or mismatched groups fail startup.',
-    example: '',
-  },
-  WEB_PUSH_VAPID_PRIVATE_KEY: {
-    config: Config.option(Config.Redacted('WEB_PUSH_VAPID_PRIVATE_KEY')),
-    required: false,
-    secret: true,
-    requirement: 'Optional group',
-    notes:
-      'Canonical unpadded base64url P-256 private key matching the public key. Configure the complete web-push group.',
-    example: '',
-  },
   WEB_PUSH_CONTACT: {
     config: Config.option(Config.NonEmptyString('WEB_PUSH_CONTACT')),
     required: false,
     secret: false,
-    requirement: 'Optional group',
+    requirement: 'With a keyd VAPID key',
     notes:
-      'Web-push contact: a `mailto:` address or an HTTPS URL. Required with the VAPID keypair.',
+      'Web-push contact: a `mailto:` address or an HTTPS URL. Set exactly when `merkur-keyd` holds a VAPID key; startup fails on either without the other.',
     example: '',
   },
   AXIOM_TOKEN: {

@@ -10,6 +10,7 @@ and how they stop. The application server never carries terminal data.
 ```text
 scripts/dev.ts
 ├── merkur-edge                 local blind WebTransport relay
+├── merkur-keyd                 the server's keys, behind a Unix socket
 ├── Bun server --watch           HTTPS/SSE + daemon WSS control
 └── Vite
     └── browser execution realms after navigation
@@ -22,8 +23,9 @@ scripts/dev.ts
 
 Redis is the separate Docker Compose service started by `bun run infra:up`. The supervisor checks
 it before starting with an authenticated PING, including TLS when configured. It builds
-the local edge, starts the server, then starts the edge with a persistent identity and the
-server's registration secret. The edge publishes its exact URL and
+the local edge and keyd, starts keyd on `apps/server/data/keyd.sock` with the development keys
+`bun run setup` provisioned in `apps/server/data/keyd/`, starts the server, then starts the edge
+with a persistent identity and the server's registration secret. The edge publishes its exact URL and
 current certificate pins through the authenticated registration endpoint. If any owned child
 exits, the supervisor terminates the others. Ctrl-C follows the same path.
 
@@ -55,14 +57,19 @@ The workspace pins TypeBox to 1.3.23, the release whose compiler exposes the
 `buildResult.external` field the selected Elysia beta reads.
 
 The composition root resolves infrastructure and application dependencies once, then supplies
-`SessionServiceLive` from that shared graph. The session service owns establishment, capability
+`SessionServiceLive` from that shared graph. `KeyServiceLive` dials `merkur-keyd` at
+`KEYD_SOCKET` and reads its public keys before any service starts; an unreachable keyd, or one
+whose OPAQUE key is not the web build's pin, fails startup. One socket carries every key
+operation, requests answered in order; a closed socket fails what was in flight and the next
+request dials again. The session service owns establishment, capability
 renewal, cancellation and revocation; HTTP handlers translate its results and errors. Database,
 Redis and telemetry retain their runtime scopes and finalizer order.
 
 The composition root snapshots runtime configuration into an Effect ConfigProvider and
 supplies the immutable compiled web-public-key pin separately. Text credentials remain
 redacted in typed configuration until IO or crypto adapters consume them. Optional box-host
-and web-push settings are either complete validated groups or absent.
+settings are a complete validated group or absent; `WEB_PUSH_CONTACT` is set exactly when keyd
+holds a VAPID key.
 
 The Effect runtime owns:
 
@@ -434,6 +441,13 @@ dataplane over the socket. A later crash restarts it with a fresh spawn.
 ## Hosted Processes Outside The Session Path
 
 Two deployed processes are neither started by `scripts/dev.ts` nor part of the terminal data path.
+A third, keyd, which `scripts/dev.ts` does start, is off that path too.
+
+`apps/keyd` holds the server's OPAQUE setup, capability signing key and VAPID key
+([Server Key Custody](./security.md#server-key-custody)). On the app host systemd runs it as
+its own user with no network (`deploy/app/merkur-keyd.service`); the server unit requires it
+and joins its group to reach the socket. It answers each connection on its own thread, at most
+eight at once, and keeps its attempt log in its state directory.
 
 `apps/stun` owns one blocking Binding receive loop per UDP socket. Ordinary Binding
 is stateless and uses fixed buffers. A separate two-thread Tokio runtime owns only

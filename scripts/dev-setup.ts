@@ -6,7 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { Effect } from 'effect';
 import { toolEnvironment } from './dev-environment';
 import { probeRedis, redisEndpoint } from './dev-redis';
-import { ensureDevelopmentServerEnvironment } from './dev-server-env';
+import {
+  DEVELOPMENT_KEYD_SOCKET,
+  developmentKeydPaths,
+  ensureDevelopmentServerEnvironment,
+} from './dev-server-env';
 import { installSecretScanning } from './secret-scanning';
 
 // Local setup validates a complete candidate before persisting it.
@@ -19,9 +23,15 @@ const steps: string[] = [];
 await installSecretScanning(REPO_ROOT);
 steps.push('installed pre-commit secret scanning');
 const environment = await Effect.runPromise(
-  ensureDevelopmentServerEnvironment(SERVER_ENV_PATH, process.env),
+  ensureDevelopmentServerEnvironment(
+    SERVER_ENV_PATH,
+    process.env,
+    developmentKeydPaths(REPO_ROOT, DEVELOPMENT_KEYD_SOCKET).credentials,
+  ),
 );
-steps.push(`validated apps/server/.env; added ${environment.added.length} missing settings`);
+steps.push(
+  `validated apps/server/.env and keyd's keys; added ${environment.added.length} missing settings`,
+);
 await ensureDataDirectory();
 await Effect.runPromise(probeRedis(environment.config.redisUrl));
 steps.push(`Redis authenticated PING succeeded at ${redisEndpoint(environment.config.redisUrl)}`);
@@ -56,7 +66,7 @@ async function buildDevelopmentArtifacts(): Promise<void> {
     '//tools/bazel/native:sync',
   ]);
   if (nativeExitCode !== 0) throw new Error(`native build failed with exit code ${nativeExitCode}`);
-  steps.push('built and installed the edge, dataplane, image worker and terminal client');
+  steps.push('built and installed the edge, keyd, dataplane, image worker and terminal client');
 }
 
 async function run(command: string[]): Promise<number> {

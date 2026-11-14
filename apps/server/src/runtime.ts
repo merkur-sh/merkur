@@ -39,6 +39,7 @@ import {
   type EdgeRegistryServiceTag,
 } from './services/edge-registry-service';
 import { HealthServiceLive, type HealthServiceTag } from './services/health-service';
+import { KeyServiceLive, type KeyServiceTag } from './services/key-service';
 import {
   KeyboardSettingsServiceLive,
   type KeyboardSettingsServiceTag,
@@ -142,6 +143,8 @@ const ApplicationServicesLive = Layer.mergeAll(
 
 const ServerLive = SessionServiceLive.pipe(
   Layer.provideMerge(ApplicationServicesLive),
+  // Every key the server uses stays in merkur-keyd; startup fails when it is unreachable.
+  Layer.provideMerge(KeyServiceLive),
   Layer.provideMerge(DatabaseLive),
   // Between the services and the config/logger it depends on. Layers finalize
   // in reverse, so the OTLP exporters flush after every service that can still
@@ -178,6 +181,7 @@ export type ServerRuntimeContext =
   | DeviceServiceTag
   | EdgeRegistryServiceTag
   | HealthServiceTag
+  | KeyServiceTag
   | KeyboardSettingsServiceTag
   | NotificationOutboxServiceTag
   | PushNotificationServiceTag

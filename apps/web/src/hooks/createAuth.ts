@@ -53,6 +53,8 @@ const RESET_RATE_LIMITED_FEEDBACK = 'Too many attempts. Try again later.';
 const RESET_REFUSED_FEEDBACK = 'This account’s password cannot be reset.';
 const NETWORK_FEEDBACK = 'Unable to reach Merkur. Check your connection, then try again.';
 const RATE_LIMITED_FEEDBACK = 'Too many attempts. Wait a moment, then try again.';
+const ACCOUNT_ATTEMPTS_FEEDBACK =
+  'Too many sign-in attempts for this account. Try again later, or use a device that is still signed in.';
 const UNAVAILABLE_FEEDBACK = 'Authentication is temporarily unavailable. Try again shortly.';
 const STATUS_BAD_REQUEST = 400;
 const STATUS_UNAUTHORIZED = 401;
@@ -594,6 +596,7 @@ export function createAuth(options: CreateAuthOptions): {
 /** A reset step that failed without the server ending the reset. */
 function resetErrorFeedback(error: unknown): string {
   if (!isApiError(error)) return NETWORK_FEEDBACK;
+  if (error.code === 'attempts_exhausted') return ACCOUNT_ATTEMPTS_FEEDBACK;
   if (error.status === STATUS_TOO_MANY_REQUESTS) return RESET_RATE_LIMITED_FEEDBACK;
   if (error.status === STATUS_SERVICE_UNAVAILABLE) return UNAVAILABLE_FEEDBACK;
   return NETWORK_FEEDBACK;
@@ -606,6 +609,7 @@ function authErrorFeedback(error: unknown, identity: AuthPolicy['identity']): st
       : NETWORK_FEEDBACK;
   if (error.code === 'registration_closed') return REGISTRATION_CLOSED_FEEDBACK[identity];
   if (error.code === 'email_not_accepted') return EMAIL_NOT_ACCEPTED_FEEDBACK;
+  if (error.code === 'attempts_exhausted') return ACCOUNT_ATTEMPTS_FEEDBACK;
   if (error.code === 'authentication_failed') return AUTH_FEEDBACK[identity];
   if (error.status === STATUS_UNAUTHORIZED) return AUTH_FEEDBACK[identity];
   if (error.status === STATUS_BAD_REQUEST) return error.details ?? AUTH_FEEDBACK[identity];

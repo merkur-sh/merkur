@@ -6,7 +6,6 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import {
   daemonControlTranscript,
-  deriveSessionAuthorizationKeyPair,
   deriveSoftwareDaemonP256PublicKey,
   parseDaemonControlSignature,
   signDaemonProof,
@@ -32,9 +31,10 @@ import {
 } from '@merkur/daemon-control-protocol';
 import { isRecord } from '@merkur/shared';
 import { SidecarFrameReader } from '@merkur/shared/node-sidecar';
-import type {
-  DelegationRevocationStatement,
-  UserDelegationCertificate,
+import {
+  type DelegationRevocationStatement,
+  deriveUserAuthorizationPublicKey,
+  type UserDelegationCertificate,
 } from '@merkur/shared/user-authorization';
 import {
   Cause,
@@ -847,7 +847,7 @@ describe('daemon control connection', () => {
     const signature = parseDaemonControlSignature(required(socket.sent[0]));
     expect(signature).not.toBeNull();
     const publicKey = Buffer.from(
-      deriveSessionAuthorizationKeyPair(Buffer.alloc(32, 0x22)).verifyKey,
+      deriveUserAuthorizationPublicKey(Buffer.alloc(32, 0x22)),
     ).toString('base64url');
     expect(
       verifyDaemonProof(

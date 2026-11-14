@@ -2,7 +2,8 @@
 # Deploys the release's verified deployment to the app host (deploy/service-hosts.json's
 # `app`) and verifies it runs exactly the retained server. SSH pins the host's key from
 # the manifest. Only the deployment and non-secret configuration travel: the host holds
-# its secrets in /etc/merkur/server.env and /etc/merkur/data.env.
+# its secrets in /etc/merkur/server.env and /etc/merkur/data.env, and keyd's keys in
+# /etc/merkur/keyd/.
 set -euo pipefail
 : "${VERSION:?}" "${SERVICE_HOSTS_SSH_KEY:?}" "${RUNNER_TEMP:?}"
 work="$RUNNER_TEMP/app-host"
@@ -16,8 +17,10 @@ address=$(bun run scripts/service-hosts.ts app)
 
 # The deployment directory deploy-services.sh verified, not the archive it came from.
 tar -C deployment -czf "$work/bundle/deployment.tar.gz" .
+# The retained keyd, which service-proof.py holds the host to.
+cp dist/ci-release/merkur-keyd "$work/bundle/"
 cp deploy/app/compose.yaml deploy/app/merkur-server.service deploy/app/merkur-site.service \
-  "$work/bundle/"
+  deploy/app/merkur-keyd.service deploy/app/merkur-keyd.sysusers.conf "$work/bundle/"
 cp scripts/ci/install-site-release.sh "$work/bundle/install-site"
 cp deploy/backup/merkur-backup.sh "$work/bundle/merkur-backup"
 cp deploy/backup/recipient.txt "$work/bundle/backup-recipient.txt"

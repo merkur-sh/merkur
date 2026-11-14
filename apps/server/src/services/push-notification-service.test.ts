@@ -1,9 +1,11 @@
 import { describe, expect, spyOn, test } from 'bun:test';
+import { rm } from 'node:fs/promises';
+import path from 'node:path';
 import {
   createDelegationRevocationStatement,
   encodeUserAuthorizationBytes,
 } from '@merkur/shared/user-authorization';
-import { Deferred, Effect, Fiber, Layer, Queue, Redacted, Result } from 'effect';
+import { Deferred, Effect, Fiber, Layer, Queue, Result } from 'effect';
 import { dual } from 'effect/Function';
 import { TestClock } from 'effect/testing';
 import { DatabaseService } from '../db/client';
@@ -22,14 +24,47 @@ import {
   useAuthServiceFixture,
 } from './auth-service-fixture';
 import { InfrastructureError } from './errors';
+import type { KeyService } from './key-service';
+import { keydCredentials, startTestKeyService } from './keyd-test-support';
 import {
   createPushNotificationService,
+  createVapidSigner,
   PushDelegationEnded,
   PushNotificationServiceTag,
   readPushErrorStatusCode,
   sendPushNotificationEffect,
+  type VapidSigner,
 } from './push-notification-service';
 import { cleanupExpiredTokensEffect } from './token-cleanup';
+
+describe('VAPID authorization', () => {
+  test('keyd signs one JWT per push service and the header reuses it', async () => {
+    const credentials = await keydCredentials();
+    const keyd = await startTestKeyService(credentials);
+    try {
+      const requested: string[] = [];
+      const counting: KeyService = {
+        ...keyd.service,
+        vapidJwt: (audience, subject) => {
+          requested.push(audience);
+          return keyd.service.vapidJwt(audience, subject);
+        },
+      };
+      const publicKey = keyd.service.publicKeys.vapid;
+      if (publicKey === null) throw new Error('generated keys hold a VAPID key');
+      const signer = createVapidSigner(counting, publicKey, 'mailto:push@merkur.test');
+      const first = await Effect.runPromise(signer.authorization('https://push.merkur.test'));
+      const again = await Effect.runPromise(signer.authorization('https://push.merkur.test'));
+      await Effect.runPromise(signer.authorization('https://other.push.test'));
+      expect(again).toBe(first);
+      expect(first).toMatch(new RegExp(`^vapid t=[^.]+\\.[^.]+\\.[^.]+, k=${publicKey}$`));
+      expect(requested).toEqual(['https://push.merkur.test', 'https://other.push.test']);
+    } finally {
+      await keyd.stop();
+      await rm(path.dirname(credentials), { recursive: true, force: true });
+    }
+  });
+});
 
 describe('push notification error classification', () => {
   test('unwraps an expired-subscription status from InfrastructureError.cause', () => {
@@ -64,13 +99,7 @@ describe('push operation ownership', () => {
           Effect.gen(function* () {
             const service = yield* createPushNotificationService(
               db,
-              {
-                webPush: {
-                  publicKey: input.vapid.publicKey,
-                  privateKey: Redacted.make(input.vapid.privateKey),
-                  contact: input.vapid.subject,
-                },
-              },
+              input.vapid,
               createLogger('push-test'),
             );
             const registered = yield* Effect.result(
@@ -153,13 +182,7 @@ describe('push operation ownership', () => {
           Effect.gen(function* () {
             const service = yield* createPushNotificationService(
               db,
-              {
-                webPush: {
-                  publicKey: input.vapid.publicKey,
-                  privateKey: Redacted.make(input.vapid.privateKey),
-                  contact: input.vapid.subject,
-                },
-              },
+              input.vapid,
               createLogger('push-test'),
             );
             const admission = yield* service
@@ -208,13 +231,7 @@ describe('push operation ownership', () => {
           Effect.gen(function* () {
             const service = yield* createPushNotificationService(
               db,
-              {
-                webPush: {
-                  publicKey: input.vapid.publicKey,
-                  privateKey: Redacted.make(input.vapid.privateKey),
-                  contact: input.vapid.subject,
-                },
-              },
+              input.vapid,
               createLogger('push-test'),
             );
             yield* service.notifyFailedSignIn({
@@ -272,13 +289,7 @@ describe('push operation ownership', () => {
             Effect.gen(function* () {
               const service = yield* createPushNotificationService(
                 db,
-                {
-                  webPush: {
-                    publicKey: input.vapid.publicKey,
-                    privateKey: Redacted.make(input.vapid.privateKey),
-                    contact: input.vapid.subject,
-                  },
-                },
+                input.vapid,
                 createLogger('push-test'),
               );
               yield* service.notifyTerminalBell({
@@ -413,13 +424,7 @@ describe('push delegation ownership', () => {
             yield* TestClock.setTime(second.certificate.issuedAt);
             const push = yield* createPushNotificationService(
               authDb,
-              {
-                webPush: {
-                  publicKey: material.vapid.publicKey,
-                  privateKey: Redacted.make(material.vapid.privateKey),
-                  contact: material.vapid.subject,
-                },
-              },
+              material.vapid,
               createLogger('push-test'),
             );
             yield* push.upsertSubscription(first.userId, first.certificate.delegationId, {
@@ -541,10 +546,14 @@ async function pushMaterial() {
   const publicKey = Buffer.from(await crypto.subtle.exportKey('raw', keys.publicKey)).toString(
     'base64url',
   );
-  const secret = await crypto.subtle.exportKey('jwk', keys.privateKey);
-  if (secret.d === undefined) throw new Error('Missing private scalar');
+  // These tests are about admission, delivery and expiry; keyd's VAPID JWTs are pinned in
+  // key-service.keyd.test.ts and the cache in its own test below.
+  const vapid: VapidSigner = {
+    publicKey,
+    authorization: () => Effect.succeed(`vapid t=test, k=${publicKey}`),
+  };
   return {
-    vapid: { publicKey, privateKey: secret.d, subject: 'mailto:push@merkur.test' },
+    vapid,
     subscription: {
       endpoint: 'https://fcm.googleapis.com/message',
       p256dh: publicKey,

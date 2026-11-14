@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { deriveDaemonIdentityKeyCommitment, SESSION_AUTHORIZATION_SEED_BYTES } from '@merkur/auth';
+import { deriveDaemonIdentityKeyCommitment } from '@merkur/auth';
 import { canonicalizeDaemonServerOrigin } from '@merkur/config';
 import {
   hasExactKeys,
@@ -21,6 +21,7 @@ import {
   parseDaemonLinkPublicClaim,
   USER_AUTHORIZATION_NONCE_BYTES,
   USER_AUTHORIZATION_PUBLIC_KEY_BYTES,
+  USER_AUTHORIZATION_SEED_BYTES,
   verifyDaemonBinding,
   verifyDaemonLinkApproval,
 } from '@merkur/shared/user-authorization';
@@ -154,7 +155,8 @@ const LIVE_DAEMON_LINK_DEPENDENCIES: DaemonLinkCommandDependencies = {
   inspectIdentitySeal: inspectIdentitySealEffect,
   repairTpmAccess: repairTpmAccessEffect,
   generateLinkClaimId: randomUUID,
-  generateLinkSecret: () => randomBytes(SESSION_AUTHORIZATION_SEED_BYTES),
+  // The length `formatDaemonLinkCode` requires of a link secret.
+  generateLinkSecret: () => randomBytes(USER_AUTHORIZATION_SEED_BYTES),
   loadExistingConfig: loadDaemonConfigEffect,
   loadLegacyConfigForMigration: () => loadLegacyDaemonConfigForLinkMigration(daemonConfigPath()),
   machineName: currentMachineName,

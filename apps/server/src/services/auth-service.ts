@@ -4,11 +4,8 @@ import {
   type AccessTokenConfig,
   AccessTokenInvalidError,
   createAccessToken,
-  createOpaqueRegistrationResponse,
   createRefreshToken,
-  finishOpaqueServerLogin,
   rotateRefreshToken,
-  startOpaqueServerLogin,
   validateOpaqueRegistrationRecord,
   verifyAccessToken,
 } from '@merkur/auth';
@@ -57,6 +54,7 @@ import { queueBoxRemovals } from './box-removal';
 import { readAccountBoxes } from './device-service';
 import { isDisposableAddress, suspendedMailboxTaken } from './email-admission';
 import { type InfrastructureError, infrastructureError } from './errors';
+import { type KeyService, type KeyServiceError, KeyServiceTag } from './key-service';
 import { createResendMailSender, type MailSender } from './mail-sender';
 import {
   enqueueBrowserSessionChange,
@@ -87,6 +85,7 @@ const EMAIL_CODE_PATTERN = /^\d{6}$/u;
 
 export type AuthErrorCode =
   | 'account_suspended'
+  | 'attempts_exhausted'
   | 'delegation_limit'
   | 'email_not_accepted'
   | 'invalid_credentials'
@@ -100,7 +99,33 @@ export class AuthError extends Data.TaggedError('AuthError')<{
   readonly code: AuthErrorCode;
   readonly message: string;
   readonly userId?: string;
+  /** With `attempts_exhausted`: when keyd allows the account's next attempt. */
+  readonly retryAfterSeconds?: number;
 }> {}
+
+/**
+ * keyd's refusals in the auth vocabulary. A spent attempt budget is the account's to wait
+ * out; a malformed OPAQUE message is the request's; anything else is keyd failing, which
+ * the routes answer as unavailable.
+ */
+function keyFailure(operation: string) {
+  return (error: KeyServiceError): AuthError | InfrastructureError => {
+    switch (error.reason) {
+      case 'exhausted':
+        return new AuthError({
+          code: 'attempts_exhausted',
+          message: 'Too many sign-in attempts for this account',
+          ...(error.retryAfterSeconds === undefined
+            ? {}
+            : { retryAfterSeconds: error.retryAfterSeconds }),
+        });
+      case 'invalid':
+        return new AuthError({ code: 'invalid_request', message: 'Invalid OPAQUE message' });
+      default:
+        return infrastructureError('keyd', operation)(error);
+    }
+  };
+}
 
 /**
  * How accounts are named. Email identity carries the sender because it is the
@@ -115,7 +140,6 @@ export interface AuthServiceConfig {
   readonly tokenHmacSecret: string;
   readonly allowRegistration: boolean;
   readonly identity: AuthIdentityConfig;
-  readonly opaqueServerSetup: string;
   readonly publicOrigin: string;
 }
 
@@ -403,9 +427,11 @@ export const AuthServiceLive = Layer.effect(
     const config = yield* ServerConfigService;
     const db = yield* DatabaseService;
     const redis = yield* RedisServiceTag;
+    const keys = yield* KeyServiceTag;
     return createAuthService(
       db,
       redis,
+      keys,
       {
         accessToken: {
           hmacKey: config.accessTokenHmacKey,
@@ -421,7 +447,6 @@ export const AuthServiceLive = Layer.effect(
                 kind: 'email',
                 mail: createResendMailSender(config.emailDelivery, config.publicOrigin),
               },
-        opaqueServerSetup: Redacted.value(config.opaqueServerSetup),
         publicOrigin: config.publicOrigin,
       },
       (yield* NotificationOutboxServiceTag).wake,
@@ -432,12 +457,37 @@ export const AuthServiceLive = Layer.effect(
 export function createAuthService(
   db: Kysely<DatabaseSchema>,
   redis: RedisService,
+  keys: KeyService,
   config: AuthServiceConfig,
   wakeNotifications: Effect.Effect<void>,
 ): AuthService {
   const refreshTokenStore = createRefreshTokenStore(db);
   const flowStore = createAuthFlowStore(redis);
   const logger = createLogger('server');
+
+  /**
+   * Whether the finish proves the password the flow's start was answered for. A malformed
+   * finish is a wrong password; keyd failing is the server failing.
+   */
+  const verifyPassword = (
+    flow: { readonly userId: string; readonly serverLoginState: string },
+    finishLoginRequest: string,
+    operation: string,
+  ) =>
+    keys
+      .loginFinish({
+        userId: flow.userId,
+        serverIdentity: config.publicOrigin,
+        serverLoginState: flow.serverLoginState,
+        finishLoginRequest,
+      })
+      .pipe(
+        Effect.catchTag('KeyServiceError', (error) =>
+          error.reason === 'invalid'
+            ? Effect.succeed(false)
+            : Effect.fail(keyFailure(operation)(error)),
+        ),
+      );
 
   return {
     startAuth: Effect.fnUntraced(function* (
@@ -452,27 +502,15 @@ export function createAuthService(
       const userId = user?.id ?? synthetic.userId;
       const delegationIssuedAt = yield* Clock.currentTimeMillis;
       const delegationExpiresAt = delegationIssuedAt + USER_DELEGATION_LIFETIME_MS;
-      const login = yield* Effect.tryPromise({
-        try: () =>
-          startOpaqueServerLogin({
-            serverSetup: config.opaqueServerSetup,
-            registrationRecord: user?.opaque_registration_record ?? null,
-            startLoginRequest,
-            userId,
-            serverIdentity: config.publicOrigin,
-          }),
-        catch: () => new AuthError({ code: 'invalid_request', message: 'Invalid login request' }),
-      });
-      const registrationResponse = yield* Effect.tryPromise({
-        try: () =>
-          createOpaqueRegistrationResponse({
-            serverSetup: config.opaqueServerSetup,
-            userId,
-            registrationRequest,
-          }),
-        catch: () =>
-          new AuthError({ code: 'invalid_request', message: 'Invalid registration request' }),
-      });
+      const { registrationResponse, ...login } = yield* keys
+        .authStart({
+          userId,
+          serverIdentity: config.publicOrigin,
+          registrationRecord: user?.opaque_registration_record ?? null,
+          startLoginRequest,
+          registrationRequest,
+        })
+        .pipe(Effect.mapError(keyFailure('auth-start')));
       const flowId = yield* flowStore.createStart({
         kind: 'auth-start',
         userId,
@@ -666,24 +704,8 @@ export function createAuthService(
     finishLogin: Effect.fnUntraced(function* (input: Parameters<AuthService['finishLogin']>[0]) {
       const flow = yield* flowStore.consumeStart(input.flowId);
       if (flow === null) return yield* invalidFlow();
-      const loginResult = yield* Effect.result(
-        Effect.tryPromise({
-          try: () =>
-            finishOpaqueServerLogin({
-              serverLoginState: flow.serverLoginState,
-              finishLoginRequest: input.finishLoginRequest,
-              userId: flow.userId,
-              serverIdentity: config.publicOrigin,
-            }),
-          catch: () =>
-            new AuthError({
-              code: 'invalid_credentials',
-              message: 'Invalid username or password',
-              ...(flow.accountExists ? { userId: flow.userId } : {}),
-            }),
-        }),
-      );
-      if (loginResult._tag === 'Failure' || !flow.accountExists) {
+      const verified = yield* verifyPassword(flow, input.finishLoginRequest, 'login-finish');
+      if (!verified || !flow.accountExists) {
         return yield* new AuthError({
           code: 'invalid_credentials',
           message: 'Invalid username or password',
@@ -742,16 +764,8 @@ export function createAuthService(
       const flow = yield* flowStore.consumeStart(input.flowId);
       if (flow === null) return yield* invalidFlow();
       if (!flow.accountExists || flow.userId !== browser.userId) return yield* invalidCredentials();
-      yield* Effect.tryPromise({
-        try: () =>
-          finishOpaqueServerLogin({
-            serverLoginState: flow.serverLoginState,
-            finishLoginRequest: input.finishLoginRequest,
-            userId: flow.userId,
-            serverIdentity: config.publicOrigin,
-          }),
-        catch: invalidCredentialsError,
-      });
+      const verified = yield* verifyPassword(flow, input.finishLoginRequest, 'change-password');
+      if (!verified) return yield* invalidCredentials();
       const envelope = yield* Effect.try({
         try: () => {
           validateOpaqueRegistrationRecord(input.registrationRecord);
@@ -906,16 +920,9 @@ export function createAuthService(
       if (config.identity.kind !== 'email') return yield* resetUnavailable();
       const flow = yield* flowStore.peekReset(flowId);
       if (flow === null) return yield* invalidFlow();
-      const registrationResponse = yield* Effect.tryPromise({
-        try: () =>
-          createOpaqueRegistrationResponse({
-            serverSetup: config.opaqueServerSetup,
-            userId: flow.userId,
-            registrationRequest,
-          }),
-        catch: () =>
-          new AuthError({ code: 'invalid_request', message: 'Invalid registration request' }),
-      });
+      const registrationResponse = yield* keys
+        .registrationResponse({ userId: flow.userId, registrationRequest })
+        .pipe(Effect.mapError(keyFailure('password-reset-start')));
       return {
         userId: flow.userId,
         registrationResponse,

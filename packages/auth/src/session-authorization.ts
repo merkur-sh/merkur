@@ -1,8 +1,4 @@
-import { randomBytes } from 'node:crypto';
 import { e2eWasm } from '@merkur/shared/e2e-wasm-runtime';
-import type { MlDsa87SigningKey } from '../../e2e-wasm/pkg/e2e_wasm.js';
-
-export type { MlDsa87SigningKey };
 
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const PROTOCOL_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
@@ -11,7 +7,6 @@ const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true });
 
 /** FIPS 204 context shared verbatim with the daemon verifier. */
 export const SESSION_AUTHORIZATION_CONTEXT = TEXT_ENCODER.encode('merkur-session-authorization');
-export const SESSION_AUTHORIZATION_SEED_BYTES = 32;
 export const SESSION_AUTHORIZATION_PUBLIC_KEY_BYTES = 2_592;
 export const SESSION_AUTHORIZATION_SIGNATURE_BYTES = 4_627;
 export const SESSION_AUTHORIZATION_MAX_LIFETIME_MS = 300_000;
@@ -22,12 +17,6 @@ export const SESSION_REQUEST_ENCAPSULATION_KEY_BYTES = 1_568;
 export const SESSION_AUTHORIZATION_COMMITMENT_BYTES = 64;
 
 const MAX_ID_BYTES = 128;
-
-export interface SessionAuthorizationKeyPair {
-  /** Expanded key in WebAssembly memory, held for the server's lifetime. */
-  readonly signingKey: MlDsa87SigningKey;
-  readonly verifyKey: Uint8Array;
-}
 
 export interface SessionAuthorizationPayload {
   readonly u: string;
@@ -41,7 +30,7 @@ export interface SessionAuthorizationPayload {
   readonly e: number;
 }
 
-export interface CreateSessionAuthorizationTokenInput {
+export interface SessionAuthorizationClaims {
   readonly userId: string;
   readonly delegationId: string;
   readonly browserNodeId: string;
@@ -51,7 +40,6 @@ export interface CreateSessionAuthorizationTokenInput {
   readonly sessionRequestCommitment: string;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
-  readonly signingKey: MlDsa87SigningKey;
 }
 
 /** Bind a session capability to the exact linked daemon ML-DSA-87 identity key. */
@@ -86,46 +74,34 @@ export function deriveSessionRequestCommitment(
   return encodeBase64Url(e2eWasm().computeSessionRequestCommitment(clientNonce, encapsulationKey));
 }
 
-export function deriveSessionAuthorizationKeyPair(seed: Uint8Array): SessionAuthorizationKeyPair {
-  requireExactBytes(seed, SESSION_AUTHORIZATION_SEED_BYTES, 'session authorization seed');
-  const signingKey = e2eWasm().MlDsa87SigningKey.fromSeed(seed);
-  const verifyKey = signingKey.publicKey;
-  requireExactBytes(verifyKey, SESSION_AUTHORIZATION_PUBLIC_KEY_BYTES, 'ML-DSA-87 public key');
-  return { signingKey, verifyKey };
-}
-
 /**
- * Create the fixed Merkur session-authorization token. The signature covers
- * the canonical, unpadded base64url payload segment exactly as transported.
- * ML-DSA signing is hedged with fresh 32-byte entropy for every authorization.
+ * The canonical, unpadded base64url payload segment of a session-authorization token, which
+ * `merkur-keyd` signs exactly as transported.
  */
-export function createSessionAuthorizationToken(
-  input: CreateSessionAuthorizationTokenInput,
+export function createSessionAuthorizationPayloadSegment(
+  claims: SessionAuthorizationClaims,
 ): string {
   const payload = validatePayload({
-    u: input.userId,
-    g: input.delegationId,
-    b: input.browserNodeId,
-    d: input.daemonId,
-    s: input.sessionId,
-    k: input.daemonIdentityKeyCommitment,
-    q: input.sessionRequestCommitment,
-    iat: input.issuedAtMs,
-    e: input.expiresAtMs,
+    u: claims.userId,
+    g: claims.delegationId,
+    b: claims.browserNodeId,
+    d: claims.daemonId,
+    s: claims.sessionId,
+    k: claims.daemonIdentityKeyCommitment,
+    q: claims.sessionRequestCommitment,
+    iat: claims.issuedAtMs,
+    e: claims.expiresAtMs,
   });
-  const payloadSegment = encodeBase64Url(TEXT_ENCODER.encode(JSON.stringify(payload)));
-  const entropy = randomBytes(32);
-  try {
-    const signature = input.signingKey.sign(
-      SESSION_AUTHORIZATION_CONTEXT,
-      TEXT_ENCODER.encode(payloadSegment),
-      entropy,
-    );
-    requireExactBytes(signature, SESSION_AUTHORIZATION_SIGNATURE_BYTES, 'ML-DSA-87 signature');
-    return `${payloadSegment}.${encodeBase64Url(signature)}`;
-  } finally {
-    entropy.fill(0);
-  }
+  return encodeBase64Url(TEXT_ENCODER.encode(JSON.stringify(payload)));
+}
+
+/** `payload.signature`, the fixed Merkur session-authorization token. */
+export function assembleSessionAuthorizationToken(
+  payloadSegment: string,
+  signature: Uint8Array,
+): string {
+  requireExactBytes(signature, SESSION_AUTHORIZATION_SIGNATURE_BYTES, 'ML-DSA-87 signature');
+  return `${payloadSegment}.${encodeBase64Url(signature)}`;
 }
 
 /** Strict verifier used by TypeScript tests and tooling; the daemon owns live verification. */

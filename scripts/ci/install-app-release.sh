@@ -13,6 +13,15 @@ src=/tmp/merkur-app-release
 test -s /etc/merkur/server.env
 test -s /etc/merkur/data.env
 test -s /etc/merkur/backup.env
+for key in opaque-server-setup session-token-mldsa87-seed web-push-vapid-private-key; do
+  test -s "/etc/merkur/keyd/$key"
+done
+# keyd holds these now; a server environment that still names one has not been cut over.
+if grep -qE '^(OPAQUE_SERVER_SETUP|OPAQUE_SERVER_PUBLIC_KEY|SESSION_TOKEN_MLDSA87_SEED|WEB_PUSH_VAPID_PRIVATE_KEY|WEB_PUSH_VAPID_PUBLIC_KEY)=' \
+  /etc/merkur/server.env; then
+  echo '/etc/merkur/server.env still holds a key merkur-keyd owns' >&2
+  exit 1
+fi
 
 install -m 0644 "$src/compose.yaml" /srv/app/compose.yaml
 docker compose --project-directory /srv/app up --detach --remove-orphans --quiet-pull
@@ -39,16 +48,36 @@ else
 fi
 ln -sfn "$version" "$root/.current.new"
 mv -Tf "$root/.current.new" "$root/current"
-install -m 0644 "$src/merkur-server.service" "$src/merkur-site.service" \
+# keyd ships with the server it serves: their socket protocol is one release's contract.
+keyd_release="/usr/local/lib/merkur/keyd/$version"
+install -d -m 0755 "$keyd_release"
+install -m 0755 "$src/merkur-keyd" "$keyd_release/merkur-keyd"
+ln -sfn "$keyd_release/merkur-keyd" /usr/local/bin/.merkur-keyd.new
+mv -Tf /usr/local/bin/.merkur-keyd.new /usr/local/bin/merkur-keyd
+install -m 0644 "$src/merkur-keyd.sysusers.conf" /usr/lib/sysusers.d/merkur-keyd.conf
+systemd-sysusers /usr/lib/sysusers.d/merkur-keyd.conf
+install -m 0644 "$src/merkur-keyd.service" "$src/merkur-server.service" "$src/merkur-site.service" \
   "$src/merkur-backup@.service" "$src/merkur-backup@.timer" /etc/systemd/system/
 install -m 0755 "$src/install-site" /usr/local/lib/merkur/install-site
 install -m 0755 "$src/merkur-backup" /usr/local/lib/merkur/merkur-backup
 install -m 0644 "$src/backup-recipient.txt" /usr/local/lib/merkur/backup-recipient.txt
 systemctl daemon-reload
-systemctl enable --quiet merkur-server merkur-site
+systemctl enable --quiet merkur-keyd merkur-server merkur-site
 systemctl enable --quiet --now merkur-backup@app.timer
 
 since=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+systemctl restart merkur-keyd
+# keyd prints this one line on stdout once its socket accepts; the bound only decides how long
+# a broken start may take to be reported.
+for attempt in $(seq 1 30); do
+  journalctl --unit merkur-keyd --since "$since" --output cat | grep -qx 'keyd: listening' && break
+  if systemctl is-failed --quiet merkur-keyd || [ "$attempt" = 30 ]; then
+    echo 'merkur-keyd never logged keyd: listening' >&2
+    journalctl --unit merkur-keyd --since "$since" --output cat --lines 40 >&2
+    exit 1
+  fi
+  sleep 1
+done
 systemctl restart merkur-server
 # The server logs this once it listens; the bound only decides how long a broken
 # start may take to be reported.
@@ -65,6 +94,10 @@ done
 rm -rf "$src"
 # Keep the running release and the one before it, for a manual roll-forward fix.
 find "$root" -maxdepth 1 -name 'v*' -type d | sort -V | head -n -2 | xargs -r rm -rf
+find /usr/local/lib/merkur/keyd -maxdepth 1 -name 'v*' -type d | sort -V | head -n -2 | xargs -r rm -rf
 
-printf '{"version":"%s","server":"%s","active":"%s"}\n' "$version" \
-  "$(sha512sum "$root/current/server/server" | cut -d' ' -f1)" "$(systemctl is-active merkur-server)"
+printf '{"version":"%s","server":"%s","active":"%s","merkur-keyd":"%s","keydActive":"%s"}\n' \
+  "$version" "$(sha512sum "$root/current/server/server" | cut -d' ' -f1)" \
+  "$(systemctl is-active merkur-server)" \
+  "$(sha512sum "$(readlink -f /usr/local/bin/merkur-keyd)" | cut -d' ' -f1)" \
+  "$(systemctl is-active merkur-keyd)"

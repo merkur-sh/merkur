@@ -4,11 +4,12 @@ import { e2eWasm } from '@merkur/shared/e2e-wasm-runtime';
 import { deriveSoftwareDaemonP256PublicKey } from './daemon-proof';
 
 import {
-  createSessionAuthorizationToken,
+  assembleSessionAuthorizationToken,
+  createSessionAuthorizationPayloadSegment,
   deriveDaemonIdentityKeyCommitment,
-  deriveSessionAuthorizationKeyPair,
   deriveSessionRequestCommitment,
   SESSION_AUTHORIZATION_COMMITMENT_BYTES,
+  SESSION_AUTHORIZATION_CONTEXT,
   SESSION_AUTHORIZATION_PUBLIC_KEY_BYTES,
   SESSION_AUTHORIZATION_SIGNATURE_BYTES,
   verifySessionAuthorizationToken,
@@ -25,6 +26,30 @@ const SESSION_REQUEST_COMMITMENT = deriveSessionRequestCommitment(
   new Uint8Array(32).fill(0x42),
   new Uint8Array(1_568).fill(0x43),
 );
+const SIGNER = e2eWasm().MlDsa87SigningKey.fromSeed(new Uint8Array(32).fill(7));
+const VERIFY_KEY = SIGNER.publicKey;
+const CLAIMS = {
+  userId: 'user-1',
+  delegationId: 'delegation-1',
+  browserNodeId: 'browser-1',
+  daemonId: 'daemon-1',
+  sessionId: 'session-1',
+  daemonIdentityKeyCommitment: DAEMON_IDENTITY_KEY_COMMITMENT,
+  sessionRequestCommitment: SESSION_REQUEST_COMMITMENT,
+  issuedAtMs: ISSUED_AT_MS,
+  expiresAtMs: EXPIRES_AT_MS,
+} as const;
+const PAYLOAD = {
+  u: 'user-1',
+  g: 'delegation-1',
+  b: 'browser-1',
+  d: 'daemon-1',
+  s: 'session-1',
+  k: DAEMON_IDENTITY_KEY_COMMITMENT,
+  q: SESSION_REQUEST_COMMITMENT,
+  iat: ISSUED_AT_MS,
+  e: EXPIRES_AT_MS,
+};
 
 interface SessionAuthorizationInteropVector {
   readonly algorithm: 'ML-DSA-87';
@@ -102,115 +127,46 @@ describe('ML-DSA-87 session authorization', () => {
     signature.fill(0);
   });
 
-  test('derives the fixed key sizes and binds every canonical payload field', () => {
-    const keys = deriveSessionAuthorizationKeyPair(new Uint8Array(32).fill(7));
-    expect(keys.verifyKey).toHaveLength(SESSION_AUTHORIZATION_PUBLIC_KEY_BYTES);
-
-    const token = createSessionAuthorizationToken({
-      userId: 'user-1',
-      delegationId: 'delegation-1',
-      browserNodeId: 'browser-1',
-      daemonId: 'daemon-1',
-      sessionId: 'session-1',
-      daemonIdentityKeyCommitment: DAEMON_IDENTITY_KEY_COMMITMENT,
-      sessionRequestCommitment: SESSION_REQUEST_COMMITMENT,
-      issuedAtMs: ISSUED_AT_MS,
-      expiresAtMs: EXPIRES_AT_MS,
-      signingKey: keys.signingKey,
-    });
-
-    const [payloadSegment, signatureSegment] = token.split('.');
-    expect(Buffer.from(signatureSegment ?? '', 'base64url')).toHaveLength(
+  test('binds every canonical payload field and assembles the signed token', () => {
+    const segment = createSessionAuthorizationPayloadSegment(CLAIMS);
+    expect(JSON.parse(Buffer.from(segment, 'base64url').toString('utf8'))).toEqual(PAYLOAD);
+    const token = assembleSessionAuthorizationToken(segment, sign(segment));
+    expect(Buffer.from(token.split('.')[1] ?? '', 'base64url')).toHaveLength(
       SESSION_AUTHORIZATION_SIGNATURE_BYTES,
     );
-    expect(JSON.parse(Buffer.from(payloadSegment ?? '', 'base64url').toString('utf8'))).toEqual({
-      u: 'user-1',
-      g: 'delegation-1',
-      b: 'browser-1',
-      d: 'daemon-1',
-      s: 'session-1',
-      k: DAEMON_IDENTITY_KEY_COMMITMENT,
-      q: SESSION_REQUEST_COMMITMENT,
-      iat: ISSUED_AT_MS,
-      e: EXPIRES_AT_MS,
-    });
-    expect(verifySessionAuthorizationToken(token, keys.verifyKey, ISSUED_AT_MS)).toEqual({
-      u: 'user-1',
-      g: 'delegation-1',
-      b: 'browser-1',
-      d: 'daemon-1',
-      s: 'session-1',
-      k: DAEMON_IDENTITY_KEY_COMMITMENT,
-      q: SESSION_REQUEST_COMMITMENT,
-      iat: ISSUED_AT_MS,
-      e: EXPIRES_AT_MS,
-    });
+    expect(verifySessionAuthorizationToken(token, VERIFY_KEY, ISSUED_AT_MS)).toEqual(PAYLOAD);
+    expect(() => assembleSessionAuthorizationToken(segment, new Uint8Array(64))).toThrow(
+      'ML-DSA-87 signature',
+    );
   });
 
-  test('uses hedged signing and rejects tampering, expiry, and noncanonical encoding', () => {
-    const keys = deriveSessionAuthorizationKeyPair(new Uint8Array(32).fill(9));
-    const input = {
-      userId: 'user-1',
-      delegationId: 'delegation-1',
-      browserNodeId: 'browser-1',
-      daemonId: 'daemon-1',
-      sessionId: 'session-1',
-      daemonIdentityKeyCommitment: DAEMON_IDENTITY_KEY_COMMITMENT,
-      sessionRequestCommitment: SESSION_REQUEST_COMMITMENT,
-      issuedAtMs: ISSUED_AT_MS,
-      expiresAtMs: EXPIRES_AT_MS,
-      signingKey: keys.signingKey,
-    } as const;
-    const first = createSessionAuthorizationToken(input);
-    const second = createSessionAuthorizationToken(input);
-    expect(first).not.toBe(second);
-
-    const [payload, signature] = first.split('.') as [string, string];
+  test('the verifier rejects tampering, expiry, and noncanonical encoding', () => {
+    const segment = createSessionAuthorizationPayloadSegment(CLAIMS);
+    const token = assembleSessionAuthorizationToken(segment, sign(segment));
+    const [payload, signature] = token.split('.') as [string, string];
     const tamperedPayload = `${payload.slice(0, -1)}${payload.endsWith('A') ? 'B' : 'A'}`;
     expect(
-      verifySessionAuthorizationToken(
-        `${tamperedPayload}.${signature}`,
-        keys.verifyKey,
-        ISSUED_AT_MS,
-      ),
+      verifySessionAuthorizationToken(`${tamperedPayload}.${signature}`, VERIFY_KEY, ISSUED_AT_MS),
     ).toBeNull();
-    expect(verifySessionAuthorizationToken(first, keys.verifyKey, EXPIRES_AT_MS)).toBeNull();
+    expect(verifySessionAuthorizationToken(token, VERIFY_KEY, EXPIRES_AT_MS)).toBeNull();
     expect(
-      verifySessionAuthorizationToken(`${payload}=.${signature}`, keys.verifyKey, ISSUED_AT_MS),
+      verifySessionAuthorizationToken(`${payload}=.${signature}`, VERIFY_KEY, ISSUED_AT_MS),
     ).toBeNull();
   });
 
-  test('rejects overlong or non-positive lifetimes before signing', () => {
-    const keys = deriveSessionAuthorizationKeyPair(new Uint8Array(32).fill(3));
+  test('refuses overlong or non-positive lifetimes and noncanonical ids', () => {
     const create = (expiresAtMs: number) =>
-      createSessionAuthorizationToken({
-        userId: 'user-1',
-        delegationId: 'delegation-1',
-        browserNodeId: 'browser-1',
-        daemonId: 'daemon-1',
-        sessionId: 'session-1',
-        daemonIdentityKeyCommitment: DAEMON_IDENTITY_KEY_COMMITMENT,
-        sessionRequestCommitment: SESSION_REQUEST_COMMITMENT,
-        issuedAtMs: ISSUED_AT_MS,
-        expiresAtMs,
-        signingKey: keys.signingKey,
-      });
-
+      createSessionAuthorizationPayloadSegment({ ...CLAIMS, expiresAtMs });
     expect(() => create(ISSUED_AT_MS)).toThrow('lifetime');
     expect(() => create(ISSUED_AT_MS + 300_001)).toThrow('lifetime');
     expect(() =>
-      createSessionAuthorizationToken({
-        userId: 'user with spaces',
-        delegationId: 'delegation-1',
-        browserNodeId: 'browser-1',
-        daemonId: 'daemon-1',
-        sessionId: 'session-1',
-        daemonIdentityKeyCommitment: DAEMON_IDENTITY_KEY_COMMITMENT,
-        sessionRequestCommitment: SESSION_REQUEST_COMMITMENT,
-        issuedAtMs: ISSUED_AT_MS,
-        expiresAtMs: EXPIRES_AT_MS,
-        signingKey: keys.signingKey,
-      }),
+      createSessionAuthorizationPayloadSegment({ ...CLAIMS, userId: 'user with spaces' }),
     ).toThrow('protocol id alphabet');
   });
 });
+
+/** Stands in for merkur-keyd, which signs the same segment under the same context. */
+function sign(segment: string): Uint8Array {
+  const randomness = new Uint8Array(32).fill(5);
+  return SIGNER.sign(SESSION_AUTHORIZATION_CONTEXT, new TextEncoder().encode(segment), randomness);
+}

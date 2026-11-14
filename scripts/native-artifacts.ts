@@ -14,6 +14,7 @@ import path from 'node:path';
 
 export const DAEMON_DIST = 'apps/daemon/dist';
 export const EDGE_DIST = 'apps/edge/dist';
+export const KEYD_DIST = 'apps/keyd/dist';
 
 /**
  * Set by a harness that synced the programs for the Playwright runs it starts, which then leave
@@ -26,6 +27,7 @@ const PROGRAMS = {
   'merkur-image-worker': DAEMON_DIST,
   'merkur-tui': DAEMON_DIST,
   'merkur-edge': EDGE_DIST,
+  'merkur-keyd': KEYD_DIST,
   bulk_competitor: EDGE_DIST,
   delay_proxy: EDGE_DIST,
 } as const;

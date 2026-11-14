@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { deriveSessionAuthorizationKeyPair } from '@merkur/auth';
 import { RedisClient } from 'bun';
 import { Deferred, Effect, Fiber, Layer, Redacted, Ref, Result } from 'effect';
 
@@ -33,8 +32,6 @@ const SESSION_REQUEST_COMMITMENT = Buffer.alloc(64, 12).toString('base64url');
 const SUCCESSOR_SESSION_REQUEST_COMMITMENT = Buffer.alloc(64, 13).toString('base64url');
 const ROOT_KEY_COMMITMENT = Buffer.alloc(64, 14).toString('base64url');
 const DAEMON_BINDING_SIGNATURE = Buffer.alloc(4_627, 15).toString('base64url');
-const OPAQUE_SERVER_SETUP =
-  'vyR7ewWtDdnfxU9MRNWEe8h5iNJ34K03Ebhh8kCjtN7gBCOX9zs6n9SHAFRwXcd4juUL6EWRm0IRF40gSSEc8Y6PwsHNbCpj5V94McaEgFt_ptz-wy2cZCUgVpJrSusGml8FeZBo9aSfBUDVW8bW5I5XwafKzgMQ4lMiFeZ8BCs';
 const OPAQUE_SERVER_PUBLIC_KEY = '_lV018BV4Yes2R8Lq3TmVchsl3XYbxFxC3aHCOGyy1E';
 
 if (dragonflyUrl === undefined) {
@@ -775,13 +772,11 @@ function testConfig(redisUrl: string): ServerConfig {
     authAllowRegistration: false,
     authIdentity: 'username',
     emailDelivery: undefined,
-    opaqueServerSetup: Redacted.make(OPAQUE_SERVER_SETUP),
+    keydSocket: '/run/merkur-keyd/keyd.sock',
     opaqueServerPublicKey: OPAQUE_SERVER_PUBLIC_KEY,
     trustedProxyHops: 0,
-    sessionTokenSigningKey: deriveSessionAuthorizationKeyPair(new Uint8Array(32)).signingKey,
-    sessionTokenVerifyKeyB64: 'A'.repeat(3_456),
     sessionTokenTtlMs: 60_000,
-    webPush: undefined,
+    webPushContact: undefined,
     edgeRegistrationKeys: new Map(),
     telemetry: undefined,
     traceLevel: 'Info',

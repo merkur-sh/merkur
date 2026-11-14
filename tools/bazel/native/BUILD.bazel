@@ -28,6 +28,7 @@ _PROGRAMS = {
     "//apps/edge:bulk_competitor": "apps/edge/dist",
     "//apps/edge:delay_proxy": "apps/edge/dist",
     "//apps/edge:merkur-edge": "apps/edge/dist",
+    "//apps/keyd:merkur-keyd": "apps/keyd/dist",
     "//apps/tui:merkur-tui": "apps/daemon/dist",
     "//packages/merkur-image-worker:merkur-image-worker": "apps/daemon/dist",
 }

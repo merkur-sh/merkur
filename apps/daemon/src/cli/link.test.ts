@@ -2,12 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  deriveDaemonIdentityKeyCommitment,
-  deriveSessionAuthorizationKeyPair,
-  deriveSoftwareDaemonP256PublicKey,
-  SESSION_AUTHORIZATION_SEED_BYTES,
-} from '@merkur/auth';
+import { deriveDaemonIdentityKeyCommitment, deriveSoftwareDaemonP256PublicKey } from '@merkur/auth';
 import {
   loadDaemonConfigFromPath,
   persistDaemonRevocationsToPath,
@@ -18,6 +13,7 @@ import {
 import {
   createDaemonBinding,
   createDaemonLinkApproval,
+  deriveUserAuthorizationPublicKey,
   deriveUserAuthorizationSigningKey,
   deriveUserRootKeyCommitment,
   encodeUserAuthorizationBytes,
@@ -38,7 +34,7 @@ import {
 
 const CLAIM_TOKEN = 'A'.repeat(52);
 const SERVER_ORIGIN = 'https://merkur.example';
-const IDENTITY_SEED = Buffer.alloc(SESSION_AUTHORIZATION_SEED_BYTES, 0x44);
+const IDENTITY_SEED = Buffer.alloc(32, 0x44);
 const LINK_SECRET = Buffer.alloc(32, 0x55);
 const SERVER_NONCE = Buffer.alloc(32, 0x66);
 const POLL_TOKEN = Buffer.alloc(32, 0x77).toString('base64url');
@@ -526,40 +522,35 @@ function approvedClaim(request: DaemonLinkCreateRequest, linkSecret: Uint8Array)
 }
 
 function existingConfig(): DaemonConfig {
-  const keyPair = deriveSessionAuthorizationKeyPair(Buffer.from(IDENTITY_SEED));
-  try {
-    const commitment = deriveDaemonIdentityKeyCommitment(
-      keyPair.verifyKey,
-      deriveSoftwareDaemonP256PublicKey(IDENTITY_SEED),
-    );
-    const binding = createDaemonBinding(
-      {
-        userId: 'user-1',
-        rootKeyCommitment: ROOT_KEY_COMMITMENT,
-        daemonId: 'existing-daemon',
-        daemonIdentityKeyCommitment: commitment,
-        serverOrigin: SERVER_ORIGIN,
-        linkClaimId: 'old-claim',
-        issuedAt: 1,
-      },
-      ROOT_KEYS,
-      Buffer.alloc(32, 0x33),
-    );
-    return {
-      daemon_id: 'existing-daemon',
-      server_origin: SERVER_ORIGIN,
-      daemon_identity_seal: identityFixture().seal,
-      shell: '/bin/zsh',
-      webtransport_port: 44_433,
-      session_token_verify_key: SESSION_TOKEN_VERIFY_KEY,
-      user_root_public_key: ROOT_PUBLIC_KEY,
-      root_epoch: USER_ROOT_INITIAL_EPOCH,
-      daemon_binding: binding,
-      revoked_delegations: [{ delegationId: 'revoked-delegation', expiresAt: 1_900_000_000_000 }],
-    };
-  } finally {
-    keyPair.signingKey.free();
-  }
+  const commitment = deriveDaemonIdentityKeyCommitment(
+    deriveUserAuthorizationPublicKey(IDENTITY_SEED),
+    deriveSoftwareDaemonP256PublicKey(IDENTITY_SEED),
+  );
+  const binding = createDaemonBinding(
+    {
+      userId: 'user-1',
+      rootKeyCommitment: ROOT_KEY_COMMITMENT,
+      daemonId: 'existing-daemon',
+      daemonIdentityKeyCommitment: commitment,
+      serverOrigin: SERVER_ORIGIN,
+      linkClaimId: 'old-claim',
+      issuedAt: 1,
+    },
+    ROOT_KEYS,
+    Buffer.alloc(32, 0x33),
+  );
+  return {
+    daemon_id: 'existing-daemon',
+    server_origin: SERVER_ORIGIN,
+    daemon_identity_seal: identityFixture().seal,
+    shell: '/bin/zsh',
+    webtransport_port: 44_433,
+    session_token_verify_key: SESSION_TOKEN_VERIFY_KEY,
+    user_root_public_key: ROOT_PUBLIC_KEY,
+    root_epoch: USER_ROOT_INITIAL_EPOCH,
+    daemon_binding: binding,
+    revoked_delegations: [{ delegationId: 'revoked-delegation', expiresAt: 1_900_000_000_000 }],
+  };
 }
 
 function required<T>(value: T | null | undefined): T {
@@ -580,18 +571,13 @@ function isApprovedResult(value: unknown): value is { approval: { approvalMac: s
 }
 
 function identityFixture() {
-  const keys = deriveSessionAuthorizationKeyPair(IDENTITY_SEED);
-  try {
-    return {
-      seal: { backend: 'software' as const, material: IDENTITY_SEED.toString('base64url') },
-      publicKey: Buffer.from(keys.verifyKey).toString('base64url'),
-      p256PublicKey: Buffer.from(deriveSoftwareDaemonP256PublicKey(IDENTITY_SEED)).toString(
-        'base64url',
-      ),
-    };
-  } finally {
-    keys.signingKey.free();
-  }
+  return {
+    seal: { backend: 'software' as const, material: IDENTITY_SEED.toString('base64url') },
+    publicKey: Buffer.from(deriveUserAuthorizationPublicKey(IDENTITY_SEED)).toString('base64url'),
+    p256PublicKey: Buffer.from(deriveSoftwareDaemonP256PublicKey(IDENTITY_SEED)).toString(
+      'base64url',
+    ),
+  };
 }
 
 describe('identity custody selection', () => {

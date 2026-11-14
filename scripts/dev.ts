@@ -12,6 +12,8 @@ import {
   serverProcessEnvironment,
   toolEnvironment,
 } from './dev-environment';
+import { developmentKeydPaths } from './dev-server-env';
+import { spawnKeyd } from './keyd';
 import { nativeProgram } from './native-artifacts';
 
 export interface DevelopmentStackRuntime {
@@ -33,6 +35,7 @@ export interface DevelopmentStackRuntime {
     signal: AbortSignal,
   ) => Promise<void>;
   readonly buildEdge: (signal: AbortSignal) => Promise<string>;
+  readonly buildKeyd: (signal: AbortSignal) => Promise<string>;
   readonly buildDaemon: (signal: AbortSignal) => Promise<Readonly<Record<string, string>>>;
 }
 
@@ -172,6 +175,15 @@ export async function runDevelopmentStack(
     try {
       process.stdout.write('\nBuilding the local WebTransport edge...\n');
       const EDGE_BINARY = await runtime.buildEdge(cancellation.signal);
+
+      // keyd holds the server's keys; the server refuses to start without it.
+      const keyd = await spawnKeyd(
+        await runtime.buildKeyd(cancellation.signal),
+        developmentKeydPaths(REPO_ROOT, serverConfig.keydSocket),
+        { PATH: platformEnvironment.PATH ?? '' },
+      );
+      children.set('keyd', keyd);
+      supervise('keyd', keyd);
 
       // The server starts first because the edge waits on it: an edge is not
       // publicly discoverable until it has registered, and `waitForEdge` below waits
@@ -540,6 +552,10 @@ if (import.meta.main) {
     buildEdge: async (signal) => {
       await prerequisite(NATIVE_SYNC, signal);
       return nativeProgram(root, 'merkur-edge');
+    },
+    buildKeyd: async (signal) => {
+      await prerequisite(NATIVE_SYNC, signal);
+      return nativeProgram(root, 'merkur-keyd');
     },
     buildDaemon: async (signal) => {
       await prerequisite(NATIVE_SYNC, signal);

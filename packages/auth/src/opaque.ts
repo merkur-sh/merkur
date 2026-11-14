@@ -1,3 +1,8 @@
+/**
+ * The OPAQUE server half of `@serenity-kit/opaque`, for the tools that pin against or provision
+ * `merkur-keyd`: the application server itself never holds a server setup, and signs nobody in
+ * here. keyd runs the same protocol natively (`apps/keyd`).
+ */
 import * as opaque from '@serenity-kit/opaque';
 
 export const OPAQUE_SERVER_SETUP_BYTES = 128;
@@ -5,14 +10,6 @@ export const OPAQUE_SERVER_PUBLIC_KEY_BYTES = 32;
 export const OPAQUE_REGISTRATION_REQUEST_BYTES = 32;
 export const OPAQUE_REGISTRATION_RESPONSE_BYTES = 64;
 export const OPAQUE_REGISTRATION_RECORD_BYTES = 192;
-export const OPAQUE_LOGIN_REQUEST_BYTES = 96;
-export const OPAQUE_LOGIN_RESPONSE_BYTES = 320;
-export const OPAQUE_LOGIN_FINISH_BYTES = 64;
-
-export interface OpaqueLoginStart {
-  readonly serverLoginState: string;
-  readonly loginResponse: string;
-}
 
 export async function createOpaqueServerSetup(): Promise<string> {
   await opaque.ready;
@@ -58,77 +55,6 @@ export function validateOpaqueRegistrationRecord(registrationRecord: string): vo
     OPAQUE_REGISTRATION_RECORD_BYTES,
     'OPAQUE registration record',
   );
-}
-
-export async function startOpaqueServerLogin(input: {
-  readonly serverSetup: string;
-  readonly registrationRecord: string | null;
-  readonly startLoginRequest: string;
-  readonly userId: string;
-  readonly serverIdentity: string;
-}): Promise<OpaqueLoginStart> {
-  requireIdentifier(input.userId, 'user id');
-  requireIdentifier(input.serverIdentity, 'server identity');
-  if (input.registrationRecord !== null) {
-    validateOpaqueRegistrationRecord(input.registrationRecord);
-  }
-  requireCanonicalBase64Url(
-    input.startLoginRequest,
-    OPAQUE_LOGIN_REQUEST_BYTES,
-    'OPAQUE login request',
-  );
-  await validateOpaqueServerSetup(input.serverSetup);
-  const result = opaque.server.startLogin({
-    serverSetup: input.serverSetup,
-    registrationRecord: input.registrationRecord,
-    startLoginRequest: input.startLoginRequest,
-    userIdentifier: input.userId,
-    identifiers: {
-      client: input.userId,
-      server: input.serverIdentity,
-    },
-  });
-  requireCanonicalBase64Url(
-    result.serverLoginState,
-    OPAQUE_SERVER_SETUP_BYTES,
-    'OPAQUE server login state',
-  );
-  requireCanonicalBase64Url(
-    result.loginResponse,
-    OPAQUE_LOGIN_RESPONSE_BYTES,
-    'OPAQUE login response',
-  );
-  return result;
-}
-
-export async function finishOpaqueServerLogin(input: {
-  readonly serverLoginState: string;
-  readonly finishLoginRequest: string;
-  readonly userId: string;
-  readonly serverIdentity: string;
-}): Promise<void> {
-  requireCanonicalBase64Url(
-    input.serverLoginState,
-    OPAQUE_SERVER_SETUP_BYTES,
-    'OPAQUE server login state',
-  );
-  requireCanonicalBase64Url(
-    input.finishLoginRequest,
-    OPAQUE_LOGIN_FINISH_BYTES,
-    'OPAQUE login finish',
-  );
-  requireIdentifier(input.userId, 'user id');
-  requireIdentifier(input.serverIdentity, 'server identity');
-  await opaque.ready;
-  const result = opaque.server.finishLogin({
-    serverLoginState: input.serverLoginState,
-    finishLoginRequest: input.finishLoginRequest,
-    identifiers: {
-      client: input.userId,
-      server: input.serverIdentity,
-    },
-  });
-  requireCanonicalBase64Url(result.sessionKey, 64, 'OPAQUE session key');
 }
 
 function requireIdentifier(value: string, label: string): void {

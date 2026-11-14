@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { createECDH } from 'node:crypto';
 import { ConfigProvider, Effect, Redacted } from 'effect';
 
 import {
@@ -9,8 +8,6 @@ import {
   ServerConfigError,
 } from './server-config';
 
-const OPAQUE_SERVER_SETUP =
-  'vyR7ewWtDdnfxU9MRNWEe8h5iNJ34K03Ebhh8kCjtN7gBCOX9zs6n9SHAFRwXcd4juUL6EWRm0IRF40gSSEc8Y6PwsHNbCpj5V94McaEgFt_ptz-wy2cZCUgVpJrSusGml8FeZBo9aSfBUDVW8bW5I5XwafKzgMQ4lMiFeZ8BCs';
 const OPAQUE_SERVER_PUBLIC_KEY = '_lV018BV4Yes2R8Lq3TmVchsl3XYbxFxC3aHCOGyy1E';
 
 describe('server config', () => {
@@ -128,31 +125,13 @@ describe('server config', () => {
     );
   });
 
-  test('web push requires a complete matching canonical keypair', async () => {
-    const ecdh = createECDH('prime256v1');
-    ecdh.setPrivateKey(Buffer.alloc(32, 1));
-    const fields = {
-      WEB_PUSH_VAPID_PUBLIC_KEY: ecdh.getPublicKey().toString('base64url'),
-      WEB_PUSH_VAPID_PRIVATE_KEY: ecdh.getPrivateKey().toString('base64url'),
-      WEB_PUSH_CONTACT: 'mailto:admin@merkur.test',
-    };
-    expect((await loadConfig({})).webPush).toBeUndefined();
-    const config = await loadConfig(fields);
-    expect(config.webPush?.publicKey).toBe(fields.WEB_PUSH_VAPID_PUBLIC_KEY);
-    expect(
-      config.webPush === undefined ? undefined : Redacted.value(config.webPush.privateKey),
-    ).toBe(fields.WEB_PUSH_VAPID_PRIVATE_KEY);
-    for (const key of Object.keys(fields)) {
-      const partial = Object.fromEntries(Object.entries(fields).filter(([name]) => name !== key));
-      await expect(loadConfig(partial)).rejects.toThrow('Web push');
+  test('a web-push contact is absent, a mailto: address, or an HTTPS URL', async () => {
+    expect((await loadConfig({})).webPushContact).toBeUndefined();
+    for (const contact of ['mailto:admin@merkur.test', 'https://merkur.test/contact']) {
+      expect((await loadConfig({ WEB_PUSH_CONTACT: contact })).webPushContact).toBe(contact);
     }
-    for (const invalid of [
-      { WEB_PUSH_VAPID_PRIVATE_KEY: Buffer.alloc(32, 2).toString('base64url') },
-      { WEB_PUSH_VAPID_PUBLIC_KEY: `${fields.WEB_PUSH_VAPID_PUBLIC_KEY}=` },
-      { WEB_PUSH_CONTACT: 'http://admin.test' },
-      { WEB_PUSH_CONTACT: 'mailto:invalid' },
-    ])
-      await expect(loadConfig({ ...fields, ...invalid })).rejects.toThrow('Web push');
+    for (const contact of ['http://admin.test', 'mailto:invalid', 'https://user@merkur.test'])
+      await expect(loadConfig({ WEB_PUSH_CONTACT: contact })).rejects.toThrow('WEB_PUSH_CONTACT');
   });
 
   test('rejects invalid STUN ports and malformed IPv6 authorities', async () => {
@@ -175,14 +154,14 @@ describe('server config', () => {
 
   test('an injected artifact pin cannot be replaced by a valid runtime pin', async () => {
     const provider = ConfigProvider.fromUnknown(requiredEntries());
-    await expect(
-      Effect.runPromise(
-        loadServerConfig.pipe(
-          Effect.provide(ConfigProvider.layer(provider)),
-          Effect.provideService(OpaqueWebBuildPin, Buffer.alloc(32, 5).toString('base64url')),
-        ),
+    const artifactPin = Buffer.alloc(32, 5).toString('base64url');
+    const config = await Effect.runPromise(
+      loadServerConfig.pipe(
+        Effect.provide(ConfigProvider.layer(provider)),
+        Effect.provideService(OpaqueWebBuildPin, artifactPin),
       ),
-    ).rejects.toThrow('VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY');
+    );
+    expect(config.opaqueServerPublicKey).toBe(artifactPin);
   });
   test('requires REDIS_URL', async () => {
     const provider = ConfigProvider.fromUnknown(withoutRequiredEntry('REDIS_URL'));
@@ -366,31 +345,21 @@ describe('server config', () => {
     }
   });
 
-  test('requires one stable OPAQUE setup and matching server/browser pins', async () => {
-    for (const name of [
-      'OPAQUE_SERVER_SETUP',
-      'OPAQUE_SERVER_PUBLIC_KEY',
-      'VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY',
-    ]) {
+  test('requires the keyd socket and a canonical OPAQUE browser pin', async () => {
+    for (const name of ['KEYD_SOCKET', 'VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY']) {
       const provider = ConfigProvider.fromUnknown(withoutRequiredEntry(name));
       await expect(
         Effect.runPromise(Effect.provide(loadServerConfig, ConfigProvider.layer(provider))),
       ).rejects.toThrow();
     }
-    expect(Redacted.value((await loadConfig({})).opaqueServerSetup)).toBe(OPAQUE_SERVER_SETUP);
-    expect((await loadConfig({})).opaqueServerPublicKey).toBe(OPAQUE_SERVER_PUBLIC_KEY);
-    await expect(loadConfig({ OPAQUE_SERVER_SETUP: 'not-a-setup' })).rejects.toThrow();
-    await expect(
-      loadConfig({ OPAQUE_SERVER_PUBLIC_KEY: Buffer.alloc(32).toString('base64url') }),
-    ).rejects.toThrow();
-    await expect(
-      loadConfig({
-        VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY: Buffer.alloc(32).toString('base64url'),
-      }),
-    ).rejects.toThrow();
-    await expect(
-      loadConfig({ VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY: 'not-a-public-key' }),
-    ).rejects.toThrow();
+    const config = await loadConfig({});
+    expect(config.opaqueServerPublicKey).toBe(OPAQUE_SERVER_PUBLIC_KEY);
+    expect(config.keydSocket).toBe('/run/merkur-keyd/keyd.sock');
+    for (const pin of ['not-a-public-key', `${OPAQUE_SERVER_PUBLIC_KEY}=`, 'AAAA']) {
+      await expect(loadConfig({ VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY: pin })).rejects.toThrow(
+        'VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY',
+      );
+    }
   });
 
   test('validates port, canonical public origin, and bounded session token TTL', async () => {
@@ -413,19 +382,6 @@ describe('server config', () => {
       (await loadConfig({ SESSION_TOKEN_TTL_MS: String(MIN_SESSION_TOKEN_TTL_MS) }))
         .sessionTokenTtlMs,
     ).toBe(MIN_SESSION_TOKEN_TTL_MS);
-  });
-
-  test('requires an exact canonical ML-DSA-87 session-token seed', async () => {
-    const seed = Buffer.alloc(32, 7).toString('base64url');
-    const config = await loadConfig({ SESSION_TOKEN_MLDSA87_SEED: seed });
-    expect(config.sessionTokenSigningKey.publicKey).toEqual(
-      Buffer.from(config.sessionTokenVerifyKeyB64, 'base64url'),
-    );
-    expect(config.sessionTokenVerifyKeyB64).toHaveLength(3_456);
-
-    for (const invalid of ['', `${seed}=`, seed.slice(1), '~'.repeat(43)]) {
-      await expect(loadConfig({ SESSION_TOKEN_MLDSA87_SEED: invalid })).rejects.toThrow();
-    }
   });
 
   test('requires an exact canonical 64-byte access-token HMAC key', async () => {
@@ -511,7 +467,7 @@ function requiredEntries(): Record<string, string> {
   return {
     ACCESS_TOKEN_HMAC_KEY: Buffer.alloc(64, 0x55).toString('base64url'),
     REDIS_URL: 'redis://127.0.0.1:6379',
-    SESSION_TOKEN_MLDSA87_SEED: Buffer.alloc(32).toString('base64url'),
+    KEYD_SOCKET: '/run/merkur-keyd/keyd.sock',
     EDGE_REGISTRATION_KEYS_JSON: JSON.stringify({
       'local-dev-1': Buffer.alloc(64, 0x33).toString('base64url'),
     }),
@@ -521,8 +477,6 @@ function requiredEntries(): Record<string, string> {
     TOKEN_HMAC_SECRET: Buffer.alloc(64, 0xaa).toString('base64url'),
     AUTH_ALLOW_REGISTRATION: 'true',
     AUTH_IDENTITY: 'username',
-    OPAQUE_SERVER_SETUP,
-    OPAQUE_SERVER_PUBLIC_KEY,
     VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY: OPAQUE_SERVER_PUBLIC_KEY,
     TRUSTED_PROXY_HOPS: '1',
   };

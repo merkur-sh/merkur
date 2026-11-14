@@ -10,6 +10,9 @@ import {
 } from './dev-environment';
 import { prepareDevelopmentEnvironment } from './dev-server-env';
 
+/** The OPAQUE key a development keyd holds, as the browser pins it. */
+const PIN = Buffer.alloc(32, 9).toString('base64url');
+
 test('internal URLs respect server ports, wildcard bindings, and IPv6', () => {
   expect(developmentServerOrigin('127.0.0.1', 3200)).toBe('http://127.0.0.1:3200');
   expect(developmentServerOrigin('0.0.0.0', 3201)).toBe('http://127.0.0.1:3201');
@@ -22,7 +25,7 @@ test('compiler and unrelated child environments never inherit server credentials
     PATH: '/tools',
     HOME: '/home/test',
     TOKEN_HMAC_SECRET: 'secret',
-    SESSION_TOKEN_MLDSA87_SEED: 'seed',
+    EDGE_ATTACH_TICKET_KEY: 'key',
     VITE_ACCIDENTAL_SECRET: 'secret',
     RUSTUP_TOOLCHAIN: 'ambient',
   };
@@ -76,19 +79,22 @@ test('child tools select rustup proxies ahead of a system compiler', async () =>
 
 test('fresh setup persists and validates the Redis URL it was given', async () => {
   const candidate = await Effect.runPromise(
-    prepareDevelopmentEnvironment('', {
-      REDIS_URL: 'rediss://user:literal$PASSWORD@redis.test:6380/2',
-    }),
+    prepareDevelopmentEnvironment(
+      '',
+      { REDIS_URL: 'rediss://user:literal$PASSWORD@redis.test:6380/2' },
+      PIN,
+    ),
   );
   expect(Redacted.value(candidate.config.redisUrl)).toBe(
     'rediss://user:literal$PASSWORD@redis.test:6380/2',
   );
   expect(candidate.contents).toContain('literal\\$PASSWORD');
-  const repeated = await Effect.runPromise(prepareDevelopmentEnvironment(candidate.contents, {}));
+  const repeated = await Effect.runPromise(
+    prepareDevelopmentEnvironment(candidate.contents, {}, PIN),
+  );
   expect(repeated.added).toEqual([]);
   expect(repeated.contents).toBe(candidate.contents);
   expect(Redacted.value(repeated.config.redisUrl)).toBe(Redacted.value(candidate.config.redisUrl));
-  expect(Redacted.value(repeated.config.opaqueServerSetup)).toBe(
-    Redacted.value(candidate.config.opaqueServerSetup),
-  );
+  expect(repeated.config.opaqueServerPublicKey).toBe(PIN);
+  expect(repeated.config.keydSocket).toBe('./data/keyd.sock');
 });

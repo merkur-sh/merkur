@@ -8,7 +8,7 @@ key each deploy pins, and the roles it runs.
 | Role | Runs | Installed by |
 | --- | --- | --- |
 | edge and STUN (a host's `edge` and `stun`) | The relay and the STUN responder (systemd) | The release (`scripts/ci/deploy-service-hosts.sh`) |
-| app (the host `app` names) | The server and the website (systemd), sqld and Dragonfly (`app/compose.yaml`) | The release (`scripts/ci/deploy-app-host.sh`); the site by Deploy site |
+| app (the host `app` names) | The server, `merkur-keyd` and the website (systemd), sqld and Dragonfly (`app/compose.yaml`) | The release (`scripts/ci/deploy-app-host.sh`); the site by Deploy site |
 | analytics | Rybbit (`analytics/compose.yaml`) | By hand: `docker compose up -d` in `/srv/analytics` |
 | backups | Each role's nightly encrypted backup (`backup/`), `merkur-backup@app.timer` and `merkur-backup@analytics.timer` | The release, for the app; `systemctl enable --now merkur-backup@analytics.timer` by hand |
 
@@ -31,11 +31,18 @@ carries them.
   `service-hosts.json` from the Hetzner console, never from a first connection.
 - The edge and STUN host keeps `/etc/merkur/edge.secrets.env` and
   `/etc/merkur/stun.secrets.env` (`apps/edge/README.md`, `apps/stun/README.md`).
-- The app host holds three things of its own.
+- The app host holds four things of its own.
   - `/etc/merkur/server.env` holds the server's configuration (README's Configuration table),
     with `DB_URL=http://127.0.0.1:8880`, `REDIS_URL` on `127.0.0.1:6379`,
     `RYBBIT_HOST=http://127.0.0.1:3001` and `TRUSTED_PROXY_HOPS=1`. `/etc/merkur/data.env`
     holds `SQLD_AUTH_JWT_KEY` and `DRAGONFLY_PASSWORD`. Both are mode 0600.
+  - `/etc/merkur/keyd/`, root-owned and mode 0700, holds `merkur-keyd`'s keys, each a root
+    0600 file of canonical unpadded base64url: `opaque-server-setup` (128 bytes),
+    `session-token-mldsa87-seed` (32 bytes) and `web-push-vapid-private-key` (a 32-byte P-256
+    scalar). `scripts/keyd.ts`'s `newKeydKeySet` makes a fresh set; replacing the OPAQUE setup
+    invalidates every password and replacing the seed relinks every daemon, so a deployment's
+    set is made once. The server's environment names none of them, and the installer refuses
+    one that still does (`apps/keyd/README.md`).
   - `/var/lib/merkur/sqld`, owned by UID 666, which the sqld image runs as.
   - The site deploy key, restricted to its installer:
     `restrict,command="/usr/local/lib/merkur/install-site" ssh-ed25519 …`.

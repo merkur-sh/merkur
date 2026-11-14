@@ -397,6 +397,32 @@ describe('auth routes', () => {
     expect(await response.json()).toEqual({ error: 'registration_closed' });
   });
 
+  test("keyd's spent account budget is a 429 that names itself and when to retry", async () => {
+    const service: AuthService = {
+      ...unexpectedAuthService(),
+      startAuth: () =>
+        Effect.fail(
+          new AuthError({
+            code: 'attempts_exhausted',
+            message: 'spent',
+            retryAfterSeconds: 3_600,
+          }),
+        ),
+    };
+
+    const response = await createApp(service).handle(
+      request('/api/auth/start', {
+        username: 'someone',
+        startLoginRequest: 'p'.repeat(128),
+        registrationRequest: 'q'.repeat(43),
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe('3600');
+    expect(await response.json()).toEqual({ error: 'attempts_exhausted' });
+  });
+
   test('a refused address has its own answer on both sign-up steps', async () => {
     const refused = Effect.fail(new AuthError({ code: 'email_not_accepted', message: 'refused' }));
     const service: AuthService = {

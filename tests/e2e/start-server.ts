@@ -5,6 +5,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { E2E_OPAQUE_PUBLIC_KEY } from '../../scripts/e2e-opaque-pin';
 import { prepareE2EWebArtifact } from '../../scripts/e2e-web-artifacts';
+import {
+  KEYD_OPAQUE_SERVER_SETUP,
+  KEYD_SESSION_TOKEN_SEED,
+  keydExecutable,
+  spawnKeyd,
+  writeKeydCredentials,
+} from '../../scripts/keyd';
 
 import { prepareE2EDatabase, removeE2EDatabase, sweepOrphanedE2EDatabases } from './runtime-files';
 
@@ -13,11 +20,18 @@ const SERVER_DIRECTORY = path.join(PROJECT_ROOT, 'apps', 'server');
 const REDIS_HOST = '127.0.0.1';
 const REDIS_START_TIMEOUT_MS = 10_000;
 // Fixed test-only OPAQUE authority. Keeping both halves here makes the E2E
-// server and the independently built browser share one explicit pin without
-// consulting a developer's apps/server/.env.
+// server's keyd and the independently built browser share one explicit pin
+// without consulting a developer's apps/server/.env.
 const OPAQUE_SERVER_SETUP =
   'vyR7ewWtDdnfxU9MRNWEe8h5iNJ34K03Ebhh8kCjtN7gBCOX9zs6n9SHAFRwXcd4juUL6EWRm0IRF40gSSEc8Y6PwsHNbCpj5V94McaEgFt_ptz-wy2cZCUgVpJrSusGml8FeZBo9aSfBUDVW8bW5I5XwafKzgMQ4lMiFeZ8BCs';
 const OPAQUE_SERVER_PUBLIC_KEY = E2E_OPAQUE_PUBLIC_KEY;
+// Short, under /tmp: a macOS socket address holds 104 bytes.
+const keydDirectory = mkdtempSync('/tmp/merkur-e2e-keyd-');
+const keydPaths = {
+  credentials: path.join(keydDirectory, 'credentials'),
+  state: path.join(keydDirectory, 'state'),
+  socket: path.join(keydDirectory, 'k.sock'),
+};
 
 const serverPort = requiredPort('PW_E2E_PORT');
 const redisPort = requiredPort('PW_E2E_REDIS_PORT');
@@ -40,6 +54,7 @@ sweepOrphanedE2EDatabases();
 prepareE2EDatabase(databasePath);
 
 let redis: ReturnType<typeof Bun.spawn> | null = null;
+let keyd: ReturnType<typeof Bun.spawn> | null = null;
 let server: ReturnType<typeof Bun.spawn> | null = null;
 let mail: ReturnType<typeof Bun.serve> | null = null;
 let stopping = false;
@@ -54,9 +69,10 @@ async function stop(exitCode: number): Promise<never> {
   artifactAbort.abort();
   await artifactPreparation?.catch(() => undefined);
   server?.kill('SIGTERM');
+  keyd?.kill('SIGTERM');
   redis?.kill('SIGTERM');
   mail?.stop(true);
-  const processes = [server, redis].filter(
+  const processes = [server, keyd, redis].filter(
     (processHandle): processHandle is ReturnType<typeof Bun.spawn> => processHandle !== null,
   );
   await Promise.race([
@@ -69,6 +85,7 @@ async function stop(exitCode: number): Promise<never> {
   await Promise.allSettled(processes.map((processHandle) => processHandle.exited));
   removeE2EDatabase(databasePath);
   rmSync(redisDirectory, { recursive: true, force: true });
+  rmSync(keydDirectory, { recursive: true, force: true });
   process.exit(exitCode);
 }
 
@@ -100,6 +117,14 @@ try {
   );
   await waitForRedis(redis, redisPort);
   if (mailPort !== null) mail = startMailCapture(mailPort);
+  await writeKeydCredentials(keydPaths.credentials, {
+    [KEYD_OPAQUE_SERVER_SETUP]: OPAQUE_SERVER_SETUP,
+    [KEYD_SESSION_TOKEN_SEED]: Buffer.alloc(32, 0xe2).toString('base64url'),
+  });
+  keyd = await spawnKeyd(keydExecutable(PROJECT_ROOT), keydPaths, {
+    PATH: process.env.PATH ?? '',
+    RUST_LOG: 'warn',
+  });
 
   const artifactRoot =
     process.env.PW_E2E_ARTIFACT_ROOT ??
@@ -169,10 +194,8 @@ function serverEnvironment(): Record<string, string> {
     JWT_ISSUER: 'merkur-e2e',
     JWT_AUDIENCE: 'merkur-e2e-clients',
     TOKEN_HMAC_SECRET: randomBytes(64).toString('base64url'),
-    OPAQUE_SERVER_SETUP,
-    OPAQUE_SERVER_PUBLIC_KEY,
+    KEYD_SOCKET: keydPaths.socket,
     VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY: OPAQUE_SERVER_PUBLIC_KEY,
-    SESSION_TOKEN_MLDSA87_SEED: Buffer.alloc(32, 0xe2).toString('base64url'),
     EDGE_REGISTRATION_KEYS_JSON: JSON.stringify({
       'local-harness-1': Buffer.alloc(64, 0x71).toString('base64url'),
     }),

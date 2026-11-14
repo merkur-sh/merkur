@@ -41,10 +41,10 @@ import path from 'node:path';
 import type { Client } from '@libsql/client';
 import {
   createAccessToken,
-  deriveSessionAuthorizationKeyPair,
   deriveSoftwareDaemonP256PublicKey,
   signDaemonProof,
 } from '@merkur/auth';
+import { deriveUserAuthorizationPublicKey } from '@merkur/shared/user-authorization';
 import { Clock, Effect } from 'effect';
 import { Kysely, sql } from 'kysely';
 import { FileMigrationProvider, Migrator } from 'kysely/migration';
@@ -55,6 +55,7 @@ import { LibsqlDialect } from '../src/db/libsql-dialect';
 import type { DatabaseSchema } from '../src/db/types';
 import { createAuthService } from '../src/services/auth-service';
 import { createDeviceService } from '../src/services/device-service';
+import type { KeyService } from '../src/services/key-service';
 import type { DaemonPresenceState } from '../src/services/realtime-coordination-service';
 import type { RedisService } from '../src/services/redis-service';
 
@@ -125,9 +126,7 @@ function countingClient(inner: Client): Client {
 
 async function seed(db: Kysely<DatabaseSchema>): Promise<void> {
   const p256 = Buffer.from(deriveSoftwareDaemonP256PublicKey(SEED)).toString('base64url');
-  const identity = Buffer.from(deriveSessionAuthorizationKeyPair(SEED).verifyKey).toString(
-    'base64url',
-  );
+  const identity = Buffer.from(deriveUserAuthorizationPublicKey(SEED)).toString('base64url');
   for (const userId of [USER_ID, OTHER_USER_ID]) {
     await db
       .insertInto('users')
@@ -231,10 +230,19 @@ async function buildWorkloads(): Promise<Workload[]> {
     tokenHmacSecret: 'bench-token-hmac-secret',
     allowRegistration: false,
     identity: { kind: 'username' as const },
-    opaqueServerSetup: '',
     publicOrigin: 'https://merkur.test',
   };
-  const auth = createAuthService(db, fakeRedis, authConfig, Effect.void);
+  // No workload here signs anyone in or issues a capability, so none reaches keyd.
+  const noKeyd = () => Effect.die(new Error('bench: no workload reaches keyd'));
+  const keys: KeyService = {
+    publicKeys: { opaque: '', sessionCapability: '', vapid: null },
+    authStart: noKeyd,
+    registrationResponse: noKeyd,
+    loginFinish: noKeyd,
+    signCapability: noKeyd,
+    vapidJwt: noKeyd,
+  };
+  const auth = createAuthService(db, fakeRedis, keys, authConfig, Effect.void);
   const deviceConfig = { tokenHmacSecret: 'bench-hmac', publicOrigin: 'https://merkur.test' };
   const devices = createDeviceService(db, deviceConfig, Effect.void);
   const clock = steppingClock();

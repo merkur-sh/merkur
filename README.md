@@ -209,6 +209,7 @@ Bun and TypeScript handle the application and orchestration; Rust owns the termi
 | `apps/web`                          | Browser app: SolidJS, workers, WebGPU, and WASM.                             |
 | `apps/server`                       | Accounts, device linking, presence, session issuance, and web serving.       |
 | `apps/edge`                         | Blind WebTransport relay.                                                    |
+| `apps/keyd`                         | Key service: OPAQUE server half, capability and web-push signing.            |
 | `apps/daemon`                       | Local CLI, service lifecycle, signed updates, and server control connection. |
 | `apps/daemon/dataplane`             | Rust PTY, authentication, transport, input, and display synchronization.     |
 | `apps/stun`                         | Authenticated STUN observations and direct-path verification.                |
@@ -286,11 +287,9 @@ Loaded by `packages/config/src/server-config.ts`.
 | `RYBBIT_HOST` | With `RYBBIT_SITE_ID` and `RYBBIT_API_KEY` | Rybbit origin the server reports a new waitlist address to; `/api/track` is appended. The three Rybbit variables are set together or not at all, and need `SITE_ORIGIN`. |
 | `RYBBIT_SITE_ID` | With `RYBBIT_HOST` and `RYBBIT_API_KEY` | Rybbit site the website reports to, so both kinds of event land on one site. |
 | `RYBBIT_API_KEY` | With `RYBBIT_HOST` and `RYBBIT_SITE_ID` | Rybbit API key, sent as `Authorization: Bearer`. It marks the event as ingestion from this server and never reaches the website. |
-| `OPAQUE_SERVER_SETUP` | Yes | Stable canonical OPAQUE server setup. Replacing it invalidates every OPAQUE registration record. Keep it secret and durable. |
-| `OPAQUE_SERVER_PUBLIC_KEY` | Yes | Canonical public key derived from `OPAQUE_SERVER_SETUP`; startup fails if they do not match. |
-| `VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY` | Build + standalone startup | Must equal `OPAQUE_SERVER_PUBLIC_KEY`. The browser pins this value; the deployment build validates it and compiles it into the server for a pre-migration startup comparison. |
+| `KEYD_SOCKET` | Yes | Unix socket of `merkur-keyd`, which holds the OPAQUE server setup, the ML-DSA-87 session-capability key and the web-push VAPID key and performs every operation that needs them. The server holds none of them; startup fails when keyd is unreachable. |
+| `VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY` | Build + standalone startup | The OPAQUE server public key the browser pins. The deployment build compiles it into the server, and startup fails unless it equals the key `merkur-keyd` holds. |
 | `TRUSTED_PROXY_HOPS` | Yes | Number of reverse proxies in front of the server that append to `X-Forwarded-For`. `0` ignores the header and keys rate limits on the socket address; production is `1`, behind Caddy. Wrong values either let a client forge its own rate-limit key or collapse every client into one bucket, so there is no default. |
-| `SESSION_TOKEN_MLDSA87_SEED` | Yes | Canonical unpadded base64url for exactly 32 random bytes used to derive the fixed ML-DSA-87 session-authorization keypair. Existing daemons must relink after an intentional hard-cut key replacement. |
 | `SESSION_TOKEN_TTL_MS` | No | Session-capability lifetime from 2000 through 300000 milliseconds. Reconnects request fresh capabilities. Server and daemon clocks must be synchronized. Default: `60000`. |
 | `BOX_HOST_URL` | No | Canonical HTTP(S) origin of the box host. Configure together with `BOX_HOST_TOKEN`; both absent disables hosted-box provisioning. Credentials, paths, queries, fragments, and trailing slashes are refused. |
 | `BOX_HOST_TOKEN` | With `BOX_HOST_URL` | Bearer token the box host authorizes with. |
@@ -300,9 +299,7 @@ Loaded by `packages/config/src/server-config.ts`.
 | `STUN_TICKET_KEY` | Yes | Canonical unpadded base64url for exactly 64 random bytes. The deployment secret every `merkur-stun` responder derives per-ticket MESSAGE-INTEGRITY-SHA256 keys from; the server mints short-lived tickets over the daemon control connection and the daemon never sees this value. Set the same value as `MERKUR_STUN_TICKET_KEY` on the responder. |
 | `STUN_SERVERS` | Yes | At least two distinct comma-separated `host:port` vantage points, with ports from 1 through 65535. Use independent addresses in production; two ports of one address establish only port dependence. Local development uses blackholed TEST-NET-1 addresses. |
 | `BOX_HOST_STUN_OBSERVERS` | No | The `STUN_SERVERS` entries that run on the box host, spelled exactly as there. Left out of a box daemon's list, because a box reaches its own host without crossing its NAT and would classify it from a private address. Empty by default. |
-| `WEB_PUSH_VAPID_PUBLIC_KEY` | Optional group | Canonical unpadded base64url P-256 public key. Configure together with `WEB_PUSH_VAPID_PRIVATE_KEY` and `WEB_PUSH_CONTACT`; partial or mismatched groups fail startup. |
-| `WEB_PUSH_VAPID_PRIVATE_KEY` | Optional group | Canonical unpadded base64url P-256 private key matching the public key. Configure the complete web-push group. |
-| `WEB_PUSH_CONTACT` | Optional group | Web-push contact: a `mailto:` address or an HTTPS URL. Required with the VAPID keypair. |
+| `WEB_PUSH_CONTACT` | With a keyd VAPID key | Web-push contact: a `mailto:` address or an HTTPS URL. Set exactly when `merkur-keyd` holds a VAPID key; startup fails on either without the other. |
 | `AXIOM_TOKEN` | Optional group | Axiom API token. Supplying it enables OTLP export of traces, Effect-native logs, and metrics; supply all four Axiom variables or none. Unset, spans are printed to stdout as a tree instead of exported. |
 | `AXIOM_DATASET` | Optional group | Dataset receiving traces and logs (`x-axiom-dataset`). |
 | `AXIOM_METRICS_DATASET` | Optional group | Dataset receiving metrics (`x-axiom-metrics-dataset`). Separate from traces and logs because Axiom's metrics intake uses a different header and accepts only protobuf. |
