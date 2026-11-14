@@ -7545,7 +7545,9 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "generated-cargo-workspace.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
+            ":cargo-graph.ts.module",
             ":tsconfig.json.module",
         ],
         "host-harness-lock.test.ts": [

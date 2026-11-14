@@ -2191,10 +2191,13 @@ fn spawn_reliable_receivers(
         // `session_auth`) would be dropped and the peer parked. Records wait for
         // the tunnel to leave `Pending`, which it never re-enters, so this waits
         // once per generation; a lifecycle stream that ends first leaves nothing
-        // to wait for.
-        let _ = counterpart
-            .wait_for(|state| *state != CounterpartState::Pending)
-            .await;
+        // to wait for. Either outcome is dropped at once, releasing the borrow
+        // of the latest state.
+        drop(
+            counterpart
+                .wait_for(|state| *state != CounterpartState::Pending)
+                .await,
+        );
         if let Err(error) = run_reliable_acceptor(task_conn, ingress, lane).await {
             warn!(
                 channel = ?error.failure.channel_id,
@@ -4600,7 +4603,7 @@ mod tests {
             }
             let attached = br#"{"type":"counterpart_attached","counterpart_attachment_id":1}"#;
             lifecycle
-                .write_all(&(attached.len() as u32).to_be_bytes())
+                .write_all(&u32::try_from(attached.len()).unwrap().to_be_bytes())
                 .await
                 .unwrap();
             lifecycle.write_all(attached).await.unwrap();
