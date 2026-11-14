@@ -51,12 +51,14 @@
   lockFileMaintenance: { enabled: true, schedule: ['before 6am on monday'] },
   cargo: {
     // The vendored crates keep upstream's manifests; their dependencies resolve in the
-    // workspace lock, which the lock refresh updates.
+    // workspace lock, which the lock refresh updates. The generated workspaces' manifests
+    // are copies the tasks below rewrite from their sources.
     ignorePaths: [
       '**/node_modules/**',
       'spikes/**',
       'packages/*-patch/**',
       'tools/bazel/wasm/**',
+      'tools/bazel/sim/**',
       'tools/bazel/vendored/**',
     ],
     // The simulator's lock is seeded from the production lock and the fuzz workspace resolves
