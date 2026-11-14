@@ -676,7 +676,7 @@ For more information on this, and how to apply and follow the GNU AGPL, see
 
 EMBEDDED RUNTIME
 
-The merkur executable embeds the Bun runtime (bun@1.4.3, MIT), which
+The merkur executable embeds the Bun runtime (bun@1.4.4, MIT), which
 statically links JavaScriptCore/WebKit and tinycc under the LGPL along with the
 components listed in https://github.com/oven-sh/bun/blob/main/LICENSE.md. To
 exercise the LGPL right to run a modified version of those libraries, rebuild

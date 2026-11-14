@@ -11003,6 +11003,7 @@ TYPE_INPUTS = {
             "build-keyboard-bigram.ts",
             "build-site-deployment.ts",
             "build-web.ts",
+            "bun-archives.ts",
             "capture-orb-still.ts",
             "cargo-graph.ts",
             "check-commit-message.test.ts",

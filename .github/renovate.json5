@@ -47,7 +47,7 @@
   // The releases Renovate installs in its container for its own Cargo and Bun runs: Cargo
   // there is not rustup's, so it does not read rust-toolchain.toml, and the tasks below run
   // outside the bun-version manager, which is what reads `.bun-version`.
-  constraints: { bun: '1.4.3', rust: '1.99.0' },
+  constraints: { bun: '1.4.4', rust: '1.99.0' },
   lockFileMaintenance: { enabled: true, schedule: ['before 6am on monday'] },
   cargo: {
     // The vendored crates keep upstream's manifests; their dependencies resolve in the
@@ -279,17 +279,22 @@
         installTools: { bun: {}, rust: {} },
       },
     },
+    {
+      // Bazel installs Bun by release archive checksum. The branch pins the archives of the
+      // release `.bun-version` names once every update in the group has moved it, so the
+      // task runs per branch; it needs only Bun's fetch, whichever Bun Renovate installs.
+      description: 'The Bun runtime moves with its archive checksums',
+      matchDepNames: ['bun', 'bun-types'],
+      groupName: 'Bun runtime',
+      postUpgradeTasks: {
+        commands: ['bun run build:bun-archives'],
+        fileFilters: ['tools/bazel/bun/extensions.bzl'],
+        executionMode: 'branch',
+        installTools: { bun: {} },
+      },
+    },
     // The rules below cover updates Renovate can name but not complete. Each waits on the
     // dashboard until it is ticked, and its branch then needs the work its note describes.
-    {
-      description: 'The Bun runtime is installed in Bazel by archive checksum',
-      matchDepNames: ['bun', 'bun-types'],
-      dependencyDashboardApproval: true,
-      groupName: 'Bun runtime',
-      prBodyNotes: [
-        '`tools/bazel/bun/extensions.bzl` installs Bun by release archive checksum; move it in this branch before merging.',
-      ],
-    },
     {
       description: 'LLVM is fetched by archive checksum for every host',
       matchDepNames: ['llvm/llvm-project'],

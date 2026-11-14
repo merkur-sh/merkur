@@ -136,8 +136,11 @@ assurance and secret scanning run on it like on any other. Nothing merges on its
   cargo-vet step until each new crate version has been reviewed and its audit pushed to the
   branch: a `delta` audit from the exempted or audited version it replaces
   ([policy](security.md#dependency-source-and-audit-policy)).
-- Six updates wait on the dashboard until they are ticked, because the version is not the
-  whole change: the Bun runtime, pnpm, LLVM and TruffleHog are installed by archive checksum,
+- A Bun release opens its pull request like any other: `build:bun-archives` pins the release's
+  archive checksums in `tools/bazel/bun/extensions.bzl` from its `SHASUMS256.txt`, and Bazel
+  fetches each archive against them.
+- Five updates wait on the dashboard until they are ticked, because the version is not the
+  whole change: pnpm, LLVM and TruffleHog are installed by archive checksum,
   Kani is tied to a nightly toolchain, and a vendored patch crate moves by carrying its patches
   onto the new upstream source. An advisory against one of them opens its pull request unasked. For a
   vendored crate that pull request cannot build until the source follows, because the
