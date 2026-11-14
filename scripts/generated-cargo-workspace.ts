@@ -3,7 +3,7 @@
  * source with dependencies (Bolero, turmoil) and flags that must never reach the
  * production workspace or its lockfile.
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Schema } from 'effect';
 import { runCargo } from './cargo-graph';
@@ -90,6 +90,19 @@ function lockedOf({ name, version, source }: GraphPackage): LockedPackage {
 }
 
 /**
+ * A lock's text, or `undefined` when there is none: the read itself says which, so nothing
+ * checks the path before reading it.
+ */
+function readLock(lock: string): string | undefined {
+  try {
+    return readFileSync(lock, 'utf8');
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
+    throw error;
+  }
+}
+
+/**
  * Seeds `directory`'s lock for re-resolving its generated workspace, from the workspace's own
  * lock there: every crate the workspace shares with the release lock takes the release's version,
  * so the workspace builds what a shipped build links, and every other crate keeps its own.
@@ -102,14 +115,12 @@ function lockedOf({ name, version, source }: GraphPackage): LockedPackage {
  */
 export function seedLock(directory: string, env: Record<string, string>): void {
   const lock = path.join(directory, 'Cargo.lock');
-  const present = existsSync(lock);
-  // Unlocked, so a manifest that moved since the lock was written still resolves.
-  const workspace = present ? graph(directory, [], env).packages : [];
+  // Unlocked, so a manifest that moved since the lock was written still resolves; Cargo writes
+  // that resolution to the lock, which is what is read back. A workspace locked for the first
+  // time has no lock of its own.
+  const workspace = readLock(lock) === undefined ? [] : graph(directory, [], env).packages;
   const own = new Map(
-    lockBlocks(present ? readFileSync(lock, 'utf8') : '').blocks.map((block) => [
-      semverLine(block.entry),
-      block,
-    ]),
+    lockBlocks(readLock(lock) ?? '').blocks.map((block) => [semverLine(block.entry), block]),
   );
   const release = lockBlocks(readFileSync(path.join(root, 'Cargo.lock'), 'utf8'));
   const releaseLines = new Set(release.blocks.map(({ entry }) => semverLine(entry)));

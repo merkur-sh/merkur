@@ -5,6 +5,16 @@ import path from 'node:path';
 import { Effect } from 'effect';
 import { ensureDevelopmentServerEnvironment } from './dev-server-env';
 
+/** A file's or directory's permission bits, read through the descriptor that opened it. */
+async function permissions(target: string): Promise<number> {
+  const handle = await open(target, 'r');
+  try {
+    return (await handle.stat()).mode & 0o777;
+  } finally {
+    await handle.close();
+  }
+}
+
 test('setup writes owner-only files and leaves invalid existing identities untouched', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'merkur-setup-'));
   const file = path.join(dir, '.env');
@@ -12,10 +22,10 @@ test('setup writes owner-only files and leaves invalid existing identities untou
   try {
     await Effect.runPromise(ensureDevelopmentServerEnvironment(file, {}, keyd));
     const initial = await readFile(file, 'utf8');
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
-    expect((await stat(keyd)).mode & 0o777).toBe(0o700);
+    expect(await permissions(file)).toBe(0o600);
+    expect(await permissions(keyd)).toBe(0o700);
     for (const name of ['opaque-server-setup', 'session-token-mldsa87-seed']) {
-      expect((await stat(path.join(keyd, name))).mode & 0o777).toBe(0o600);
+      expect(await permissions(path.join(keyd, name))).toBe(0o600);
     }
     const setup = await readFile(path.join(keyd, 'opaque-server-setup'), 'utf8');
     expect(
