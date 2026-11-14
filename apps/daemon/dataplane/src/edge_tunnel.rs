@@ -2180,9 +2180,21 @@ fn spawn_reliable_receivers(
     failure_tx: watch::Sender<Option<EdgeReliableLaneFailure>>,
     closing: Arc<AtomicBool>,
     lane: EdgeLane,
+    mut counterpart: watch::Receiver<CounterpartState>,
 ) -> AbortHandle {
     let task_conn = Arc::clone(&conn);
     let task = tokio::spawn(async move {
+        // A browser's record proves the edge paired this tunnel, but the edge
+        // reports the pairing on the lifecycle stream, which another task reads.
+        // Until that report lands every reliable send is refused as bound for no
+        // browser, so the reply to the first record (`session_ready` for
+        // `session_auth`) would be dropped and the peer parked. Records wait for
+        // the tunnel to leave `Pending`, which it never re-enters, so this waits
+        // once per generation; a lifecycle stream that ends first leaves nothing
+        // to wait for.
+        let _ = counterpart
+            .wait_for(|state| *state != CounterpartState::Pending)
+            .await;
         if let Err(error) = run_reliable_acceptor(task_conn, ingress, lane).await {
             warn!(
                 channel = ?error.failure.channel_id,
@@ -2941,6 +2953,7 @@ impl EdgeTunnel {
             failure_tx.clone(),
             Arc::clone(&self.closing),
             self.lane,
+            self.counterpart.clone(),
         ));
     }
 
@@ -2967,6 +2980,27 @@ mod congestion_tests;
 #[cfg(test)]
 pub(crate) async fn connected_interactive_test_tunnel()
 -> (Arc<EdgeTunnel>, Connection, Box<dyn std::any::Any + Send>) {
+    let present = br#"{"type":"counterpart_present","present":true,"counterpart_attachment_id":1}"#;
+    let (tunnel, edge, lifecycle, keep) = admitted_interactive_test_tunnel(present).await;
+    while tunnel.counterpart_absent.load(Ordering::Acquire) {
+        tokio::task::yield_now().await;
+    }
+    (tunnel, edge, Box::new((lifecycle, keep)))
+}
+
+/// A real interactive tunnel to a minimal in-process edge that admits it and
+/// writes `presence` as its first lifecycle event, with the edge's end of the
+/// connection and of the lifecycle stream. The last value keeps the edge
+/// endpoint and its other control streams alive.
+#[cfg(test)]
+pub(crate) async fn admitted_interactive_test_tunnel(
+    presence: &[u8],
+) -> (
+    Arc<EdgeTunnel>,
+    Connection,
+    wtransport::SendStream,
+    Box<dyn std::any::Any + Send>,
+) {
     let (config, cert) = crate::webtransport::build_server_config(0).expect("server config");
     let server = wtransport::Endpoint::server(config).expect("server");
     let url = format!("https://127.0.0.1:{}", server.local_addr().unwrap().port());
@@ -2995,16 +3029,14 @@ pub(crate) async fn connected_interactive_test_tunnel()
             .read_exact(&mut preface)
             .await
             .expect("quote preface");
-        let present =
-            br#"{"type":"counterpart_present","present":true,"counterpart_attachment_id":1}"#;
         lifecycle
-            .write_all(&(present.len() as u32).to_be_bytes())
+            .write_all(&(presence.len() as u32).to_be_bytes())
             .await
             .expect("lifecycle header");
-        lifecycle.write_all(present).await.expect("lifecycle body");
-        (conn, (lifecycle, routing, quote_send, quote_recv))
+        lifecycle.write_all(presence).await.expect("lifecycle body");
+        (conn, lifecycle, (routing, quote_send, quote_recv))
     };
-    let ((edge, streams), tunnel) = tokio::join!(
+    let ((edge, lifecycle, streams), tunnel) = tokio::join!(
         accept,
         EdgeTunnel::connect(
             &url,
@@ -3016,10 +3048,7 @@ pub(crate) async fn connected_interactive_test_tunnel()
         )
     );
     let tunnel = Arc::new(tunnel.expect("tunnel"));
-    while tunnel.counterpart_absent.load(Ordering::Acquire) {
-        tokio::task::yield_now().await;
-    }
-    (tunnel, edge, Box::new((server, streams, probes)))
+    (tunnel, edge, lifecycle, Box::new((server, streams, probes)))
 }
 
 /// Process-wide allocation counter for the test binary. It is installed as
@@ -4544,6 +4573,48 @@ mod tests {
             },
         };
         (ingress, rx)
+    }
+
+    /// A browser record can reach the daemon before the edge's report that the
+    /// browser attached, which travels on another stream. The owner must not see
+    /// it until a reply to it is admitted: `session_ready`, refused as bound for
+    /// no browser, left a CI client at `Authenticating` with its peer parked.
+    #[tokio::test]
+    async fn a_record_reaches_the_owner_only_once_a_reply_to_it_is_admitted() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let pending =
+                br#"{"type":"counterpart_present","present":false,"counterpart_attachment_id":null}"#;
+            let (tunnel, edge, mut lifecycle, _keep) =
+                admitted_interactive_test_tunnel(pending).await;
+            let (ingress, mut received) = test_ingress(1);
+            tunnel.spawn_receivers(ingress);
+            let mut browser = edge.open_uni().await.unwrap().await.unwrap();
+            browser
+                .write_all(&[0, 0, 0, 0, 0, 0, 0, 1, CHANNEL_CTRL, 0, 0, 0, 1, 41])
+                .await
+                .unwrap();
+            // Report the pairing only once the daemon has acknowledged the
+            // record, so its receiver has it before the report can arrive.
+            while edge.quic_connection().delivery_state().bytes_in_flight != 0 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            let attached = br#"{"type":"counterpart_attached","counterpart_attachment_id":1}"#;
+            lifecycle
+                .write_all(&(attached.len() as u32).to_be_bytes())
+                .await
+                .unwrap();
+            lifecycle.write_all(attached).await.unwrap();
+            assert_eq!(received.recv().await.unwrap().payload.as_ref(), &[41]);
+            assert!(
+                tunnel
+                    .send_reliable(CHANNEL_CTRL, ReliablePayload::Heap(vec![42]))
+                    .is_ok(),
+                "the reply to a delivered record is admitted"
+            );
+            tunnel.close();
+        })
+        .await
+        .expect("bounded pairing order");
     }
 
     /// What already occupies the owner's queue when a test needs it full.
