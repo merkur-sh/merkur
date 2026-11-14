@@ -31,7 +31,10 @@ jobs:
           rust-cache: 'false'
           bazel: 'true'
           buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
-      - run: sudo apt-get install -y --no-install-recommends valgrind
+      # The image's package index can name a libc6-dbg the archive has since replaced.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends valgrind
       - name: The previous push's counts
         id: previous
         env:
