@@ -248,7 +248,7 @@
       description: 'cargo-vet holds every new crate version until it is reviewed',
       matchManagers: ['cargo'],
       prBodyNotes: [
-        '`check:dependency-policy` fails until each new crate version here has an audit or an exemption in `supply-chain/`: review the change (`cargo vet`), record the result and push it to this branch.',
+        '`check:dependency-policy` fails until each new crate version here is audited in `supply-chain/`: review the diff from the version it replaces (`cargo vet diff`), record it as a `delta` audit from that version (which stays exempted as its base) and push it to this branch.',
       ],
     },
     {

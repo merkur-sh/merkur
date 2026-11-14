@@ -1,4 +1,17 @@
 
 # cargo-vet audits file
 
-[audits]
+[[audits.rustix]]
+who = "tentacles <32138582+ph1losof@users.noreply.github.com>"
+criteria = "safe-to-deploy"
+delta = "1.1.5 -> 1.1.6"
+notes = """
+RUSTSEC-2026-0486 fix. No build script, new dependency, process or network use;
+bitflags' minimum rises to 2.9.2. The xattr readers return an empty result for a
+zero-length buffer and gain *_query size functions; received control messages are
+clamped to the buffer, since macOS reports an untruncated cmsg_len; TIOCSCTTY
+passes a null argument; 32-bit Linux uses the *32 uid/gid syscalls; IPV6 multicast
+hops use the IPPROTO_IPV6 level; macOS fallocate allocates all or fails; padding
+fields become MaybeUninit wrappers. Each new unsafe block forwards the same
+syscall arguments or marks bytes the kernel reported written.
+"""

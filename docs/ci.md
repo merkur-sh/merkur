@@ -133,8 +133,9 @@ assurance and secret scanning run on it like on any other. Nothing merges on its
   images, Solid's release candidate, the RustCrypto crates, and the workflows' minor action
   updates.
 - Renovate does not write `supply-chain/`. A Cargo pull request fails the dependency audit's
-  cargo-vet step until each new crate version has been reviewed and its audit or exemption
-  pushed to the branch ([policy](security.md#dependency-source-and-audit-policy)).
+  cargo-vet step until each new crate version has been reviewed and its audit pushed to the
+  branch: a `delta` audit from the exempted or audited version it replaces
+  ([policy](security.md#dependency-source-and-audit-policy)).
 - Six updates wait on the dashboard until they are ticked, because the version is not the
   whole change: the Bun runtime, pnpm, LLVM and TruffleHog are installed by archive checksum,
   Kani is tied to a nightly toolchain, and a vendored patch crate moves by carrying its patches

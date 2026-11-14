@@ -1172,6 +1172,17 @@ first-party crate needs `publish = false`. The dependency audit workflow also ch
 workspaces and runs ten offline policy controls. Advisory scanning remains a separate
 `check:audit` gate; cargo-vet's review coverage is not a vulnerability database.
 
+cargo-vet coverage comes from three places, and only the first two are review. Audits
+imported from every organization in cargo-vet's public registry (`[imports]` in
+`supply-chain/config.toml`) cover the crate versions those organizations reviewed. Merkur's
+own audits in `supply-chain/audits.toml` record what was reviewed here. Every other crate
+passes on an exact-version exemption: it was in the graph when the policy began, and nobody
+here has reviewed it. A new version of an exempted crate is reviewed as the diff from its
+exempted version (`cargo vet diff`) and recorded as a `delta` audit from that version, which
+stays exempted as the delta's base; moving the exemption to the new version would record a
+review as no review. `cargo vet prune` drops an exemption once imported audits cover it.
+No publisher is trusted wholesale, so every new version still needs one of the three.
+
 `bun run check:js-dependency-policy`, the last step of `check:dependency-policy`, holds
 `pnpm-lock.yaml` to the same kind of policy. Every package resolves from the npm registry
 under a sha512 integrity, and a workspace names a dependency only by exact version, caret or
