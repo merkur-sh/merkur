@@ -1273,16 +1273,18 @@ states, keyed on the types and functions that carry them rather than on names:
 | `merkur/js/bun-command-injection` | Remote input chooses neither the program `Bun.spawn` runs nor a `Bun.$` command's `{ raw }` text. |
 | `merkur/rust/tag-variable-time-comparison` | An HMAC or Poly1305 tag is checked with `ring::hmac::verify` or `ct_eq`, never `==` or `PartialEq`; a test's `assert_eq!` is exempt. |
 | `rust/hard-coded-cryptographic-value` | CodeQL's query of that id, which it replaces: no constant reaches a key, nonce, IV, salt or password, except a buffer the next statement overwrites whole by `copy_from_slice`, a `ring` fill whose error reaches `?`, or `Entropy::fill`. |
+| `actions/cache-poisoning/poisonable-step`, `actions/cache-poisoning/direct-cache`, `actions/untrusted-checkout/{critical,high,medium}` | CodeQL's queries of those ids, which they replace: a workflow checks out no attacker's commit before running code, writing a cache, or holding write access. A reference that names a head commit only through `github.event.workflow_run` fields is untrusted only on `workflow_run`, the one event that fills them, and there only without an access check on the triggering repository; `head_sha \|\| github.sha` on a schedule is `github.sha`. |
 
 Each query and model has fixtures beside it whose lines carry the alerts expected of them; the
 `Query tests` job fails when a query stops reporting one or reports a safe case. The CodeQL bundle,
 and with it the libraries the queries compile against, is the one the pinned
 `github/codeql-action` installs.
 
-Commits land on `main` before its CodeQL run, so the pre-commit hook runs the JavaScript analysis
-first (`check:codeql`, `scripts/codeql-local.ts`): the same bundle, suite, models and
-`paths-ignore`, over the staged JavaScript and TypeScript, failing on any finding. It extracts only
-the staged files, so a flow through an unstaged file is left to the workflow. `bun run
+Commits land on `main` before its CodeQL run, so the pre-commit hook runs the JavaScript and
+Actions analyses first (`check:codeql`, `scripts/codeql-local.ts`): the same bundle, suites, models
+and `paths-ignore`, over the staged JavaScript and TypeScript, and over every workflow and composite
+action when one is staged, failing on any finding. It extracts only the staged JavaScript and
+TypeScript, so a flow through an unstaged file is left to the workflow. `bun run
 setup:codeql` installs the bundle the workflow's pinned action names, verified against the
 release's SHA-256, into the user cache directory, one directory per action commit.
 

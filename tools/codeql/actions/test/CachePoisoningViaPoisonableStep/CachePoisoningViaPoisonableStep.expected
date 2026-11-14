@@ -1,0 +1,9 @@
+#select
+| .github/workflows/unguarded.yml:16:9:17:6 | Run Step | .github/workflows/unguarded.yml:15:17:15:41 | inputs.pr_head_sha | .github/workflows/unguarded.yml:16:9:17:6 | Run Step | Potential cache poisoning in the context of the default branch due to privilege checkout of untrusted code from $@. ($@). | .github/workflows/unguarded.yml:15:17:15:41 | inputs.pr_head_sha | inputs.pr_head_sha | .github/workflows/unguarded.yml:3:3:3:19 | workflow_dispatch | workflow_dispatch |
+edges
+| .github/workflows/safe.yml:21:9:24:6 | Uses Step | .github/workflows/safe.yml:24:9:25:6 | Run Step |
+| .github/workflows/safe.yml:23:17:23:71 | github.event.workflow_run.head_sha \|\| github.sha | .github/workflows/safe.yml:21:9:24:6 | Uses Step |
+| .github/workflows/safe.yml:24:9:25:6 | Run Step | .github/workflows/safe.yml:25:9:28:22 | Uses Step |
+| .github/workflows/unguarded.yml:13:9:16:6 | Uses Step | .github/workflows/unguarded.yml:16:9:17:6 | Run Step |
+| .github/workflows/unguarded.yml:15:17:15:41 | inputs.pr_head_sha | .github/workflows/unguarded.yml:13:9:16:6 | Uses Step |
+| .github/workflows/unguarded.yml:16:9:17:6 | Run Step | .github/workflows/unguarded.yml:17:9:20:19 | Uses Step |

@@ -1,0 +1,19 @@
+name: Dispatched head
+on:
+  workflow_dispatch:
+    inputs:
+      pr_head_sha:
+        required: true
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.pr_head_sha }}
+      - uses: actions/cache@v4 # $ Source
+        with:
+          path: .
+          key: tree # $ Alert

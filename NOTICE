@@ -21,6 +21,13 @@ and no-weak-assertion, and their cases, are Merkur's own.
 tools/biome/slop/LICENSE-anti-slop holds its license. They are development
 tools; no shipped artifact contains them.
 
+The CodeQL queries under tools/codeql/actions/src, apart from WorkflowRunFields.qll,
+are modified copies of GitHub's Actions queries of the same ids
+(https://github.com/github/codeql, MIT, commit
+a7057b836bf29767461026718b14d20790b9085f); each records Merkur's modification.
+tools/codeql/actions/src/LICENSE-codeql holds their license. They are
+development tools; no shipped artifact contains them.
+
 The agent skills under .claude/skills that skills-lock.json names are copies
 of https://github.com/emilkowalski/skill (MIT);
 .claude/skills/LICENSE-emilkowalski-skill holds its license. They are

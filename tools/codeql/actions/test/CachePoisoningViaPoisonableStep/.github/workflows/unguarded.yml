@@ -1,0 +1,20 @@
+name: Dispatched head
+on:
+  workflow_dispatch:
+    inputs:
+      pr_head_sha:
+        required: true
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.pr_head_sha }} # $ Source
+      - run: npm install
+      - uses: actions/cache@v4 # $ Alert
+        with:
+          path: ~/.npm
+          key: npm

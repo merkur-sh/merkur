@@ -1,0 +1,1 @@
+| .github/workflows/unguarded.yml:13:9:16:6 | Uses Step | Potential unsafe checkout of untrusted pull request on non-privileged workflow. |

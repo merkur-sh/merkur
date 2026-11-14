@@ -1,0 +1,6 @@
+#select
+| .github/workflows/unguarded.yml:16:9:19:30 | Uses Step | .github/workflows/unguarded.yml:13:9:16:6 | Uses Step | .github/workflows/unguarded.yml:16:9:19:30 | Uses Step | Potential cache poisoning in the context of the default branch due to privilege checkout of untrusted code. ($@). | .github/workflows/unguarded.yml:3:3:3:19 | workflow_dispatch | workflow_dispatch |
+edges
+| .github/workflows/safe.yml:21:9:24:6 | Uses Step | .github/workflows/safe.yml:24:9:25:6 | Run Step |
+| .github/workflows/safe.yml:24:9:25:6 | Run Step | .github/workflows/safe.yml:25:9:28:22 | Uses Step |
+| .github/workflows/unguarded.yml:13:9:16:6 | Uses Step | .github/workflows/unguarded.yml:16:9:19:30 | Uses Step |

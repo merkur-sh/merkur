@@ -1,0 +1,2 @@
+query: UntrustedCheckoutMedium.ql
+postprocess: codeql/actions/test/InlineExpectationsTestQuery.ql

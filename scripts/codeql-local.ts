@@ -1,15 +1,16 @@
 /**
- * The JavaScript analysis `.github/workflows/codeql.yml` runs on `main`, run here over the files a
- * commit stages, before the commit lands:
+ * The JavaScript and Actions analyses `.github/workflows/codeql.yml` runs on `main`, run here over
+ * what a commit stages, before the commit lands:
  *
  *   bun run setup:codeql   install the CLI bundle the workflow's pinned codeql-action installs
- *   bun run check:codeql   analyze the staged JavaScript and TypeScript; any finding fails
+ *   bun run check:codeql   analyze the staged JavaScript and TypeScript, and every workflow and
+ *                          composite action when one is staged; any finding fails
  *
- * The pre-commit hook runs `check:codeql`. The analysis is the workflow's: the bundle its pinned
- * action names, Merkur's suite (security-extended and Merkur's queries) and Merkur's models, which
+ * The pre-commit hook runs `check:codeql`. Each analysis is the workflow's: the bundle its pinned
+ * action names, Merkur's suite for the language, and for JavaScript Merkur's models, which
  * `database create` reads from `.github/codeql/extensions` under the code-scanning config, whose
- * `paths-ignore` also applies. Only the staged files are extracted, so a flow that runs through an
- * unstaged file is the workflow's to find.
+ * `paths-ignore` also applies. Only the staged JavaScript and TypeScript are extracted, so a flow
+ * that runs through an unstaged file is the workflow's to find.
  */
 import { createReadStream, existsSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -20,9 +21,11 @@ import { Schema } from 'effect';
 const root = path.resolve(import.meta.dir, '..');
 const workflow = path.join(root, '.github/workflows/codeql.yml');
 const config = path.join(root, '.github/codeql/codeql-config.yml');
-const suite = path.join(root, 'tools/codeql/javascript/src/merkur-javascript.qls');
-const models = path.join(root, 'tools/codeql/javascript/models');
-const EXTENSIONS = /\.(?:[cm]?[jt]s|[jt]sx)$/;
+const javascriptSuite = path.join(root, 'tools/codeql/javascript/src/merkur-javascript.qls');
+const javascriptModels = path.join(root, 'tools/codeql/javascript/models');
+const actionsSuite = path.join(root, 'tools/codeql/actions/src/merkur-actions.qls');
+const SOURCES = /\.(?:[cm]?[jt]s|[jt]sx)$/;
+const WORKFLOWS = /^\.github\/(?:workflows|actions)\/.+\.ya?ml$/;
 
 /** The codeql-action commit the workflow pins; its bundle is the one installed here. */
 async function actionCommit(): Promise<string> {
@@ -145,25 +148,33 @@ const Sarif = Schema.Struct({
   ),
 });
 
-/** The staged JavaScript and TypeScript the code-scanning config does not ignore. */
-async function stagedSources(): Promise<string[]> {
+/** The staged files the code-scanning config does not ignore, and every file in the index. */
+async function stagedFiles(): Promise<{ staged: string[]; indexed: string[] }> {
   const ignored = (
     Schema.decodeUnknownSync(Config)(Bun.YAML.parse(await readFile(config, 'utf8')))[
       'paths-ignore'
     ] ?? []
   ).map((pattern) => new Bun.Glob(pattern.endsWith('/**') ? pattern : `${pattern}{,/**}`));
-  return (await run(['git', 'diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z']))
-    .split('\0')
-    .filter((file) => EXTENSIONS.test(file) && !ignored.some((glob) => glob.match(file)));
+  const kept = (output: string) =>
+    output.split('\0').filter((file) => file !== '' && !ignored.some((glob) => glob.match(file)));
+  return {
+    staged: kept(await run(['git', 'diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z'])),
+    indexed: kept(await run(['git', 'ls-files', '-z'])),
+  };
 }
 
-async function check(): Promise<void> {
-  const files = await stagedSources();
-  if (files.length === 0) return;
-  const codeql = path.join(installation(await actionCommit()), 'codeql/codeql');
-  if (!existsSync(codeql))
-    throw new Error('CodeQL for the pinned codeql-action is missing: bun run setup:codeql');
-  const scratch = await mkdtemp(path.join(tmpdir(), 'merkur-codeql-'));
+/**
+ * One language's analysis of `files` as the index holds them: the workflow's database options
+ * (`--codescanning-config`, and the language's models where the workflow installs them) and suite.
+ */
+async function analyze(
+  codeql: string,
+  language: string,
+  files: readonly string[],
+  suite: string,
+  models: string | undefined,
+): Promise<string[]> {
+  const scratch = await mkdtemp(path.join(tmpdir(), `merkur-codeql-${language}-`));
   try {
     const source = path.join(scratch, 'src');
     for (const file of files) {
@@ -171,7 +182,8 @@ async function check(): Promise<void> {
       await writeFile(path.join(source, file), await run(['git', 'show', `:${file}`]));
     }
     // Where the workflow puts its one language's model pack, which `database create` stores.
-    await cp(models, path.join(source, '.github/codeql/extensions/models'), { recursive: true });
+    if (models !== undefined)
+      await cp(models, path.join(source, '.github/codeql/extensions/models'), { recursive: true });
     const database = path.join(scratch, 'db');
     await run(
       [
@@ -179,7 +191,7 @@ async function check(): Promise<void> {
         'database',
         'create',
         database,
-        '--language=javascript',
+        `--language=${language}`,
         `--source-root=${source}`,
         `--codescanning-config=${config}`,
       ],
@@ -196,18 +208,42 @@ async function check(): Promise<void> {
       '--format=sarif-latest',
       `--output=${sarif}`,
     ]);
-    const findings = Schema.decodeUnknownSync(Sarif)(JSON.parse(await readFile(sarif, 'utf8')))
+    return Schema.decodeUnknownSync(Sarif)(JSON.parse(await readFile(sarif, 'utf8')))
       .runs.flatMap(({ results }) => results)
       .map(({ ruleId, message, locations }) => {
         const where = locations[0]?.physicalLocation;
         return `${where?.artifactLocation.uri}:${where?.region.startLine} ${ruleId}: ${message.text}`;
       });
-    if (findings.length > 0)
-      throw new Error(`CodeQL finds what code scanning would report:\n${findings.join('\n')}`);
-    process.stdout.write(`check:codeql: pass (${files.length} staged files)\n`);
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
+}
+
+async function check(): Promise<void> {
+  const { staged, indexed } = await stagedFiles();
+  const sources = staged.filter((file) => SOURCES.test(file));
+  // A workflow reads the actions and reusable workflows it names, so a change to one is analyzed
+  // with every workflow and action the index holds.
+  const workflows = staged.some((file) => WORKFLOWS.test(file))
+    ? indexed.filter((file) => WORKFLOWS.test(file))
+    : [];
+  if (sources.length === 0 && workflows.length === 0) return;
+  const codeql = path.join(installation(await actionCommit()), 'codeql/codeql');
+  if (!existsSync(codeql))
+    throw new Error('CodeQL for the pinned codeql-action is missing: bun run setup:codeql');
+  const findings = [
+    ...(sources.length === 0
+      ? []
+      : await analyze(codeql, 'javascript', sources, javascriptSuite, javascriptModels)),
+    ...(workflows.length === 0
+      ? []
+      : await analyze(codeql, 'actions', workflows, actionsSuite, undefined)),
+  ];
+  if (findings.length > 0)
+    throw new Error(`CodeQL finds what code scanning would report:\n${findings.join('\n')}`);
+  process.stdout.write(
+    `check:codeql: pass (${sources.length} staged sources, ${workflows.length} workflow files)\n`,
+  );
 }
 
 const mode = process.argv[2];

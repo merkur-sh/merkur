@@ -1,0 +1,8 @@
+name: merkur/actions-tests
+version: 0.0.0
+extractor: actions
+tests: .
+dependencies:
+  merkur/actions-queries: '*'
+  codeql/actions-all: '*'
+  codeql/actions-queries: '*'

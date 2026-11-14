@@ -1,0 +1,2 @@
+query: CachePoisoningViaDirectCache.ql
+postprocess: codeql/actions/test/InlineExpectationsTestQuery.ql

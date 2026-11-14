@@ -1,0 +1,8 @@
+#select
+| .github/workflows/unguarded.yml:12:9:15:6 | Uses Step | .github/workflows/unguarded.yml:14:17:14:57 | github.event.workflow_run.head_sha | .github/workflows/unguarded.yml:15:9:15:40 | Run Step | Checkout of untrusted code from $@ in a privileged workflow with later potential execution (event trigger: $@). | .github/workflows/unguarded.yml:14:17:14:57 | github.event.workflow_run.head_sha | github.event.workflow_run.head_sha | .github/workflows/unguarded.yml:3:3:3:14 | workflow_run | workflow_run |
+edges
+| .github/workflows/safe.yml:21:9:24:6 | Uses Step | .github/workflows/safe.yml:24:9:25:6 | Run Step |
+| .github/workflows/safe.yml:23:17:23:71 | github.event.workflow_run.head_sha \|\| github.sha | .github/workflows/safe.yml:21:9:24:6 | Uses Step |
+| .github/workflows/safe.yml:24:9:25:6 | Run Step | .github/workflows/safe.yml:25:9:28:22 | Uses Step |
+| .github/workflows/unguarded.yml:12:9:15:6 | Uses Step | .github/workflows/unguarded.yml:15:9:15:40 | Run Step |
+| .github/workflows/unguarded.yml:14:17:14:57 | github.event.workflow_run.head_sha | .github/workflows/unguarded.yml:12:9:15:6 | Uses Step |

@@ -1,0 +1,12 @@
+- description: CodeQL's security-extended Actions queries, with Merkur's versions of those that read a workflow_run field on every event
+- import: codeql-suites/actions-security-extended.qls
+  from: codeql/actions-queries
+# Each query here replaces the upstream query under the same id (WorkflowRunFields.qll).
+- exclude:
+    id:
+      - actions/cache-poisoning/poisonable-step
+      - actions/cache-poisoning/direct-cache
+      - actions/untrusted-checkout/critical
+      - actions/untrusted-checkout/high
+      - actions/untrusted-checkout/medium
+- queries: .
