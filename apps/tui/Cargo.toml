@@ -25,7 +25,7 @@ merkur-client = { path = "../../packages/merkur-client" }
 merkur-client-native = { path = "../../packages/merkur-client-native" }
 merkur-wire = { path = "../../packages/merkur-wire" }
 term-wasm = { path = "../../packages/term-wasm" }
-rustix = { version = "1.1", features = ["event", "fs", "termios"] }
+rustix = { version = "1.1.6", features = ["event", "fs", "termios"] }
 base64 = "0.23"
 png = "=0.18.1"
 serde_json = "1"
@@ -36,7 +36,7 @@ url = "2"
 
 [dev-dependencies]
 merkur-codec = { path = "../../packages/merkur-codec" }
-rustix = { version = "1.1", features = ["pty", "time"] }
+rustix = { version = "1.1.6", features = ["pty", "time"] }
 
 [lints]
 workspace = true
