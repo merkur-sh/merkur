@@ -9,10 +9,18 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import tomllib
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# The release lock's cfg-if: the job fetches every locked source, so this
+# version is in the Cargo cache whatever the lock moves it to.
+CFG_IF = next(
+    package["version"]
+    for package in tomllib.loads((ROOT / "Cargo.lock").read_text(encoding="utf-8"))["package"]
+    if package["name"] == "cfg-if"
+)
 
 
 class DependencyPolicyTests(unittest.TestCase):
@@ -173,18 +181,18 @@ class DependencyPolicyTests(unittest.TestCase):
         ])
 
     def test_exact_version_exemption_can_pass(self):
-        self.manifest('cfg-if = "=1.0.4"\n')
-        self.vet_store("1.0.4")
+        self.manifest(f'cfg-if = "={CFG_IF}"\n')
+        self.vet_store(CFG_IF)
         self.assert_pass(self.vet_check())
 
     def test_other_version_cannot_inherit_exemption(self):
-        self.manifest('cfg-if = "=1.0.4"\n')
-        self.vet_store("1.0.3")
+        self.manifest(f'cfg-if = "={CFG_IF}"\n')
+        self.vet_store("1.0.0")
         result = self.vet_check()
         self.assert_refused(result, "fail (vetting)")
         failures = json.loads(result.stdout)["failures"]
         self.assertTrue(any(
-            item["name"] == "cfg-if" and item["version"] == "1.0.4"
+            item["name"] == "cfg-if" and item["version"] == CFG_IF
             and "safe-to-deploy" in item["missing_criteria"] for item in failures
         ))
 
