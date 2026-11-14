@@ -122,9 +122,13 @@ assurance and secret scanning run on it like on any other. Nothing merges on its
 - A manifest range moves only when a release falls outside it. Releases within a range, and
   every transitive dependency, arrive with a weekly lock refresh: one pull request for the
   Cargo locks and one for `pnpm-lock.yaml`.
-- A Cargo pull request regenerates `tools/sim/Cargo.lock` and `tools/bolero/Cargo.lock`
-  through `test:sim:update-lock` and `test:fuzz:update-lock`. A catalog entry moves in
-  `pnpm-workspace.yaml`, and `pnpm-lock.yaml` follows.
+- A Cargo pull request regenerates `tools/sim/Cargo.lock`, `tools/bolero/Cargo.lock` and
+  `tools/bazel/vendored/Cargo.lock` through `test:sim:update-lock`, `test:fuzz:update-lock`
+  and `build:vendored-workspace --update-lock`. Each re-resolves from the release lock: a crate
+  it shares with the release takes the release's version, and a crate only it links keeps its
+  own. A crate its own crates require at another version (Bolero's exact `indexmap`) keeps the
+  workspace's version, and so does every release crate that depends on its release version.
+  A catalog entry moves in `pnpm-workspace.yaml`, and `pnpm-lock.yaml` follows.
 - Packages that have to agree move in one pull request: the Rust toolchain with its builder
   images, Solid's release candidate, the RustCrypto crates, and the workflows' minor action
   updates.

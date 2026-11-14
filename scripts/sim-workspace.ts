@@ -152,13 +152,10 @@ function treeFeatures(
 }
 
 /**
- * The simulator's workspace with the checkout's crates as path dependencies, as Cargo resolves
- * it from `lock`: the reference the members workspace is held to, and what re-locking updates.
+ * The simulator's workspace with the checkout's crates as path dependencies, with the
+ * simulator's lock: the reference the members workspace is held to, and what re-locking updates.
  */
-export async function writePathWorkspace(
-  scratch: string,
-  lock = path.join(ROOT, SIM_SOURCE, 'Cargo.lock'),
-): Promise<void> {
+export async function writePathWorkspace(scratch: string): Promise<void> {
   const { lints, patch } = await productionWorkspaceTables();
   const crate = table(
     absoluteCargoPaths(
@@ -174,7 +171,7 @@ export async function writePathWorkspace(
     manifestText({ workspace: { resolver: '3', members: ['merkur-sim'], lints }, patch }),
   );
   writeFileSync(path.join(scratch, 'merkur-sim', 'Cargo.toml'), manifestText(crate));
-  copyFileSync(lock, path.join(scratch, 'Cargo.lock'));
+  copyFileSync(path.join(ROOT, SIM_SOURCE, 'Cargo.lock'), path.join(scratch, 'Cargo.lock'));
 }
 
 /** The checkout crates the simulator reaches by path or through a patch, apart from the vendored patches. */

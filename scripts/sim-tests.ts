@@ -9,7 +9,7 @@
 import { copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { cargoEnvironment, root } from './generated-cargo-workspace';
+import { cargoEnvironment, root, seedLock } from './generated-cargo-workspace';
 import { writePathWorkspace } from './sim-workspace';
 
 const source = path.join(root, 'tools', 'sim');
@@ -31,20 +31,21 @@ async function exec(
 }
 
 /**
- * Re-resolves the simulator's own dependencies, seeded from the release lock so every crate a
- * shipped build links keeps its version, then regenerates the hub's workspace from it.
+ * Re-resolves the simulator's own dependencies from `seedLock`, so every crate a shipped build
+ * links keeps the release's version, then regenerates the hub's workspace from it.
  */
 async function updateLock(): Promise<void> {
   const workspace = await mkdtemp(path.join(tmpdir(), 'merkur-sim-lock-'));
   try {
-    // Seeded from the release lock, so every crate a shipped build links keeps its version.
-    await writePathWorkspace(workspace, path.join(root, 'Cargo.lock'));
+    await writePathWorkspace(workspace);
+    const env = cargoEnvironment(
+      '--cfg merkur_sim --cfg tokio_unstable',
+      path.join(workspace, 'target'),
+    );
+    seedLock(workspace, env);
     const child = Bun.spawn(['cargo', 'update', '--workspace'], {
       cwd: workspace,
-      env: cargoEnvironment(
-        '--cfg merkur_sim --cfg tokio_unstable',
-        path.join(workspace, 'target'),
-      ),
+      env,
       stdout: 'inherit',
       stderr: 'inherit',
     });

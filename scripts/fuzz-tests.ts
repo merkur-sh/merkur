@@ -7,6 +7,7 @@ import {
   manifestText,
   productionWorkspaceTables,
   root,
+  seedLock,
   table,
 } from './generated-cargo-workspace';
 
@@ -201,6 +202,7 @@ async function run(): Promise<void> {
   const generatedLock = path.join(workspace, 'Cargo.lock');
   if (await Bun.file(retainedLock).exists()) await copyFile(retainedLock, generatedLock);
   if (mode === 'update-lock') {
+    seedLock(workspace, cargoEnv(['cargo', 'metadata'], {}));
     await command(['cargo', 'update', '--workspace']);
     await copyFile(generatedLock, retainedLock);
     return;

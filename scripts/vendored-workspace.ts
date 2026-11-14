@@ -7,22 +7,15 @@
  * dev-dependencies. Their workspace holds each as a member: the vendored manifest, its library at
  * the vendored source and no other target, with every vendored crate name patched to its member,
  * so a crate is tested against the vendored crates it links. Its lock is the release lock with
- * the dev-dependencies added, so every crate the release links keeps its version; `crates.bzl`
- * declares each member's library with the features Cargo resolves for the workspace's tests on
- * each platform, and `//tools/bazel/vendored` declares the tests.
+ * the dev-dependencies added (`seedLock`), so every crate the release links keeps its version;
+ * `crates.bzl` declares each member's library with the features Cargo resolves for the
+ * workspace's tests on each platform, and `//tools/bazel/vendored` declares the tests.
  *
  *   bun run build:vendored-workspace                rewrite the workspace, `crates.bzl` and the hub
  *   bun run build:vendored-workspace --update-lock  relock from the release lock first
  */
 
-import {
-  copyFileSync,
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Schema } from 'effect';
@@ -42,7 +35,12 @@ import {
   treeCrates,
   writeWorkspace,
 } from './cargo-graph';
-import { cargoEnvironment, manifestText, root as ROOT } from './generated-cargo-workspace';
+import {
+  cargoEnvironment,
+  manifestText,
+  root as ROOT,
+  seedLock,
+} from './generated-cargo-workspace';
 
 export const VENDORED_WORKSPACE = 'tools/bazel/vendored';
 const HUB = 'vendored_crates';
@@ -447,8 +445,7 @@ if (import.meta.main) {
       new Map(crates.map((crate) => [crate.name, memberManifest(crate, byDirectory)])),
     );
     if (process.argv.includes('--update-lock') || !existsSync(lock)) {
-      // The release lock pins every crate the vendored crates link; Cargo adds the rest.
-      copyFileSync(path.join(ROOT, 'Cargo.lock'), lock);
+      seedLock(directory, cargoEnvironment('', TARGET));
       cargo(directory, ['metadata', '--format-version', '1']);
     }
     writeFileSync(
