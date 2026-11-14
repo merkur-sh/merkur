@@ -268,7 +268,8 @@ OPAQUE setup invalidates every password, and replacing the capability key relink
 
 keyd runs as its own system user with no network (`PrivateNetwork=yes`), its keys delivered as
 systemd credentials from `/etc/merkur/keyd/`. Before reading them it disables core files, makes
-itself undumpable and locks its pages in memory. The server, a dynamic user in keyd's group,
+itself undumpable, and it keeps the expanded keys on locked pages of their own, never swapped and
+zeroed when released. The server, a dynamic user in keyd's group,
 can open the socket (mode 0660) and nothing else of keyd's: not its credentials, its attempt log
 or its memory. Root on the host, and the hosting provider, remain able to read any key; keyd
 narrows the application server's reach, not theirs.

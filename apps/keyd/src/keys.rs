@@ -15,11 +15,14 @@ use opaque_ke::{CipherSuite, ServerSetup};
 use p256::ecdsa::SigningKey as P256SigningKey;
 use zeroize::Zeroizing;
 
+use crate::locked::Locked;
+
 pub const OPAQUE_SERVER_SETUP: &str = "opaque-server-setup";
 pub const SESSION_TOKEN_SEED: &str = "session-token-mldsa87-seed";
 pub const VAPID_PRIVATE_KEY: &str = "web-push-vapid-private-key";
 
 const OPAQUE_SERVER_SETUP_BYTES: usize = 128;
+const OPAQUE_PUBLIC_KEY_BYTES: usize = 32;
 const SEED_BYTES: usize = 32;
 const P256_SCALAR_BYTES: usize = 32;
 pub const P256_PUBLIC_KEY_BYTES: usize = 65;
@@ -43,7 +46,7 @@ pub struct Vapid {
 
 pub struct Keys {
     pub opaque: ServerSetup<Suite>,
-    pub opaque_public_key: Vec<u8>,
+    pub opaque_public_key: [u8; OPAQUE_PUBLIC_KEY_BYTES],
     pub capability: SigningKey,
     pub vapid: Option<Vapid>,
 }
@@ -59,37 +62,39 @@ impl std::fmt::Display for KeyError {
 
 /// Reads every key from `directory`. The web-push key is the one that may be
 /// absent: a deployment without web push has none.
-pub fn load(directory: &Path) -> Result<Keys, KeyError> {
+pub fn load(directory: &Path) -> Result<Locked<Keys>, KeyError> {
     let setup = read(directory, OPAQUE_SERVER_SETUP, OPAQUE_SERVER_SETUP_BYTES)?
         .ok_or_else(|| missing(OPAQUE_SERVER_SETUP))?;
-    let opaque = ServerSetup::<Suite>::deserialize(&setup).map_err(|_| {
+    let opaque = ServerSetup::<Suite>::deserialize(&setup).map_err(|error| {
         KeyError(format!(
-            "{OPAQUE_SERVER_SETUP} is not an OPAQUE server setup"
+            "{OPAQUE_SERVER_SETUP} is not an OPAQUE server setup: {error:?}"
         ))
     })?;
-    let opaque_public_key = opaque.keypair().public().serialize().to_vec();
+    let mut opaque_public_key = [0u8; OPAQUE_PUBLIC_KEY_BYTES];
+    opaque_public_key.copy_from_slice(&opaque.keypair().public().serialize());
 
     let mut seed = read(directory, SESSION_TOKEN_SEED, SEED_BYTES)?
         .ok_or_else(|| missing(SESSION_TOKEN_SEED))?;
     let capability = SigningKey::from_seed(&mut seed)
-        .map_err(|_| KeyError(format!("{SESSION_TOKEN_SEED} is not an ML-DSA-87 seed")))?;
+        .map_err(|error| KeyError(format!("{SESSION_TOKEN_SEED} is not an ML-DSA-87 seed: {error}")))?;
 
     let vapid = match read(directory, VAPID_PRIVATE_KEY, P256_SCALAR_BYTES)? {
         None => None,
         Some(scalar) => {
             let key = P256SigningKey::from_slice(&scalar)
-                .map_err(|_| KeyError(format!("{VAPID_PRIVATE_KEY} is not a P-256 key")))?;
+                .map_err(|error| KeyError(format!("{VAPID_PRIVATE_KEY} is not a P-256 key: {error}")))?;
             let mut public_key = [0u8; P256_PUBLIC_KEY_BYTES];
             public_key.copy_from_slice(key.verifying_key().to_sec1_point(false).as_bytes());
             Some(Vapid { key, public_key })
         }
     };
-    Ok(Keys {
+    Locked::new(Keys {
         opaque,
         opaque_public_key,
         capability,
         vapid,
     })
+    .map_err(|error| KeyError(format!("the keys could not be locked in memory: {error}")))
 }
 
 fn missing(name: &str) -> KeyError {
@@ -112,7 +117,7 @@ fn read(
     let decoded = Zeroizing::new(
         URL_SAFE_NO_PAD
             .decode(value)
-            .map_err(|_| KeyError(format!("{name} is not base64url")))?,
+            .map_err(|error| KeyError(format!("{name} is not base64url: {}", decode_problem(&error))))?,
     );
     if decoded.len() != bytes || URL_SAFE_NO_PAD.encode(&*decoded).as_bytes() != value {
         return Err(KeyError(format!(
@@ -124,6 +129,18 @@ fn read(
 
 /// Key provisioning for this crate's tests. Development and the server's tests provision
 /// with `scripts/keyd.ts`'s `newKeydKeySet`.
+/// What is wrong with a key file's encoding, never the byte that is: the file is a secret.
+fn decode_problem(error: &base64::DecodeError) -> String {
+    match error {
+        base64::DecodeError::InvalidByte(offset, _) => format!("an invalid character at {offset}"),
+        base64::DecodeError::InvalidLength(length) => format!("an invalid length {length}"),
+        base64::DecodeError::InvalidLastSymbol { offset, .. } => {
+            format!("noncanonical trailing bits at {offset}")
+        }
+        base64::DecodeError::InvalidPadding => "padding".to_string(),
+    }
+}
+
 #[cfg(test)]
 pub mod testing {
     use std::fs::{self, OpenOptions};
@@ -183,7 +200,9 @@ mod tests {
     #[test]
     fn generated_keys_load_and_are_never_replaced() {
         let dir = std::env::temp_dir().join(format!("merkur-keyd-keys-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+        if dir.exists() {
+            fs::remove_dir_all(&dir).unwrap();
+        }
         generate(&dir).unwrap();
         let keys = load(&dir).unwrap();
         assert_eq!(keys.opaque_public_key.len(), 32);

@@ -46,8 +46,10 @@ keyd takes no arguments. systemd hands it three things (`deploy/app/merkur-keyd.
 - `$STATE_DIRECTORY`: the attempt log;
 - `$MERKUR_KEYD_SOCKET`: the socket, which keyd makes mode 0660 for its group.
 
-Before it reads a key, keyd disables core files and, on Linux, makes itself undumpable and
-locks every page it holds (`mlockall`, so the unit raises `LimitMEMLOCK`). Logs go to stderr;
+Before it reads a key, keyd disables core files and, on Linux, makes itself undumpable. The
+expanded keys live on a private mapping of their own, locked so it is never swapped, left out of
+core files and zeroed when released (`src/locked.rs`); only those pages are locked, so keyd fits a
+process's default memory-lock limit. Logs go to stderr;
 stdout carries one line, `keyd: listening`, once the socket accepts, which the installer and
 the development scripts wait for.
 

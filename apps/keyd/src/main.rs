@@ -13,6 +13,7 @@
 
 mod budget;
 mod keys;
+mod locked;
 mod ops;
 mod server;
 mod wire;
@@ -53,11 +54,11 @@ fn serve() -> Result<(), String> {
     let keys = keys::load(&credentials).map_err(|error| error.to_string())?;
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| "the clock is before 1970".to_string())?
+        .map_err(|error| format!("the clock is before 1970: {error}"))?
         .as_millis();
     let budget = budget::Budget::open(
         &state.join("budget.log"),
-        u64::try_from(now_ms).map_err(|_| "the clock is out of range".to_string())?,
+        u64::try_from(now_ms).map_err(|error| format!("the clock is out of range: {error}"))?,
     )
     .map_err(|error| format!("attempt log: {error}"))?;
     let service = Arc::new(ops::Service::new(keys, budget));
@@ -72,7 +73,8 @@ fn required_path(name: &str) -> Result<PathBuf, String> {
 }
 
 /// Before any key is read: no core file, and on Linux no ptrace or
-/// /proc/<pid>/mem by the same user, and no page of this process swapped out.
+/// /proc/<pid>/mem by the same user. The keys' own pages are locked where they
+/// are stored (`locked`).
 fn harden() -> Result<(), String> {
     let none = libc::rlimit {
         rlim_cur: 0,
@@ -91,15 +93,6 @@ fn harden() -> Result<(), String> {
         if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
             return Err(format!(
                 "the process could not be made undumpable: {}",
-                std::io::Error::last_os_error()
-            ));
-        }
-        // SAFETY: mlockall takes flags only. ONFAULT locks pages as they are
-        // touched, so idle thread stacks are not populated to be locked.
-        if unsafe { libc::mlockall(libc::MCL_CURRENT | libc::MCL_FUTURE | libc::MCL_ONFAULT) } != 0
-        {
-            return Err(format!(
-                "memory could not be locked (raise LimitMEMLOCK): {}",
                 std::io::Error::last_os_error()
             ));
         }

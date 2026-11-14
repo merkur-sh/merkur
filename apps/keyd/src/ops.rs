@@ -20,6 +20,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 
 use crate::budget::{Admission, Budget};
 use crate::keys::{Keys, Suite};
+use crate::locked::Locked;
 use crate::wire::{
     Request, Response, STATUS_EXHAUSTED, STATUS_INTERNAL, STATUS_INVALID, STATUS_OK,
     STATUS_REFUSED, STATUS_UNAVAILABLE,
@@ -35,13 +36,13 @@ pub const VAPID_LIFETIME_SECS: u64 = 12 * 60 * 60;
 const MAX_VAPID_SUBJECT_BYTES: usize = 512;
 
 pub struct Service {
-    keys: Keys,
+    keys: Locked<Keys>,
     budget: Mutex<Budget>,
     rng: SystemRandom,
 }
 
 impl Service {
-    pub fn new(keys: Keys, budget: Budget) -> Self {
+    pub fn new(keys: Locked<Keys>, budget: Budget) -> Self {
         Self {
             keys,
             budget: Mutex::new(budget),
@@ -310,7 +311,9 @@ mod tests {
     fn service(name: &str) -> (Service, std::path::PathBuf) {
         let dir =
             std::env::temp_dir().join(format!("merkur-keyd-ops-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
         crate::keys::testing::generate(&dir.join("keys")).unwrap();
         let keys = crate::keys::load(&dir.join("keys")).unwrap();
         let budget = Budget::open(&dir.join("budget.log"), now_ms()).unwrap();

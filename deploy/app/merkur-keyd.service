@@ -35,8 +35,7 @@ RuntimeDirectoryMode=0750
 StateDirectory=merkur-keyd
 StateDirectoryMode=0700
 
-# keyd locks every page it holds (mlockall) and writes no core file.
-LimitMEMLOCK=512M
+# keyd writes no core file; it locks only the pages that hold its keys, within the default limit.
 LimitCORE=0
 
 # It speaks only over its Unix socket; it has no network at all.
@@ -62,7 +61,7 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 CapabilityBoundingSet=
 SystemCallArchitectures=native
-# @system-service holds the mlockall, setrlimit and prctl keyd hardens itself with.
+# @system-service holds the mlock, setrlimit and prctl keyd hardens itself with.
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged
 

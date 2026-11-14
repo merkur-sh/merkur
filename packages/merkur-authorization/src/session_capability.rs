@@ -50,9 +50,11 @@ pub struct SessionCapability {
 pub fn parse_session_capability(segment: &str) -> Result<SessionCapability, AuthorizationError> {
     let malformed = || AuthorizationError::new("session capability", "is malformed");
     let bytes = canonical_segment(segment).ok_or_else(malformed)?;
-    let payload: SessionCapabilityPayload =
-        serde_json::from_slice(&bytes).map_err(|_| malformed())?;
-    if serde_json::to_vec(&payload).map_err(|_| malformed())? != bytes {
+    let payload: SessionCapabilityPayload = serde_json::from_slice(&bytes)
+        .map_err(|error| AuthorizationError::message(&format!("session capability {error}")))?;
+    let canonical = serde_json::to_vec(&payload)
+        .map_err(|error| AuthorizationError::message(&format!("session capability {error}")))?;
+    if canonical != bytes {
         return Err(malformed());
     }
     let daemon_identity_key_hash = decode_exact::<HASH_BYTES>(&payload.k, "session capability")?;

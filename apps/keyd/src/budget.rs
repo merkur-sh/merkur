@@ -267,7 +267,9 @@ mod tests {
         fn new(name: &str) -> Self {
             let dir = std::env::temp_dir()
                 .join(format!("merkur-keyd-budget-{name}-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&dir);
+            if dir.exists() {
+                fs::remove_dir_all(&dir).unwrap();
+            }
             fs::create_dir_all(&dir).unwrap();
             Self(dir)
         }
@@ -279,7 +281,7 @@ mod tests {
 
     impl Drop for Scratch {
         fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
+            fs::remove_dir_all(&self.0).expect("remove the test's scratch directory");
         }
     }
 
