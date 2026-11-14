@@ -1,3 +1,8 @@
+[install]
+# A package comes from pnpm-lock.yaml through `pnpm install`, never from a fetch Bun makes
+# when a script imports something node_modules lacks: an import with no install fails.
+auto = "disable"
+
 [test]
 # Generated release trees must never become a second test suite.
 pathIgnorePatterns = ["**/dist/**", "**/target/**", "**/node_modules/**", "test-results/**"]

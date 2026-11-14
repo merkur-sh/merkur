@@ -128,6 +128,9 @@ assurance and secret scanning run on it like on any other. Nothing merges on its
   it shares with the release takes the release's version, and a crate only it links keeps its
   own. A crate its own crates require at another version (Bolero's exact `indexmap`) keeps the
   workspace's version, and so does every release crate that depends on its release version.
+  They run after `pnpm install --frozen-lockfile --ignore-scripts`, as every workflow job that
+  runs a Bun script does: `bunfig.toml` turns Bun's auto-install off, so a package that
+  `node_modules` lacks fails the import instead of being fetched unlocked.
   A catalog entry moves in `pnpm-workspace.yaml`, and `pnpm-lock.yaml` follows.
 - Packages that have to agree move in one pull request: the Rust toolchain with its builder
   images, Solid's release candidate, the RustCrypto crates, and the workflows' minor action
@@ -139,8 +142,8 @@ assurance and secret scanning run on it like on any other. Nothing merges on its
 - A Bun release opens its pull request like any other: `build:bun-archives` pins the release's
   archive checksums in `tools/bazel/bun/extensions.bzl` from its `SHASUMS256.txt`, and Bazel
   fetches each archive against them.
-- Five updates wait on the dashboard until they are ticked, because the version is not the
-  whole change: pnpm, LLVM and TruffleHog are installed by archive checksum,
+- Four updates wait on the dashboard until they are ticked, because the version is not the
+  whole change: LLVM and TruffleHog are installed by archive checksum,
   Kani is tied to a nightly toolchain, and a vendored patch crate moves by carrying its patches
   onto the new upstream source. An advisory against one of them opens its pull request unasked. For a
   vendored crate that pull request cannot build until the source follows, because the

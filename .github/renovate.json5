@@ -44,10 +44,10 @@
     'rust-toolchain',
   ],
   ignorePaths: ['**/node_modules/**', 'spikes/**'],
-  // The releases Renovate installs in its container for its own Cargo and Bun runs: Cargo
+  // The releases Renovate installs in its container for its own Cargo, Bun and pnpm runs: Cargo
   // there is not rustup's, so it does not read rust-toolchain.toml, and the tasks below run
-  // outside the bun-version manager, which is what reads `.bun-version`.
-  constraints: { bun: '1.4.4', rust: '1.99.0' },
+  // outside the managers that read `.bun-version`, `.node-version` and `packageManager`.
+  constraints: { bun: '1.4.4', node: '26.11.1', pnpm: '11.28.3', rust: '1.99.0' },
   lockFileMaintenance: { enabled: true, schedule: ['before 6am on monday'] },
   cargo: {
     // The vendored crates keep upstream's manifests; their dependencies resolve in the
@@ -69,9 +69,11 @@
     // rather than once per branch: only an update carries the `constraints` above to the
     // tools they install, and a branch-level run would take the newest Bun and Rust. The
     // WebAssembly modules', the simulator's and the vendored crates' crate hub workspaces, generated
-    // from the manifests and their locks, follow too.
+    // from the manifests and their locks, follow too. The scripts import packages, which pnpm
+    // installs from the lockfile first; Bun installs none at run time.
     postUpgradeTasks: {
       commands: [
+        'pnpm install --frozen-lockfile --ignore-scripts',
         'bun run test:sim:update-lock',
         'bun run test:fuzz:update-lock',
         'bun run build:wasm-workspaces',
@@ -85,7 +87,7 @@
         'tools/bazel/sim/**',
         'tools/bazel/vendored/**',
       ],
-      installTools: { bun: {}, rust: {} },
+      installTools: { bun: {}, node: {}, pnpm: {}, rust: {} },
     },
   },
   customManagers: [
@@ -168,6 +170,22 @@
       managerFilePatterns: ['/^\\.github/renovate\\.json5$/'],
       matchStrings: ["constraints: \\{ bun: '(?<currentValue>\\d+\\.\\d+\\.\\d+)'"],
       depNameTemplate: 'bun',
+      datasourceTemplate: 'npm',
+    },
+    {
+      customType: 'regex',
+      description: 'The Node release Renovate installs for its own pnpm runs, as .node-version names',
+      managerFilePatterns: ['/^\\.github/renovate\\.json5$/'],
+      matchStrings: ["constraints: \\{[^}]*node: '(?<currentValue>\\d+\\.\\d+\\.\\d+)'"],
+      depNameTemplate: 'node',
+      datasourceTemplate: 'node-version',
+    },
+    {
+      customType: 'regex',
+      description: 'The pnpm release Renovate installs for its own pnpm runs, as packageManager names',
+      managerFilePatterns: ['/^\\.github/renovate\\.json5$/'],
+      matchStrings: ["constraints: \\{[^}]*pnpm: '(?<currentValue>\\d+\\.\\d+\\.\\d+)'"],
+      depNameTemplate: 'pnpm',
       datasourceTemplate: 'npm',
     },
     {
@@ -274,10 +292,22 @@
       matchManagers: ['custom.regex'],
       matchDepNames: ['bolero'],
       postUpgradeTasks: {
-        commands: ['bun run test:fuzz:update-lock'],
+        commands: [
+          'pnpm install --frozen-lockfile --ignore-scripts',
+          'bun run test:fuzz:update-lock',
+        ],
         fileFilters: ['tools/bolero/Cargo.lock'],
-        installTools: { bun: {}, rust: {} },
+        installTools: { bun: {}, node: {}, pnpm: {}, rust: {} },
       },
+    },
+    {
+      // Each moves with the constraint Renovate installs it at, which the regex managers read.
+      matchDepNames: ['node'],
+      groupName: 'Node',
+    },
+    {
+      matchDepNames: ['pnpm'],
+      groupName: 'pnpm',
     },
     {
       // Bazel installs Bun by release archive checksum. The branch pins the archives of the

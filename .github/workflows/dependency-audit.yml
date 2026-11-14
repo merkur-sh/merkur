@@ -31,7 +31,9 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
-      # Both audits read lockfiles; do not execute dependency installation scripts.
+      # Both audits read lockfiles; do not execute dependency installation scripts. The policy
+      # scripts import packages from the lockfile; Bun installs none of them at run time.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Cache pinned cargo-audit executable
         id: cargo-audit
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
