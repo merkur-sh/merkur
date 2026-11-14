@@ -3714,7 +3714,7 @@
       "run": "43620298543",
       "attempt": 1,
       "sequence": 155,
-      "phase": "services",
+      "phase": "published",
       "events": [
         {
           "phase": "signing",
@@ -3755,6 +3755,10 @@
             "merkur-keyd": "6377a1c650d3e83c7c2243d0f827d75c41a1b4300463d98e34d1a3d545d4cb54c53df1bc52218b4039ba4d9b1fc9764a4e36d8e0eb87993ba9909294d211b559",
             "server": "a7d1327bc929f9d549335677729c5582d9fc0cead4edf21d83fbd1c35a3b3325cb2629ae17e9405ea768b6bf4a1d8ad31644c3ae77cc22197395ffa1ffc27ef0"
           }
+        },
+        {
+          "phase": "published",
+          "evidence": {}
         }
       ],
       "configuration": {
