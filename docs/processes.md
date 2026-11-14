@@ -53,8 +53,8 @@ directory. Each E2E server still owns a fresh local database and Redis process.
 The server entry point imports its `elysia-runtime.ts` before route construction. It
 registers TypeBox and Exact Mirror through static imports so Bun's standalone executable
 carries validation dependencies without an installed `node_modules`.
-The workspace pins TypeBox to 1.3.23, the release whose compiler exposes the
-`buildResult.external` field the selected Elysia beta reads.
+The workspace catalog pins TypeBox beside Elysia, which takes it as a peer and reads the
+`external` field of its compiled build result.
 
 The composition root resolves infrastructure and application dependencies once, then supplies
 `SessionServiceLive` from that shared graph. `KeyServiceLive` dials `merkur-keyd` at

@@ -18,7 +18,7 @@ export function authenticatedApiPlugin({ authorizeRequest }: AuthenticatedApiPlu
       .decorate({ userId: '', delegationId: '', delegationExpiresAt: 0 })
       // Authenticate before validation. Elysia 2's derive runs after validation;
       // transform fills this request's fields or throws before any handler runs.
-      .transform('plugin', async (context) => {
+      .onTransform('plugin', async (context) => {
         const browser = await deriveAuthorizedBrowser({
           request: context.request,
           authorizeRequest,

@@ -128,8 +128,10 @@ THIRD_PARTY_DEPENDENCIES = {
         "typebox",
     ],
     "apps/site": [
+        "@babel/core",
         "@mdx-js/rollup",
         "@playwright/test",
+        "@solidjs/babel-plugin",
         "@solidjs/vite-plugin",
         "@solidjs/web",
         "@unocss/preset-uno",

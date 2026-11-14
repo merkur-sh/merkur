@@ -264,7 +264,9 @@ test('account consent precedes device boot, survives reconnect and rotation, and
   });
   const registry = createHarness();
   const statements: Array<boolean | null | undefined> = [];
-  registry.subscribe(accountTelemetryAtom, (value) => statements.push(value));
+  registry.subscribe(accountTelemetryAtom, (value) => statements.push(value), {
+    immediate: true,
+  });
   const stated = (value: boolean | null) =>
     new Promise<void>((resolve) => {
       const unsubscribe = registry.subscribe(accountTelemetryAtom, (next) => {

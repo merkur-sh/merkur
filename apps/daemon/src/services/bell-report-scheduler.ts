@@ -179,17 +179,13 @@ export function createBellReportSchedulerScoped(
 
         const deliveryDefect =
           completion._tag === 'Delivery'
-            ? Exit.hasDies(completion.exit)
-              ? completion.exit.cause
-              : undefined
+            ? defectCause(completion.exit)
             : yield* Fiber.await(deliveryFiber).pipe(
-                Effect.map((outerExit) => {
-                  if (Exit.hasDies(outerExit)) return outerExit.cause;
-                  if (Exit.isSuccess(outerExit) && Exit.hasDies(outerExit.value)) {
-                    return outerExit.value.cause;
-                  }
-                  return undefined;
-                }),
+                Effect.map(
+                  (outerExit) =>
+                    defectCause(outerExit) ??
+                    (Exit.isSuccess(outerExit) ? defectCause(outerExit.value) : undefined),
+                ),
               );
         if (deliveryDefect !== undefined) {
           return yield* new BellReportWorkerFatalError({
@@ -267,6 +263,11 @@ function validateDuration(name: string, value: number, allowZero: boolean): void
       `${name} must be a finite ${allowZero ? 'non-negative' : 'positive'} number`,
     );
   }
+}
+
+/** The cause of an exit that died: a defect in the sender, not a failed delivery. */
+function defectCause(exit: Exit.Exit<unknown, unknown>) {
+  return Exit.isFailure(exit) && Exit.hasDies(exit) ? exit.cause : undefined;
 }
 
 function elapsedNanos(startedAt: bigint, now: bigint): bigint {

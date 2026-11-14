@@ -246,7 +246,7 @@
       groupName: 'Solid',
     },
     {
-      description: 'Elysia publishes experimental builds under the version its betas carry',
+      description: 'Elysia publishes experimental builds under the version its release candidates carry',
       matchPackageNames: ['elysia', '@elysia/**'],
       groupName: 'Elysia',
       allowedVersions: '!/-exp\\./',

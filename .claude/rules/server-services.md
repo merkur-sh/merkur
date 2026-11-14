@@ -43,14 +43,15 @@ authentication middleware, status codes, and response schemas.
   browser parses has its schema in `packages/shared/src/api-schema.ts`, written in the
   subset `schema-check.ts` accepts, and its route declares it as `response:`.
 - Elysia 2 routes take `(path, options, handler)`. Lifecycle scopes are strings;
-  `plugin` is the enclosing-plugin scope. Browser authorization runs in `transform`
+  `plugin` is the enclosing-plugin scope. Browser authorization runs in `onTransform`
   before validation; `derive` runs after validation. Keep the shared error plugin
   ahead of route registration and expose only schema-authored validation details.
 - WebSocket `derive` runs once during upgrade; `beforeHandle` also runs on messages.
   Keep connection admission and upgrade rate limits in `derive`.
 - The server imports its validation bootstrap before any schema construction.
-  Keep TypeBox's catalog pin: Elysia's selected beta depends on a compiler field
-  removed after TypeBox 1.3.23. A standalone executable test covers the bootstrap.
+  Keep TypeBox's catalog pin: Elysia takes TypeBox as a peer and reads the `external`
+  field of its compiled build result, so the two move in one change. A standalone
+  executable test covers the bootstrap.
 - Keep Eden `treaty<App>` imports type-oriented; data crossing a network boundary still
   needs explicit runtime guards.
 - Response contracts are free to change. When changing one, update server schemas, shared

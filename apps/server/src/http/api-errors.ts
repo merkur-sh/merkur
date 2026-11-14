@@ -18,7 +18,7 @@ const GENERIC_VALIDATION_DETAIL = 'invalid request';
  * default response headers, which Elysia seeds into the request context before
  * routing, so they are already present on everything returned below.
  */
-export const apiErrorPlugin = new Elysia({ name: 'api-errors' }).error('global', ({ error }) => {
+export const apiErrorPlugin = new Elysia({ name: 'api-errors' }).onError('global', ({ error }) => {
   if (error instanceof UnauthorizedRequestError) {
     return status(STATUS_UNAUTHORIZED, { error: 'unauthorized' });
   }

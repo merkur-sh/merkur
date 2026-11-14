@@ -7,14 +7,16 @@
   "dependencies": {
     "@merkur/logger": "workspace:*",
     "@merkur/quicksilver": "workspace:*",
-    "@solidjs/web": "2.0.0-rc.15",
+    "@solidjs/web": "2.0.0-rc.21",
     "motion": "^14.0.0",
-    "solid-js": "2.0.0-rc.15"
+    "solid-js": "2.0.0-rc.21"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.6",
     "@mdx-js/rollup": "^3.1.1",
     "@playwright/test": "^1.62.1",
-    "@solidjs/vite-plugin": "3.0.0-next.49",
+    "@solidjs/babel-plugin": "2.0.0-rc.21",
+    "@solidjs/vite-plugin": "3.0.0-next.57",
     "@unocss/preset-uno": "^66.8.1",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",

@@ -59,7 +59,7 @@ interface BoxWaitlistRoutesOptions {
  * in front of every route and every error the app answers on this path.
  */
 export function boxWaitlistCorsPlugin(siteOrigin: string) {
-  return new Elysia({ name: 'box-waitlist-cors' }).request(({ request, set }) => {
+  return new Elysia({ name: 'box-waitlist-cors' }).onRequest(({ request, set }) => {
     if (!isWaitlistUrl(request.url)) return;
     set.headers['access-control-allow-origin'] = siteOrigin;
     set.headers.vary = 'Origin';

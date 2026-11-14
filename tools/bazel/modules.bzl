@@ -11030,6 +11030,7 @@ TYPE_INPUTS = {
             "ci-release-verify.test.ts",
             "ci-release-verify.ts",
             "client-viewer-wasm.test.ts",
+            "codeql-local.ts",
             "comment-rules.test.ts",
             "comment-rules.ts",
             "compile-daemon-cli.test.ts",

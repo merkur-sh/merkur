@@ -19,8 +19,9 @@ move that removes it. Run `bun add` from the repo
 root (`--cwd <dir>` for a package), never from inside a workspace package.
 
 Solid is one release candidate across its packages. `apps/web` and `apps/site` pin
-`solid-js`, `@solidjs/web` and the `@solidjs/vite-plugin` built for them exactly;
-`@solidjs/signals`, `@solidjs/compiler` and `@solidjs/babel-plugin` arrive through caret
+`solid-js`, `@solidjs/web` and the `@solidjs/vite-plugin` built for them exactly, and
+`apps/site` the `@solidjs/babel-plugin` its blog compiles with, which the Vite plugin takes
+as an optional peer beside `@babel/core`; `@solidjs/signals` and `@solidjs/compiler` arrive through caret
 ranges, so `pnpm-lock.yaml` is what holds them at the same candidate. A resolution that starts without that lock entry
 takes the newest candidate of each and mixes a runtime with another candidate's signals and
 compiler. Move all of them in one change and read the lock afterwards: one version of
