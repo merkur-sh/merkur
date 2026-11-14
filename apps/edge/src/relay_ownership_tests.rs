@@ -893,6 +893,19 @@ fn admit_record(
     }
 }
 
+/// Waits until the peer has acknowledged everything `conn` sent. A stream's
+/// unacknowledged segments then hold none of an earlier record, so a measured
+/// write meets the segment queue's retained capacity: a record still awaiting its
+/// ACK would have the next one's segments grow that queue (8 to 16 handles, 512
+/// bytes) whenever the ACK clock runs behind the test. Quinn raises no event
+/// for an acknowledgment, so the wait reads the connection's published flight
+/// each millisecond rather than spinning through the peer's ACK delay.
+async fn acknowledged(conn: &Connection) {
+    while conn.quic_connection().delivery_state().bytes_in_flight != 0 {
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+}
+
 #[tokio::test]
 async fn fused_record_admission_reuses_payload_storage_without_allocating() {
     let (_server, _client, local, remote) = pair().await;
@@ -913,6 +926,7 @@ async fn fused_record_admission_reuses_payload_storage_without_allocating() {
             );
             output.read_exact(&mut received).await.unwrap();
         }
+        acknowledged(&local).await;
         let (_, copied) = measured(|| {
             admit_record(
                 &mut send,
@@ -924,6 +938,7 @@ async fn fused_record_admission_reuses_payload_storage_without_allocating() {
         });
         output.read_exact(&mut received).await.unwrap();
         assert_eq!(received, wire);
+        acknowledged(&local).await;
         let (_, owned) = measured(|| {
             admit_record(
                 &mut send,
@@ -1128,6 +1143,7 @@ async fn fused_control_serialization_reduces_allocations_and_keeps_wire_bytes() 
         ))
         .unwrap();
         output.read_exact(&mut received).await.unwrap();
+        acknowledged(&local).await;
         let (_, before) = measured(|| {
             let json = serde_json::to_vec(&event).unwrap();
             ready(send.write_all(&(json.len() as u32).to_be_bytes())).unwrap();
@@ -1135,6 +1151,7 @@ async fn fused_control_serialization_reduces_allocations_and_keeps_wire_bytes() 
         });
         output.read_exact(&mut received).await.unwrap();
         assert_eq!(received, expected);
+        acknowledged(&local).await;
         let (_, after) = measured(|| {
             ready(write_splice_control_with_timeout(
                 &mut send,
