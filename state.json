@@ -3737,6 +3737,15 @@
             "verify-linux-arm64": "ccc3ce94f3b646aeab39f03aef08b54c407e33b6b427b1a95eb53a53cb2a555f0d38f448b9480545f727cab29a005e5ca49a4b0ef3b185d332800eb31dce2f88",
             "verify-linux-x64": "4419325f9a416ab44d66fbefdd7fc643a96264bdedf4a2366dd5f15b832787ae1ab4aa3a849bacc1b623327ad2baaf8908d5c90baf8bc161173ed1a93d279cc3"
           }
+        },
+        {
+          "phase": "retained",
+          "targetIdentities": {
+            "merkur-edge": "61c9fd66e01afbe3b146e492f88862d1404c03817229c83dc0b2a627e689d60842346087c19d35755ca6728aed02ca8c1be4f0c5cdaa047338667288fd5851a3",
+            "merkur-stun": "3d6c63c4492c03a60b484743d3b4a18c9003213b2e8005e71e429c546775dc1ea580fa7518529588c477060b232063459617ba8e51005143e0a154f9bbf85870",
+            "merkur-keyd": "6377a1c650d3e83c7c2243d0f827d75c41a1b4300463d98e34d1a3d545d4cb54c53df1bc52218b4039ba4d9b1fc9764a4e36d8e0eb87993ba9909294d211b559",
+            "server": "a7d1327bc929f9d549335677729c5582d9fc0cead4edf21d83fbd1c35a3b3325cb2629ae17e9405ea768b6bf4a1d8ad31644c3ae77cc22197395ffa1ffc27ef0"
+          }
         }
       ],
       "configuration": {
